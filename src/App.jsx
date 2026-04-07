@@ -55,6 +55,10 @@ export default function App() {
     await database.del(doc._id)
   }
 
+  async function handleEdit(doc, changes) {
+    await database.put({ ...doc, ...changes })
+  }
+
   async function handleSeed() {
     setSeeding(true)
     for (const idea of SAMPLE_IDEAS) {
@@ -111,6 +115,7 @@ export default function App() {
             statusLabels={STATUS_LABELS}
             onMove={handleMove}
             onDelete={handleDelete}
+            onEdit={handleEdit}
           />
         ))}
       </main>
