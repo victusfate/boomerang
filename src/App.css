@@ -181,6 +181,7 @@ body {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 1rem;
+  align-items: start;
 }
 
 @media (max-width: 900px) {
@@ -191,8 +192,8 @@ body {
 .column {
   border-radius: var(--radius);
   padding: 1rem;
+  padding-bottom: 1.25rem;
   border: 1px solid #2a2a4a;
-  min-height: 400px;
 }
 
 .column--in-flight {
@@ -298,6 +299,55 @@ body {
   font-size: 0.9rem;
   line-height: 1.45;
   margin-bottom: 0.65rem;
+  cursor: text;
+  border-radius: 4px;
+  padding: 0.1rem 0.2rem;
+  margin-left: -0.2rem;
+  transition: background 0.1s;
+}
+
+.card-title:hover {
+  background: #ffffff0c;
+}
+
+.card-edit-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  color: var(--text);
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  margin-bottom: 0.4rem;
+}
+
+.card-edit-input:focus { outline: none; }
+
+.card-edit-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.edit-save-btn {
+  background: var(--accent);
+  border: none;
+  color: white;
+  padding: 0.2rem 0.6rem;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.edit-cancel-btn {
+  background: none;
+  border: 1px solid #333;
+  color: var(--text-muted);
+  padding: 0.2rem 0.6rem;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.75rem;
 }
 
 .card-actions {

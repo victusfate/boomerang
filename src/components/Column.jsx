@@ -1,6 +1,6 @@
 import IdeaCard from './IdeaCard.jsx'
 
-export default function Column({ status, label, docs, allStatuses, statusLabels, onMove, onDelete }) {
+export default function Column({ status, label, docs, allStatuses, statusLabels, onMove, onDelete, onEdit }) {
   const totalEnergy = docs.reduce((sum, d) => sum + (d.energy || 0), 0)
 
   return (
@@ -28,6 +28,7 @@ export default function Column({ status, label, docs, allStatuses, statusLabels,
             statusLabels={statusLabels}
             onMove={onMove}
             onDelete={onDelete}
+            onEdit={onEdit}
           />
         ))}
       </div>
