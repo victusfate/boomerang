@@ -350,6 +350,14 @@ body {
   font-size: 0.75rem;
 }
 
+.card-time {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  opacity: 0.5;
+  margin-bottom: 0.5rem;
+}
+
 .card-actions {
   display: flex;
   justify-content: space-between;

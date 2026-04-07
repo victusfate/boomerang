@@ -1,5 +1,17 @@
 import { useState } from 'react'
 
+function timeAgo(ts) {
+  if (!ts) return ''
+  const sec = Math.floor((Date.now() - ts) / 1000)
+  if (sec < 60) return 'just now'
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}m ago`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr}h ago`
+  const d = Math.floor(hr / 24)
+  return `${d}d ago`
+}
+
 export default function IdeaCard({ doc, allStatuses, statusLabels, onMove, onDelete, onEdit }) {
   const otherStatuses = allStatuses.filter(s => s !== doc.status)
   const [editing, setEditing] = useState(false)
@@ -46,11 +58,14 @@ export default function IdeaCard({ doc, allStatuses, statusLabels, onMove, onDel
           </div>
         </form>
       ) : (
-        <p
-          className="card-title"
-          onClick={() => { setDraft(doc.title); setEditing(true) }}
-          title="Click to edit"
-        >{doc.title}</p>
+        <>
+          <p
+            className="card-title"
+            onClick={() => { setDraft(doc.title); setEditing(true) }}
+            title="Click to edit"
+          >{doc.title}</p>
+          {doc.createdAt && <span className="card-time">{timeAgo(doc.createdAt)}</span>}
+        </>
       )}
 
       <div className="card-actions">
