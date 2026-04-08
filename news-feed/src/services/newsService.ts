@@ -62,12 +62,31 @@ function decodeEntities(text: string): string {
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n));
 }
 
-function extractImage(item: Element, description: string): string | undefined {
+// Returns the YouTube hqdefault thumbnail URL if a YouTube link is found in text
+export function extractYouTubeThumbnail(text: string): string | undefined {
+  const match = text.match(
+    /(?:youtube\.com\/watch\?[^"'\s]*v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/
+  );
+  return match ? `https://img.youtube.com/vi/${match[1]}/hqdefault.jpg` : undefined;
+}
+
+function extractImage(item: Element, description: string, articleUrl: string): string | undefined {
+  // YouTube thumbnail (free, no request needed)
+  const ytThumb = extractYouTubeThumbnail(articleUrl + ' ' + description);
+  if (ytThumb) return ytThumb;
+
   const media = item.querySelector('content[medium="image"], content[type^="image"]');
   if (media?.getAttribute('url')) return media.getAttribute('url')!;
 
   const enclosure = item.querySelector('enclosure');
   if (enclosure?.getAttribute('type')?.startsWith('image')) return enclosure.getAttribute('url') ?? undefined;
+
+  // Also accept video enclosures — use their URL as a preview placeholder
+  if (enclosure?.getAttribute('type')?.startsWith('video')) {
+    const vidUrl = enclosure.getAttribute('url') ?? '';
+    const yt = extractYouTubeThumbnail(vidUrl);
+    if (yt) return yt;
+  }
 
   const allEls = Array.from(item.children);
   for (const el of allEls) {
@@ -78,6 +97,10 @@ function extractImage(item: Element, description: string): string | undefined {
       }
     }
   }
+
+  // og:image embedded directly in the feed description HTML
+  const ogMatch = description.match(/property=["']og:image["'][^>]*content=["']([^"'>"]+)["']|content=["']([^"'>"]+)["'][^>]*property=["']og:image["']/i);
+  if (ogMatch) return ogMatch[1] ?? ogMatch[2];
 
   const imgMatch = description.match(/<img[^>]+src=["']([^"']+)["']/i);
   return imgMatch?.[1];
@@ -100,7 +123,7 @@ function parseFeed(xml: string, source: NewsSource): Article[] {
     const description = stripHTML(decodeEntities(rawDesc)).slice(0, 280);
     const pubDateStr = item.querySelector('pubDate, published, updated, dc\\:date')?.textContent?.trim() ?? '';
     const publishedAt = pubDateStr ? new Date(pubDateStr) : new Date();
-    const imageUrl = extractImage(item, rawDesc);
+    const imageUrl = extractImage(item, rawDesc, url);
     const topics = detectTopics(title + ' ' + description);
 
     return [{

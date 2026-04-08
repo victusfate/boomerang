@@ -235,13 +235,34 @@ html, body {
 }
 .card:hover { border-color: var(--sub); }
 
-.card-image-link { display: block; }
+.card-image-link {
+  display: block;
+  position: relative;
+  overflow: hidden;
+}
 .card-image {
   width: 100%;
   height: 180px;
   object-fit: cover;
   display: block;
+  animation: fadeIn 0.3s ease;
 }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* Video play button overlay */
+.card-play-btn {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  color: #fff;
+  background: rgba(0,0,0,0.35);
+  transition: background 0.15s;
+  pointer-events: none;
+}
+.card-image-link:hover .card-play-btn { background: rgba(0,0,0,0.55); }
 
 .card-body { padding: 12px 14px; }
 
