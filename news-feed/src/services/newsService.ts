@@ -1,6 +1,8 @@
 import type { Article, NewsSource, Topic } from '../types';
 
-const CORS_PROXY = 'https://api.allorigins.win/get?url=';
+// Two CORS proxies — try primary, fall back to secondary
+const PROXY_PRIMARY  = (url: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+const PROXY_FALLBACK = (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`;
 
 export const DEFAULT_SOURCES: NewsSource[] = [
   { id: 'hn',       name: 'Hacker News',      feedUrl: 'https://news.ycombinator.com/rss',                         category: 'technology', enabled: true  },
@@ -67,7 +69,6 @@ function extractImage(item: Element, description: string): string | undefined {
   const enclosure = item.querySelector('enclosure');
   if (enclosure?.getAttribute('type')?.startsWith('image')) return enclosure.getAttribute('url') ?? undefined;
 
-  // Try media:content (namespace-stripped by DOMParser in some envs)
   const allEls = Array.from(item.children);
   for (const el of allEls) {
     if (el.tagName.toLowerCase().includes('content') && el.getAttribute('url')) {
@@ -78,7 +79,6 @@ function extractImage(item: Element, description: string): string | undefined {
     }
   }
 
-  // Extract first <img> from description HTML
   const imgMatch = description.match(/<img[^>]+src=["']([^"']+)["']/i);
   return imgMatch?.[1];
 }
@@ -94,7 +94,7 @@ function parseFeed(xml: string, source: NewsSource): Article[] {
       ?? item.querySelector('link')?.getAttribute('href')
       ?? '';
     const url = rawLink.trim();
-    if (!title || !url || url.startsWith('http') === false) return [];
+    if (!title || !url || !url.startsWith('http')) return [];
 
     const rawDesc = item.querySelector('description, summary, content')?.textContent ?? '';
     const description = stripHTML(decodeEntities(rawDesc)).slice(0, 280);
@@ -117,17 +117,57 @@ function parseFeed(xml: string, source: NewsSource): Article[] {
   });
 }
 
-export async function fetchSource(source: NewsSource): Promise<Article[]> {
-  const url = `${CORS_PROXY}${encodeURIComponent(source.feedUrl)}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+// Fetch XML via a CORS proxy, trying the fallback if the primary fails or returns empty
+async function fetchXML(feedUrl: string, signal: AbortSignal): Promise<string> {
+  // Primary: allorigins.win (wraps response in JSON)
+  try {
+    const res = await fetch(PROXY_PRIMARY(feedUrl), { signal });
+    if (res.ok) {
+      const data = await res.json() as { contents?: string; status?: { http_code: number } };
+      if (data.contents && data.contents.length > 200) return data.contents;
+    }
+  } catch {
+    // primary failed — try fallback
+  }
+
+  // Fallback: corsproxy.io (returns raw content)
+  const res = await fetch(PROXY_FALLBACK(feedUrl), { signal });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json() as { contents: string };
-  return parseFeed(data.contents, source);
+  const text = await res.text();
+  if (text.length < 100) throw new Error('Empty response from fallback proxy');
+  return text;
+}
+
+export async function fetchSource(source: NewsSource): Promise<Article[]> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 14000);
+  try {
+    const xml = await fetchXML(source.feedUrl, controller.signal);
+    return parseFeed(xml, source);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function fetchAllSources(sources: NewsSource[]): Promise<Article[]> {
   const results = await Promise.allSettled(sources.map(fetchSource));
-  return results
+
+  const articles = results
     .filter((r): r is PromiseFulfilledResult<Article[]> => r.status === 'fulfilled')
     .flatMap(r => r.value);
+
+  // If fewer than half the sources returned data, retry the failed ones once
+  const failed = results
+    .map((r, i) => ({ r, source: sources[i] }))
+    .filter(({ r }) => r.status === 'rejected')
+    .map(({ source }) => source);
+
+  if (failed.length > 0 && articles.length < 10) {
+    const retried = await Promise.allSettled(failed.map(fetchSource));
+    retried
+      .filter((r): r is PromiseFulfilledResult<Article[]> => r.status === 'fulfilled')
+      .forEach(r => articles.push(...r.value));
+  }
+
+  return articles;
 }

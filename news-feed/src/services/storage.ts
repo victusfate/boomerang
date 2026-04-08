@@ -7,6 +7,7 @@ const DEFAULT_PREFS: UserPrefs = {
   sourceWeights: {},
   readIds: [],
   savedIds: [],
+  seenIds: [],
   enabledSources: [],   // empty = all enabled
   enabledTopics: [],    // empty = all enabled
 };
@@ -22,14 +23,25 @@ export function loadPrefs(): UserPrefs {
 }
 
 export function savePrefs(prefs: UserPrefs): void {
-  // Keep read list capped at 500 to avoid storage bloat
-  const trimmed = { ...prefs, readIds: prefs.readIds.slice(-500) };
+  // Cap lists to avoid storage bloat
+  const trimmed = {
+    ...prefs,
+    readIds: prefs.readIds.slice(-500),
+    seenIds: prefs.seenIds.slice(-2000),
+  };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
 }
 
 export function markRead(id: string, prefs: UserPrefs): UserPrefs {
   if (prefs.readIds.includes(id)) return prefs;
   return { ...prefs, readIds: [...prefs.readIds, id] };
+}
+
+export function markSeen(ids: string[], prefs: UserPrefs): UserPrefs {
+  const existing = new Set(prefs.seenIds);
+  const fresh = ids.filter(id => !existing.has(id));
+  if (fresh.length === 0) return prefs;
+  return { ...prefs, seenIds: [...prefs.seenIds, ...fresh] };
 }
 
 export function toggleSaved(id: string, prefs: UserPrefs): UserPrefs {

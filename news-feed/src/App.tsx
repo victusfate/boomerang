@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useFeed } from './hooks/useFeed';
 import { ArticleCard } from './components/ArticleCard';
 import { TopicFilter } from './components/TopicFilter';
@@ -22,23 +22,45 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 
 export default function App() {
   const {
-    articles, loading, error, prefs, lastRefresh,
-    onOpen, onSave, onToggleSource, onToggleTopic, onRefresh,
+    visibleArticles, hasMore, totalLoaded,
+    loading, loadingMore, error, prefs, lastRefresh,
+    onOpen, onSave, onLoadMore,
+    onToggleSource, onToggleTopic, onRefresh,
   } = useFeed();
 
   const [view, setView] = useState<FeedView>('feed');
   const [topicFilter, setTopicFilter] = useState<Topic | null>(null);
   const [showSettings, setShowSettings] = useState(false);
 
+  // Sentinel element watched by IntersectionObserver to trigger load-more
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || view !== 'feed') return;
+
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting && hasMore && !loading && !loadingMore) {
+          onLoadMore();
+        }
+      },
+      { rootMargin: '300px' } // start loading 300px before the bottom edge
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loading, loadingMore, onLoadMore, view]);
+
   const filteredArticles = useMemo(() => {
     let list = view === 'saved'
-      ? articles.filter(a => prefs.savedIds.includes(a.id))
-      : articles;
+      ? visibleArticles.filter(a => prefs.savedIds.includes(a.id))
+      : visibleArticles;
     if (topicFilter) {
       list = list.filter(a => a.topics.includes(topicFilter));
     }
     return list;
-  }, [articles, view, topicFilter, prefs.savedIds]);
+  }, [visibleArticles, view, topicFilter, prefs.savedIds]);
 
   function formatLastRefresh() {
     if (!lastRefresh) return '';
@@ -84,6 +106,9 @@ export default function App() {
           onClick={() => setView('feed')}
         >
           Feed
+          {totalLoaded > 0 && !loading && (
+            <span className="tab-count">{totalLoaded}</span>
+          )}
         </button>
         <button
           role="tab"
@@ -106,18 +131,17 @@ export default function App() {
       <main className="feed">
         {error && (
           <div className="feed-error">
-            <p>Some sources failed to load.</p>
+            <p>{error}</p>
             <button onClick={onRefresh} className="btn-retry">Try again</button>
           </div>
         )}
 
-        {!loading && filteredArticles.length === 0 && !error && (
-          <div className="feed-empty">
-            {view === 'saved' ? (
-              <p>No saved articles yet. Tap ☆ to bookmark.</p>
-            ) : (
-              <p>No articles match this filter.</p>
-            )}
+        {/* Initial skeleton loading */}
+        {loading && visibleArticles.length === 0 && (
+          <div className="feed-loading">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="skeleton-card" style={{ animationDelay: `${i * 0.1}s` }} />
+            ))}
           </div>
         )}
 
@@ -131,11 +155,34 @@ export default function App() {
           />
         ))}
 
-        {loading && filteredArticles.length === 0 && (
+        {/* Sentinel — IntersectionObserver target */}
+        {view === 'feed' && <div ref={sentinelRef} className="sentinel" aria-hidden="true" />}
+
+        {/* Load-more skeleton */}
+        {loadingMore && (
           <div className="feed-loading">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="skeleton-card" />
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="skeleton-card" style={{ animationDelay: `${i * 0.08}s` }} />
             ))}
+          </div>
+        )}
+
+        {/* All caught up */}
+        {!loading && !loadingMore && !hasMore && visibleArticles.length > 0 && view === 'feed' && !topicFilter && (
+          <div className="feed-end">
+            <span className="feed-end-icon">✓</span>
+            <p>All caught up</p>
+            <button className="btn-retry" onClick={onRefresh}>Refresh for more</button>
+          </div>
+        )}
+
+        {!loading && filteredArticles.length === 0 && !error && (
+          <div className="feed-empty">
+            {view === 'saved' ? (
+              <p>No saved articles yet. Tap ☆ to bookmark.</p>
+            ) : (
+              <p>No articles match this filter.</p>
+            )}
           </div>
         )}
       </main>
