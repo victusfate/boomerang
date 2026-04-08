@@ -26,12 +26,7 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Build idea board (root app)
-        run: |
-          npm ci
-          npm run build
-
-      - name: Build news feed (PWA)
+      - name: Build news feed (root — default page)
         working-directory: news-feed
         env:
           GITHUB_PAGES: 'true'
@@ -39,15 +34,20 @@ jobs:
           npm ci
           npm run build
 
+      - name: Build idea board (served at /ideas/)
+        run: |
+          npm ci
+          npm run build
+
       - name: Combine into single artifact
         run: |
-          mkdir -p dist/news-feed
-          cp -r news-feed/dist/. dist/news-feed/
+          mkdir -p news-feed/dist/ideas
+          cp -r dist/. news-feed/dist/ideas/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./dist
+          path: ./news-feed/dist
 
   deploy:
     environment:
