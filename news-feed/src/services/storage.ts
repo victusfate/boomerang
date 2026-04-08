@@ -1,8 +1,9 @@
+// Pure utility functions for prefs manipulation.
+// Persistence is handled by Fireproof in useFeed.ts.
+
 import type { Topic, UserPrefs } from '../types';
 
-const STORAGE_KEY = 'boomerang_news_prefs';
-
-const DEFAULT_PREFS: UserPrefs = {
+export const DEFAULT_PREFS: UserPrefs = {
   topicWeights: {},
   sourceWeights: {},
   readIds: [],
@@ -11,26 +12,6 @@ const DEFAULT_PREFS: UserPrefs = {
   enabledSources: [],   // empty = all enabled
   enabledTopics: [],    // empty = all enabled
 };
-
-export function loadPrefs(): UserPrefs {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_PREFS };
-    return { ...DEFAULT_PREFS, ...JSON.parse(raw) };
-  } catch {
-    return { ...DEFAULT_PREFS };
-  }
-}
-
-export function savePrefs(prefs: UserPrefs): void {
-  // Cap lists to avoid storage bloat
-  const trimmed = {
-    ...prefs,
-    readIds: prefs.readIds.slice(-500),
-    seenIds: prefs.seenIds.slice(-2000),
-  };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
-}
 
 export function markRead(id: string, prefs: UserPrefs): UserPrefs {
   if (prefs.readIds.includes(id)) return prefs;
@@ -41,7 +22,9 @@ export function markSeen(ids: string[], prefs: UserPrefs): UserPrefs {
   const existing = new Set(prefs.seenIds);
   const fresh = ids.filter(id => !existing.has(id));
   if (fresh.length === 0) return prefs;
-  return { ...prefs, seenIds: [...prefs.seenIds, ...fresh] };
+  // Cap seenIds at 2000 entries
+  const next = [...prefs.seenIds, ...fresh];
+  return { ...prefs, seenIds: next.slice(-2000) };
 }
 
 export function toggleSaved(id: string, prefs: UserPrefs): UserPrefs {
