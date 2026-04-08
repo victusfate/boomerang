@@ -23,7 +23,7 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 export default function App() {
   const {
     visibleArticles, hasMore, totalLoaded,
-    loading, loadingMore, error, prefs, lastRefresh,
+    loading, refreshing, loadingMore, error, prefs, lastRefresh,
     onOpen, onSave, onLoadMore,
     onToggleSource, onToggleTopic, onRefresh,
   } = useFeed();
@@ -74,7 +74,9 @@ export default function App() {
         <div className="header-left">
           <h1 className="app-title">News</h1>
           {lastRefresh && (
-            <span className="last-refresh">{formatLastRefresh()}</span>
+            <span className="last-refresh">
+              {refreshing ? 'Refreshing…' : formatLastRefresh()}
+            </span>
           )}
         </div>
         <div className="header-right">
