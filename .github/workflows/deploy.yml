@@ -25,13 +25,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Build idea board (root app)
+        run: |
+          npm ci
+          npm run build
 
-      - name: Build
-        run: npm run build
+      - name: Build news feed (PWA)
+        working-directory: news-feed
+        env:
+          GITHUB_PAGES: 'true'
+        run: |
+          npm ci
+          npm run build
+
+      - name: Combine into single artifact
+        run: |
+          mkdir -p dist/news-feed
+          cp -r news-feed/dist/. dist/news-feed/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
