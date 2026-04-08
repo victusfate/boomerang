@@ -45,8 +45,9 @@ export function scoreArticle(article: Article, prefs: UserPrefs, sourceArticleCo
 }
 
 export function rankFeed(articles: Article[], prefs: UserPrefs): Article[] {
-  // Filter already-read articles
-  const unread = articles.filter(a => !prefs.readIds.includes(a.id));
+  // Filter articles already read or seen in a previous session
+  const seenSet = new Set([...prefs.readIds, ...prefs.seenIds]);
+  const unread = articles.filter(a => !seenSet.has(a.id));
 
   // Deduplicate similar stories
   const unique = deduplicateArticles(unread);

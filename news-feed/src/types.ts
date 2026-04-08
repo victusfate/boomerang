@@ -35,6 +35,7 @@ export interface UserPrefs {
   sourceWeights: Record<string, number>;
   readIds: string[];
   savedIds: string[];
+  seenIds: string[];       // articles shown in feed — filtered on next refresh
   enabledSources: string[];
   enabledTopics: Topic[];
 }
