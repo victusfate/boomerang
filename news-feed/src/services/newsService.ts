@@ -5,33 +5,43 @@ const PROXY_PRIMARY  = (url: string) => `https://api.allorigins.win/get?url=${en
 const PROXY_FALLBACK = (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`;
 
 export const DEFAULT_SOURCES: NewsSource[] = [
-  // ── Enabled by default ──────────────────────────────────────────────────────
-  { id: 'hn',       name: 'Hacker News',        feedUrl: 'https://news.ycombinator.com/rss',                       category: 'technology', enabled: true  },
-  { id: 'bbc',      name: 'BBC News',            feedUrl: 'https://feeds.bbci.co.uk/news/rss.xml',                  category: 'world',      enabled: true  },
-  { id: 'guardian', name: 'The Guardian',        feedUrl: 'https://www.theguardian.com/world/rss',                  category: 'world',      enabled: true  },
-  { id: 'ars',      name: 'Ars Technica',        feedUrl: 'https://feeds.arstechnica.com/arstechnica/index',        category: 'technology', enabled: true  },
-  { id: 'npm',      name: 'NPR News',            feedUrl: 'https://feeds.npr.org/1001/rss.xml',                     category: 'world',      enabled: true  },
-  { id: 'mit',      name: 'MIT Tech Review',     feedUrl: 'https://www.technologyreview.com/feed/',                 category: 'technology', enabled: true  },
-  { id: 'verge',    name: 'The Verge',           feedUrl: 'https://www.theverge.com/rss/index.xml',                 category: 'technology', enabled: true  },
-  { id: 'wired',    name: 'Wired',               feedUrl: 'https://www.wired.com/feed/rss',                         category: 'technology', enabled: true  },
-  { id: 'tc',       name: 'TechCrunch',          feedUrl: 'https://techcrunch.com/feed/',                           category: 'technology', enabled: true  },
-  { id: 'aje',      name: 'Al Jazeera',          feedUrl: 'https://www.aljazeera.com/xml/rss/all.xml',              category: 'world',      enabled: true  },
-  { id: 'reuters',  name: 'Reuters',             feedUrl: 'https://feeds.reuters.com/reuters/topNews',              category: 'world',      enabled: true  },
-  { id: 'sciam',    name: 'Scientific American', feedUrl: 'https://rss.sciam.com/ScientificAmerican-Global',        category: 'science',    enabled: true  },
-  { id: 'physorg',  name: 'Phys.org',            feedUrl: 'https://phys.org/rss-feed/',                             category: 'science',    enabled: true  },
-  // ── Off by default (user can enable) ────────────────────────────────────────
-  { id: 'nature',   name: 'Nature',              feedUrl: 'https://www.nature.com/nature/current_issue/rss',        category: 'science',    enabled: false },
-  { id: 'nasa',     name: 'NASA',                feedUrl: 'https://www.nasa.gov/rss/dyn/breaking_news.rss',         category: 'science',    enabled: false },
-  { id: 'newscient',name: 'New Scientist',       feedUrl: 'https://www.newscientist.com/feed/home/',                category: 'science',    enabled: false },
-  { id: 'quartz',   name: 'Quartz',              feedUrl: 'https://qz.com/feed',                                    category: 'business',   enabled: false },
-  { id: 'economist',name: 'The Economist',       feedUrl: 'https://www.economist.com/latest/rss.xml',               category: 'business',   enabled: false },
-  { id: 'espn',     name: 'ESPN',                feedUrl: 'https://www.espn.com/espn/rss/news',                     category: 'sports',     enabled: false },
-  { id: 'variety',  name: 'Variety',             feedUrl: 'https://variety.com/feed/',                              category: 'entertainment', enabled: false },
-  { id: 'pitchfork',name: 'Pitchfork',           feedUrl: 'https://pitchfork.com/rss/news/feed.xml',                category: 'entertainment', enabled: false },
-  { id: 'devto',    name: 'Dev.to',              feedUrl: 'https://dev.to/feed',                                    category: 'technology', enabled: false },
-  { id: 'smash',    name: 'Smashing Magazine',   feedUrl: 'https://www.smashingmagazine.com/feed/',                 category: 'technology', enabled: false },
-  { id: 'yale360',  name: 'Yale Env. 360',       feedUrl: 'https://e360.yale.edu/feed',                             category: 'environment', enabled: false },
-  { id: 'carbonbrf',name: 'Carbon Brief',        feedUrl: 'https://www.carbonbrief.org/feed',                       category: 'environment', enabled: false },
+  // ── Text / article sources ───────────────────────────────────────────────────
+  { id: 'hn',        name: 'Hacker News',        feedUrl: 'https://news.ycombinator.com/rss',                         category: 'technology',    enabled: true },
+  { id: 'bbc',       name: 'BBC News',            feedUrl: 'https://feeds.bbci.co.uk/news/rss.xml',                    category: 'world',         enabled: true },
+  { id: 'guardian',  name: 'The Guardian',        feedUrl: 'https://www.theguardian.com/world/rss',                    category: 'world',         enabled: true },
+  { id: 'ars',       name: 'Ars Technica',        feedUrl: 'https://feeds.arstechnica.com/arstechnica/index',          category: 'technology',    enabled: true },
+  { id: 'npm',       name: 'NPR News',            feedUrl: 'https://feeds.npr.org/1001/rss.xml',                       category: 'world',         enabled: true },
+  { id: 'mit',       name: 'MIT Tech Review',     feedUrl: 'https://www.technologyreview.com/feed/',                   category: 'technology',    enabled: true },
+  { id: 'verge',     name: 'The Verge',           feedUrl: 'https://www.theverge.com/rss/index.xml',                   category: 'technology',    enabled: true },
+  { id: 'wired',     name: 'Wired',               feedUrl: 'https://www.wired.com/feed/rss',                           category: 'technology',    enabled: true },
+  { id: 'tc',        name: 'TechCrunch',          feedUrl: 'https://techcrunch.com/feed/',                             category: 'technology',    enabled: true },
+  { id: 'aje',       name: 'Al Jazeera',          feedUrl: 'https://www.aljazeera.com/xml/rss/all.xml',                category: 'world',         enabled: true },
+  { id: 'reuters',   name: 'Reuters',             feedUrl: 'https://feeds.reuters.com/reuters/topNews',                category: 'world',         enabled: true },
+  { id: 'sciam',     name: 'Scientific American', feedUrl: 'https://rss.sciam.com/ScientificAmerican-Global',          category: 'science',       enabled: true },
+  { id: 'physorg',   name: 'Phys.org',            feedUrl: 'https://phys.org/rss-feed/',                               category: 'science',       enabled: true },
+  { id: 'nature',    name: 'Nature',              feedUrl: 'https://www.nature.com/nature/current_issue/rss',          category: 'science',       enabled: true },
+  { id: 'nasa',      name: 'NASA',                feedUrl: 'https://www.nasa.gov/rss/dyn/breaking_news.rss',           category: 'science',       enabled: true },
+  { id: 'newscient', name: 'New Scientist',       feedUrl: 'https://www.newscientist.com/feed/home/',                  category: 'science',       enabled: true },
+  { id: 'quartz',    name: 'Quartz',              feedUrl: 'https://qz.com/feed',                                      category: 'business',      enabled: true },
+  { id: 'economist', name: 'The Economist',       feedUrl: 'https://www.economist.com/latest/rss.xml',                 category: 'business',      enabled: true },
+  { id: 'espn',      name: 'ESPN',                feedUrl: 'https://www.espn.com/espn/rss/news',                       category: 'sports',        enabled: true },
+  { id: 'variety',   name: 'Variety',             feedUrl: 'https://variety.com/feed/',                                category: 'entertainment', enabled: true },
+  { id: 'pitchfork', name: 'Pitchfork',           feedUrl: 'https://pitchfork.com/rss/news/feed.xml',                  category: 'entertainment', enabled: true },
+  { id: 'devto',     name: 'Dev.to',              feedUrl: 'https://dev.to/feed',                                      category: 'technology',    enabled: true },
+  { id: 'smash',     name: 'Smashing Magazine',   feedUrl: 'https://www.smashingmagazine.com/feed/',                   category: 'technology',    enabled: true },
+  { id: 'yale360',   name: 'Yale Env. 360',       feedUrl: 'https://e360.yale.edu/feed',                               category: 'environment',   enabled: true },
+  { id: 'carbonbrf', name: 'Carbon Brief',        feedUrl: 'https://www.carbonbrief.org/feed',                         category: 'environment',   enabled: true },
+  // ── YouTube channels (Atom feeds with auto-extracted thumbnails) ─────────────
+  { id: 'yt-kurzgesagt', name: 'Kurzgesagt',      feedUrl: 'https://www.youtube.com/feeds/videos.xml?channel_id=UCsXVk37bltHxD1rDPwtNM8Q', category: 'science',    enabled: true },
+  { id: 'yt-veritasium', name: 'Veritasium',      feedUrl: 'https://www.youtube.com/feeds/videos.xml?channel_id=UCHnyfMqiRRG1u-2MsSQLbXA', category: 'science',    enabled: true },
+  { id: 'yt-3b1b',       name: '3Blue1Brown',     feedUrl: 'https://www.youtube.com/feeds/videos.xml?channel_id=UCYO_jab_esuFRV4b17AJtAw', category: 'science',    enabled: true },
+  { id: 'yt-ted',        name: 'TED',             feedUrl: 'https://www.youtube.com/feeds/videos.xml?channel_id=UCAuUUnT6oDeKwE6v1NGQxug', category: 'general',    enabled: true },
+  { id: 'yt-mkbhd',      name: 'MKBHD',           feedUrl: 'https://www.youtube.com/feeds/videos.xml?channel_id=UCBJycsmduvYEL83R_U4JriQ', category: 'technology', enabled: true },
+  { id: 'yt-ltt',        name: 'Linus Tech Tips', feedUrl: 'https://www.youtube.com/feeds/videos.xml?channel_id=UCXuqSBlHAE6Xw-yeJA0Tunw', category: 'technology', enabled: false },
+  { id: 'yt-wendover',   name: 'Wendover Prod.',  feedUrl: 'https://www.youtube.com/feeds/videos.xml?channel_id=UC9RM-iSzvit8LxFzbkUsEyQ', category: 'general',    enabled: false },
+  { id: 'yt-realeng',    name: 'Real Engineering', feedUrl: 'https://www.youtube.com/feeds/videos.xml?channel_id=UCR1IuLEqb6UEA_zQ81kwXfg', category: 'science',   enabled: false },
+  { id: 'yt-dw',         name: 'DW News',         feedUrl: 'https://www.youtube.com/feeds/videos.xml?channel_id=UCknLrEdhRCp1aegoMqRaCZg', category: 'world',     enabled: false },
+  { id: 'yt-pbs',        name: 'PBS NewsHour',    feedUrl: 'https://www.youtube.com/feeds/videos.xml?channel_id=UC6ZFN9Tx6xh-skXa_NZk5eA', category: 'world',     enabled: false },
 ];
 
 const TOPIC_KEYWORDS: Record<Topic, string[]> = {
@@ -102,9 +112,14 @@ function extractImage(item: Element, description: string, articleUrl: string): s
     if (yt) return yt;
   }
 
-  const allEls = Array.from(item.children);
-  for (const el of allEls) {
-    if (el.tagName.toLowerCase().includes('content') && el.getAttribute('url')) {
+  // media:thumbnail — used by YouTube Atom feeds and other video platforms
+  // Use getElementsByTagName('*') + localName to match regardless of namespace prefix
+  const allDescendants = Array.from(item.getElementsByTagName('*'));
+  for (const el of allDescendants) {
+    if (el.localName === 'thumbnail' && el.getAttribute('url')) return el.getAttribute('url')!;
+  }
+  for (const el of allDescendants) {
+    if (el.localName === 'content' && el.getAttribute('url')) {
       const type = el.getAttribute('medium') ?? el.getAttribute('type') ?? '';
       if (type.includes('image') || el.getAttribute('url')?.match(/\.(jpg|jpeg|png|webp)/i)) {
         return el.getAttribute('url')!;
