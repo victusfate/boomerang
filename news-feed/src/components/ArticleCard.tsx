@@ -1,5 +1,46 @@
+import { useEffect, useRef, useState } from 'react';
 import type { Article, UserPrefs } from '../types';
 import { TOPIC_META } from './TopicFilter';
+
+const OG_REGEX =
+  /property=["']og:image["'][^>]*content=["']([^"'>"]+)["']|content=["']([^"'>"]+)["'][^>]*property=["']og:image["']/i;
+
+// Lazily fetches og:image for the article when the card scrolls into view.
+// Skips the fetch if the article already has an image from the RSS feed.
+function useLazyOGImage(articleUrl: string, existingImage?: string) {
+  const [lazyImg, setLazyImg] = useState<string | undefined>(undefined);
+  const cardRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (existingImage) return;
+    const el = cardRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      entries => {
+        if (!entries[0].isIntersecting) return;
+        observer.disconnect();
+
+        fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(articleUrl)}`, {
+          signal: AbortSignal.timeout(8000),
+        })
+          .then(r => r.json())
+          .then((data: { contents: string }) => {
+            const m = data.contents?.match(OG_REGEX);
+            const img = m?.[1] ?? m?.[2];
+            if (img) setLazyImg(img);
+          })
+          .catch(() => {});
+      },
+      { rootMargin: '400px' }, // fetch before the card is fully visible
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [articleUrl, existingImage]);
+
+  return { cardRef, imageUrl: existingImage ?? lazyImg };
+}
 
 function timeAgo(date: Date): string {
   const secs = (Date.now() - date.getTime()) / 1000;
@@ -21,10 +62,13 @@ export function ArticleCard({ article, prefs, onOpen, onSave }: Props) {
   const saved = prefs.savedIds.includes(article.id);
   const primaryTopic = article.topics[0];
   const topicMeta = TOPIC_META[primaryTopic];
+  const isVideo = article.imageUrl?.includes('img.youtube.com');
+
+  const { cardRef, imageUrl } = useLazyOGImage(article.url, article.imageUrl);
 
   return (
-    <article className="card">
-      {article.imageUrl && (
+    <article className="card" ref={cardRef as React.RefObject<HTMLElement>}>
+      {imageUrl && (
         <a
           href={article.url}
           target="_blank"
@@ -33,12 +77,15 @@ export function ArticleCard({ article, prefs, onOpen, onSave }: Props) {
           onClick={() => onOpen(article)}
         >
           <img
-            src={article.imageUrl}
+            src={imageUrl}
             alt=""
             className="card-image"
             loading="lazy"
-            onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            onError={e => { (e.target as HTMLImageElement).closest('.card-image-link')?.remove(); }}
           />
+          {isVideo && (
+            <span className="card-play-btn" aria-label="Play video">▶</span>
+          )}
         </a>
       )}
 
@@ -75,7 +122,7 @@ export function ArticleCard({ article, prefs, onOpen, onSave }: Props) {
             className="btn-read"
             onClick={() => onOpen(article)}
           >
-            Read →
+            {isVideo ? 'Watch →' : 'Read →'}
           </a>
           <button
             className={`btn-save ${saved ? 'saved' : ''}`}
