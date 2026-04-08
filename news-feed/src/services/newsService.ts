@@ -5,19 +5,33 @@ const PROXY_PRIMARY  = (url: string) => `https://api.allorigins.win/get?url=${en
 const PROXY_FALLBACK = (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`;
 
 export const DEFAULT_SOURCES: NewsSource[] = [
-  { id: 'hn',       name: 'Hacker News',      feedUrl: 'https://news.ycombinator.com/rss',                         category: 'technology', enabled: true  },
-  { id: 'bbc',      name: 'BBC News',          feedUrl: 'https://feeds.bbci.co.uk/news/rss.xml',                    category: 'world',      enabled: true  },
-  { id: 'guardian', name: 'The Guardian',      feedUrl: 'https://www.theguardian.com/world/rss',                    category: 'world',      enabled: true  },
-  { id: 'ars',      name: 'Ars Technica',      feedUrl: 'https://feeds.arstechnica.com/arstechnica/index',          category: 'technology', enabled: true  },
-  { id: 'npm',      name: 'NPR News',          feedUrl: 'https://feeds.npr.org/1001/rss.xml',                       category: 'world',      enabled: true  },
-  { id: 'mit',      name: 'MIT Tech Review',   feedUrl: 'https://www.technologyreview.com/feed/',                   category: 'technology', enabled: true  },
-  { id: 'wired',    name: 'Wired',             feedUrl: 'https://www.wired.com/feed/rss',                           category: 'technology', enabled: false },
-  { id: 'nature',   name: 'Nature',            feedUrl: 'https://www.nature.com/nature/current_issue/rss',          category: 'science',    enabled: false },
-  { id: 'nasa',     name: 'NASA',              feedUrl: 'https://www.nasa.gov/rss/dyn/breaking_news.rss',            category: 'science',    enabled: false },
-  { id: 'devto',    name: 'Dev.to',            feedUrl: 'https://dev.to/feed',                                      category: 'technology', enabled: false },
-  { id: 'verge',    name: 'The Verge',         feedUrl: 'https://www.theverge.com/rss/index.xml',                   category: 'technology', enabled: false },
-  { id: 'smash',    name: 'Smashing Magazine', feedUrl: 'https://www.smashingmagazine.com/feed/',                   category: 'technology', enabled: false },
-  { id: 'eco',      name: 'The Economist',     feedUrl: 'https://www.economist.com/latest/rss.xml',                 category: 'world',      enabled: false },
+  // ── Enabled by default ──────────────────────────────────────────────────────
+  { id: 'hn',       name: 'Hacker News',        feedUrl: 'https://news.ycombinator.com/rss',                       category: 'technology', enabled: true  },
+  { id: 'bbc',      name: 'BBC News',            feedUrl: 'https://feeds.bbci.co.uk/news/rss.xml',                  category: 'world',      enabled: true  },
+  { id: 'guardian', name: 'The Guardian',        feedUrl: 'https://www.theguardian.com/world/rss',                  category: 'world',      enabled: true  },
+  { id: 'ars',      name: 'Ars Technica',        feedUrl: 'https://feeds.arstechnica.com/arstechnica/index',        category: 'technology', enabled: true  },
+  { id: 'npm',      name: 'NPR News',            feedUrl: 'https://feeds.npr.org/1001/rss.xml',                     category: 'world',      enabled: true  },
+  { id: 'mit',      name: 'MIT Tech Review',     feedUrl: 'https://www.technologyreview.com/feed/',                 category: 'technology', enabled: true  },
+  { id: 'verge',    name: 'The Verge',           feedUrl: 'https://www.theverge.com/rss/index.xml',                 category: 'technology', enabled: true  },
+  { id: 'wired',    name: 'Wired',               feedUrl: 'https://www.wired.com/feed/rss',                         category: 'technology', enabled: true  },
+  { id: 'tc',       name: 'TechCrunch',          feedUrl: 'https://techcrunch.com/feed/',                           category: 'technology', enabled: true  },
+  { id: 'aje',      name: 'Al Jazeera',          feedUrl: 'https://www.aljazeera.com/xml/rss/all.xml',              category: 'world',      enabled: true  },
+  { id: 'reuters',  name: 'Reuters',             feedUrl: 'https://feeds.reuters.com/reuters/topNews',              category: 'world',      enabled: true  },
+  { id: 'sciam',    name: 'Scientific American', feedUrl: 'https://rss.sciam.com/ScientificAmerican-Global',        category: 'science',    enabled: true  },
+  { id: 'physorg',  name: 'Phys.org',            feedUrl: 'https://phys.org/rss-feed/',                             category: 'science',    enabled: true  },
+  // ── Off by default (user can enable) ────────────────────────────────────────
+  { id: 'nature',   name: 'Nature',              feedUrl: 'https://www.nature.com/nature/current_issue/rss',        category: 'science',    enabled: false },
+  { id: 'nasa',     name: 'NASA',                feedUrl: 'https://www.nasa.gov/rss/dyn/breaking_news.rss',         category: 'science',    enabled: false },
+  { id: 'newscient',name: 'New Scientist',       feedUrl: 'https://www.newscientist.com/feed/home/',                category: 'science',    enabled: false },
+  { id: 'quartz',   name: 'Quartz',              feedUrl: 'https://qz.com/feed',                                    category: 'business',   enabled: false },
+  { id: 'economist',name: 'The Economist',       feedUrl: 'https://www.economist.com/latest/rss.xml',               category: 'business',   enabled: false },
+  { id: 'espn',     name: 'ESPN',                feedUrl: 'https://www.espn.com/espn/rss/news',                     category: 'sports',     enabled: false },
+  { id: 'variety',  name: 'Variety',             feedUrl: 'https://variety.com/feed/',                              category: 'entertainment', enabled: false },
+  { id: 'pitchfork',name: 'Pitchfork',           feedUrl: 'https://pitchfork.com/rss/news/feed.xml',                category: 'entertainment', enabled: false },
+  { id: 'devto',    name: 'Dev.to',              feedUrl: 'https://dev.to/feed',                                    category: 'technology', enabled: false },
+  { id: 'smash',    name: 'Smashing Magazine',   feedUrl: 'https://www.smashingmagazine.com/feed/',                 category: 'technology', enabled: false },
+  { id: 'yale360',  name: 'Yale Env. 360',       feedUrl: 'https://e360.yale.edu/feed',                             category: 'environment', enabled: false },
+  { id: 'carbonbrf',name: 'Carbon Brief',        feedUrl: 'https://www.carbonbrief.org/feed',                       category: 'environment', enabled: false },
 ];
 
 const TOPIC_KEYWORDS: Record<Topic, string[]> = {
@@ -163,7 +177,7 @@ async function fetchXML(feedUrl: string, signal: AbortSignal): Promise<string> {
 
 export async function fetchSource(source: NewsSource): Promise<Article[]> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 14000);
+  const timeout = setTimeout(() => controller.abort(), 9000); // 9 s — fail fast
   try {
     const xml = await fetchXML(source.feedUrl, controller.signal);
     return parseFeed(xml, source);
@@ -172,25 +186,38 @@ export async function fetchSource(source: NewsSource): Promise<Article[]> {
   }
 }
 
-export async function fetchAllSources(sources: NewsSource[]): Promise<Article[]> {
-  const results = await Promise.allSettled(sources.map(fetchSource));
+// Fetches all sources concurrently and calls `onBatch` as each one resolves,
+// so the UI can start rendering immediately instead of waiting for all sources.
+// Returns the complete flat list once all settle.
+export async function fetchAllSources(
+  sources: NewsSource[],
+  onBatch?: (articles: Article[]) => void,
+): Promise<Article[]> {
+  const accumulated: Article[] = [];
+  const failed: NewsSource[] = [];
 
-  const articles = results
-    .filter((r): r is PromiseFulfilledResult<Article[]> => r.status === 'fulfilled')
-    .flatMap(r => r.value);
+  await Promise.allSettled(
+    sources.map(source =>
+      fetchSource(source)
+        .then(articles => {
+          accumulated.push(...articles);
+          onBatch?.(accumulated);
+        })
+        .catch(() => failed.push(source)),
+    ),
+  );
 
-  // If fewer than half the sources returned data, retry the failed ones once
-  const failed = results
-    .map((r, i) => ({ r, source: sources[i] }))
-    .filter(({ r }) => r.status === 'rejected')
-    .map(({ source }) => source);
-
-  if (failed.length > 0 && articles.length < 10) {
-    const retried = await Promise.allSettled(failed.map(fetchSource));
-    retried
-      .filter((r): r is PromiseFulfilledResult<Article[]> => r.status === 'fulfilled')
-      .forEach(r => articles.push(...r.value));
+  // Retry failed sources once if we got very little content
+  if (failed.length > 0 && accumulated.length < 10) {
+    await Promise.allSettled(
+      failed.map(source =>
+        fetchSource(source)
+          .then(articles => accumulated.push(...articles))
+          .catch(() => {}),
+      ),
+    );
+    onBatch?.(accumulated);
   }
 
-  return articles;
+  return accumulated;
 }
