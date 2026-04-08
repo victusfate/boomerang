@@ -22,9 +22,7 @@ export function markSeen(ids: string[], prefs: UserPrefs): UserPrefs {
   const existing = new Set(prefs.seenIds);
   const fresh = ids.filter(id => !existing.has(id));
   if (fresh.length === 0) return prefs;
-  // Cap seenIds at 2000 entries
-  const next = [...prefs.seenIds, ...fresh];
-  return { ...prefs, seenIds: next.slice(-2000) };
+  return { ...prefs, seenIds: [...prefs.seenIds, ...fresh] };
 }
 
 export function toggleSaved(id: string, prefs: UserPrefs): UserPrefs {
