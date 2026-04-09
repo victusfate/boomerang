@@ -27,6 +27,8 @@ const STOPWORDS = new Set([
 ]);
 
 const MAX_KEYWORDS = 500; // cap stored entries — evict lowest-magnitude on overflow
+const MAX_SEEN_IDS = 2_000; // keep only most-recent seen IDs
+const MAX_READ_IDS = 1_000; // keep only most-recent read IDs
 
 export function extractKeywords(text: string): string[] {
   return [...new Set(
@@ -47,14 +49,16 @@ function trimKeywords(weights: Record<string, number>): Record<string, number> {
 
 export function markRead(id: string, prefs: UserPrefs): UserPrefs {
   if (prefs.readIds.includes(id)) return prefs;
-  return { ...prefs, readIds: [...prefs.readIds, id] };
+  const readIds = [...prefs.readIds, id];
+  return { ...prefs, readIds: readIds.length > MAX_READ_IDS ? readIds.slice(-MAX_READ_IDS) : readIds };
 }
 
 export function markSeen(ids: string[], prefs: UserPrefs): UserPrefs {
   const existing = new Set(prefs.seenIds);
   const fresh = ids.filter(id => !existing.has(id));
   if (fresh.length === 0) return prefs;
-  return { ...prefs, seenIds: [...prefs.seenIds, ...fresh] };
+  const seenIds = [...prefs.seenIds, ...fresh];
+  return { ...prefs, seenIds: seenIds.length > MAX_SEEN_IDS ? seenIds.slice(-MAX_SEEN_IDS) : seenIds };
 }
 
 export function toggleSaved(id: string, prefs: UserPrefs): UserPrefs {

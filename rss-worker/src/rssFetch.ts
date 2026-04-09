@@ -5,6 +5,8 @@ const UA = 'BoomerangNews/1.0 (+https://github.com/victusfate/boomerang)';
 const FETCH_TIMEOUT_MS = 25_000;
 const CONCURRENCY = 4;
 const BATCH_PAUSE_MS = 120;
+/** Max bytes to read per RSS feed — guards against oversized responses. */
+const MAX_FEED_BYTES = 5 * 1024 * 1024; // 5 MB
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -28,7 +30,11 @@ async function fetchXmlWithRetry(feedUrl: string): Promise<string> {
       });
       clearTimeout(timer);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const text = await res.text();
+      const cl = parseInt(res.headers.get('Content-Length') ?? '0', 10);
+      if (cl > MAX_FEED_BYTES) throw new Error(`Feed too large (Content-Length ${cl})`);
+      const buf = await res.arrayBuffer();
+      if (buf.byteLength > MAX_FEED_BYTES) throw new Error(`Feed too large (${buf.byteLength} bytes)`);
+      const text = new TextDecoder().decode(buf);
       if (text.length < 100) throw new Error('empty body');
       return text;
     } catch (e) {

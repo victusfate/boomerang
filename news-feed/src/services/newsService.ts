@@ -94,7 +94,7 @@ async function fetchBundleJson(ids: string[]): Promise<{
 }> {
   const qs = ids.join(',');
   const url = `${RSS_WORKER_URL}/bundle?include=${encodeURIComponent(qs)}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) {
     throw new Error(`Feed service returned ${res.status}`);
   }
