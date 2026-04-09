@@ -87,7 +87,12 @@ export function useFeed() {
           setAllArticles(ranked);
           setLoading(false);
         }
-        const stale = Date.now() - cached.fetchedAt > CACHE_TTL;
+        // If the cache is missing any saved articles (old cache format excluded seen
+        // articles, so saved+read articles were dropped), treat it as stale so the
+        // network refresh restores the full pool.
+        const cachedIds = new Set(cached.articles.map(a => a.id));
+        const missingSaved = loadedPrefs.savedIds.some(id => !cachedIds.has(id));
+        const stale = missingSaved || Date.now() - cached.fetchedAt > CACHE_TTL;
         if (!stale) setLastRefresh(new Date(cached.fetchedAt));
       }
     });

@@ -117,7 +117,7 @@ export default function App() {
           className={`tab ${view === 'saved' ? 'active' : ''}`}
           onClick={() => setView('saved')}
         >
-          Saved {prefs.savedIds.length > 0 && <span className="tab-count">{prefs.savedIds.length}</span>}
+          Saved {savedArticles.length > 0 && <span className="tab-count">{savedArticles.length}</span>}
         </button>
       </nav>
 
@@ -182,7 +182,9 @@ export default function App() {
         {!loading && filteredArticles.length === 0 && !error && (
           <div className="feed-empty">
             {view === 'saved' ? (
-              <p>No saved articles yet. Tap ☆ to bookmark.</p>
+              prefs.savedIds.length > 0
+                ? <p>Loading saved articles…</p>
+                : <p>No saved articles yet. Tap ☆ to bookmark.</p>
             ) : (
               <p>No articles match this filter.</p>
             )}
