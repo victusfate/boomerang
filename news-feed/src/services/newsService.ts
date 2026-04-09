@@ -1,6 +1,9 @@
 import type { Article, NewsSource, Topic } from '../types';
 
-// Two CORS proxies — race them in parallel; first valid response wins
+/** Set at build time to Cloudflare Worker origin (e.g. https://boomerang-rss.xxx.workers.dev) */
+const RSS_WORKER_URL = import.meta.env.VITE_RSS_WORKER_URL?.replace(/\/$/, '') ?? '';
+
+// Two CORS proxies — used only when VITE_RSS_WORKER_URL is unset (local dev without Worker)
 const PROXY_PRIMARY  = (url: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
 const PROXY_FALLBACK = (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`;
 
@@ -233,10 +236,18 @@ export async function fetchSource(source: NewsSource): Promise<Article[]> {
 //   Tier 2 (priority=2): fetched concurrently after tier-1 starts
 // This way the UI renders visible content within ~2 s without waiting for
 // all 40+ sources to settle.
+/**
+ * Fetch from Cloudflare Worker (`/bundle`) when `VITE_RSS_WORKER_URL` is set;
+ * otherwise legacy browser CORS proxies + progressive streaming.
+ */
 export async function fetchAllSources(
   sources: NewsSource[],
   onBatch?: (articles: Article[]) => void,
 ): Promise<Article[]> {
+  if (RSS_WORKER_URL) {
+    return fetchAllSourcesViaWorker(sources, onBatch);
+  }
+
   const tier1 = sources.filter(s => (s.priority ?? 2) === 1);
   const tier2 = sources.filter(s => (s.priority ?? 2) !== 1);
 
@@ -250,12 +261,35 @@ export async function fetchAllSources(
       })
       .catch(() => {}); // silent per-source failure
 
-  // Kick off both tiers immediately in parallel — tier-1 sources are faster
-  // so they will call onBatch first, giving instant visible content.
   await Promise.allSettled([
     ...tier1.map(fetchOne),
     ...tier2.map(fetchOne),
   ]);
 
   return accumulated;
+}
+
+async function fetchAllSourcesViaWorker(
+  sources: NewsSource[],
+  onBatch?: (articles: Article[]) => void,
+): Promise<Article[]> {
+  if (sources.length === 0) return [];
+
+  const qs = sources.map(s => s.id).join(',');
+  const url = `${RSS_WORKER_URL}/bundle?include=${encodeURIComponent(qs)}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Feed service returned ${res.status}`);
+  }
+  const data = (await res.json()) as {
+    articles: Array<Omit<Article, 'publishedAt' | 'score'> & { publishedAt: string }>;
+  };
+  const articles: Article[] = data.articles.map(a => ({
+    ...a,
+    publishedAt: new Date(a.publishedAt),
+  }));
+  if (articles.length > 0) {
+    onBatch?.(articles);
+  }
+  return articles;
 }

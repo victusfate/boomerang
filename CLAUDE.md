@@ -4,9 +4,10 @@
 
 | Path | What it is |
 |---|---|
-| `/` | Idea board (React + Vite + Fireproof, deployed to `/boomerang/`) |
-| `news-feed/` | Algorithmic news feed PWA (React + Vite + Fireproof, deployed to `/boomerang/` root) |
-| `.github/workflows/deploy.yml` | Builds both apps; news feed → root, idea board → `/ideas/` |
+| `news-feed/` | News PWA (React + Vite + Fireproof), deployed to GitHub Pages `/boomerang/` root |
+| `rss-worker/` | Cloudflare Worker — RSS aggregation (`GET /bundle`), staggered upstream fetches |
+| `.github/workflows/deploy.yml` | Builds `news-feed/` only; uploads `news-feed/dist` |
+| `/` (repo root) | Optional `npm run dev` / `build` forwards to `news-feed/`; **`make`** runs GitHub Pages–style build + preview (`/boomerang/`) |
 
 ## PR workflow — always follow this order
 
@@ -20,8 +21,9 @@
    ```
 3. **Do the work, then build to verify**
    ```
-   cd news-feed && npm run build
+   npm run build
    ```
+   (from repo root — forwards to `news-feed`) or `cd news-feed && npm run build`
 4. **Commit with a clear message, push the branch**
    ```
    git push -u origin claude/<branch-name>
@@ -42,14 +44,14 @@
 - **Storage**: Fireproof (`use-fireproof ^0.19.0`) — database name `boomerang-news`
   - `user-prefs` document: topic weights, seenIds, readIds, savedIds, source/topic toggles
   - `feed-cache` document: last ranked article list + fetchedAt timestamp
-- **RSS fetching**: CORS proxy chain — primary `allorigins.win`, fallback `corsproxy.io`
-- **PWA**: `vite-plugin-pwa` with StaleWhileRevalidate caching for proxy responses
+- **RSS fetching**: Prefer **Cloudflare Worker** (`rss-worker/`). Set `VITE_RSS_WORKER_URL` at build time (no trailing slash), e.g. `https://boomerang-rss.boomerang.workers.dev` — that is `https://<wrangler-name>.<account-subdomain>.workers.dev` (not the bare account URL `https://boomerang.workers.dev`). GitHub Actions reads **repository variable** `VITE_RSS_WORKER_URL`. Worker exposes `GET /bundle?include=id1,id2,...`. If unset, fallback: CORS proxies `allorigins.win` + `corsproxy.io`.
+- **PWA**: `vite-plugin-pwa` (RSS not cached via allorigins when using the Worker)
 
 ## Key behaviours to preserve
 
 - **Progressive loading**: 5 articles at a time, `IntersectionObserver` sentinel auto-loads more
 - **Seen tracking**: articles rendered in the feed are written to `seenIds` in Fireproof; filtered out on next refresh
-- **Streaming fetch**: `fetchAllSources` accepts an `onBatch` callback; UI updates as each source resolves
+- **Streaming fetch**: With CORS fallback, `fetchAllSources` streams per source via `onBatch`. With the Worker, one response updates the feed.
 - **Fireproof cache**: cold starts show the cached feed instantly, then refresh in background
 - **YouTube thumbnails**: extracted from watch URLs via `img.youtube.com/vi/{id}/hqdefault.jpg`; `media:thumbnail` also parsed for Atom feeds
 - **Lazy og:image**: cards without RSS images fetch `og:image` via CORS proxy when scrolled into view

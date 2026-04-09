@@ -26,23 +26,14 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Build news feed (root — default page)
+      - name: Build news feed
         working-directory: news-feed
         env:
           GITHUB_PAGES: 'true'
+          VITE_RSS_WORKER_URL: ${{ vars.VITE_RSS_WORKER_URL }}
         run: |
           npm ci
           npm run build
-
-      - name: Build idea board (served at /ideas/)
-        run: |
-          npm ci
-          npm run build
-
-      - name: Combine into single artifact
-        run: |
-          mkdir -p news-feed/dist/ideas
-          cp -r dist/. news-feed/dist/ideas/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

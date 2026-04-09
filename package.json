@@ -2,19 +2,10 @@
   "name": "boomerang",
   "private": true,
   "version": "0.1.0",
-  "type": "module",
+  "description": "Monorepo root — run scripts in news-feed/ or use npm run dev below",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "use-fireproof": "^0.19.0"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^5.4.11"
+    "dev": "npm run dev --prefix news-feed",
+    "build": "npm run build --prefix news-feed",
+    "preview": "npm run preview --prefix news-feed"
   }
 }

@@ -131,13 +131,21 @@ export function useFeed() {
       setLoading(false);
     };
 
+    let feedSuccess = false;
     try {
       const all = await fetchAllSources(activeSources, onBatch);
       if (fetchIdRef.current !== myFetchId) return; // superseded — bail out
 
       if (all.length === 0) {
-        setError('No articles loaded. Check your connection and try again.');
+        const hadPool = articlePoolRef.current.length > 0;
+        setError(
+          hadPool
+            ? 'Could not refresh feed — showing last cached articles.'
+            : 'No articles loaded. Check your connection and try again.',
+        );
       } else {
+        feedSuccess = true;
+        setError(null);
         articlePoolRef.current = all;
         setArticlePool(all);
         const ranked = rankFeed(all, currentPrefs);
@@ -153,18 +161,23 @@ export function useFeed() {
       }
     } catch (e) {
       if (fetchIdRef.current === myFetchId) {
-        setError(e instanceof Error ? e.message : 'Failed to load feed');
+        const hadPool = articlePoolRef.current.length > 0;
+        setError(
+          hadPool
+            ? 'Could not refresh feed — showing last cached articles.'
+            : (e instanceof Error ? e.message : 'Failed to load feed'),
+        );
       }
     } finally {
       if (fetchIdRef.current === myFetchId) {
         setLoading(false);
         setRefreshing(false);
         setFetching(false);
-        setLastRefresh(new Date());
+        if (feedSuccess) {
+          setLastRefresh(new Date());
+        }
         fetchingRef.current = false;
       } else {
-        // This fetch was superseded; only release the lock if nobody else has it
-        // (another fetch will manage its own lock release)
         fetchingRef.current = false;
       }
     }

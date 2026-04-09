@@ -28,16 +28,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/api\.allorigins\.win\/.*/i,
-            handler: 'StaleWhileRevalidate',
-            options: {
-              cacheName: 'news-feed-cache',
-              expiration: { maxAgeSeconds: 1800, maxEntries: 50 },
-            },
-          },
-        ],
+        // RSS is fetched via Cloudflare Worker (VITE_RSS_WORKER_URL) or same-origin; no allorigins cache.
       },
     }),
   ],

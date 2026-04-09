@@ -1,0 +1,17 @@
+{
+  "name": "rss-worker",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^4.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.2",
+    "wrangler": "^4.81.0"
+  }
+}
