@@ -28,6 +28,7 @@ export interface NewsSource {
   feedUrl: string;
   category: Topic;
   enabled: boolean;
+  priority?: 1 | 2;  // 1 = render first; 2 = background batch (default)
 }
 
 export interface UserPrefs {
