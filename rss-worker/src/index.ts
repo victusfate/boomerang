@@ -130,7 +130,12 @@ export default {
       try {
         const upstream = await fetch(target, {
           redirect: 'follow',
-          headers: { 'User-Agent': 'BoomerangRSS/1.0 (og-image; +https://github.com/victusfate/boomerang)' },
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (compatible; BoomerangRSS/1.0; +https://github.com/victusfate/boomerang) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
         });
         if (!upstream.ok) {
           return json({ imageUrl: null }, request, { status: 502 });

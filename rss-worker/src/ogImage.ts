@@ -1,5 +1,8 @@
 const OG_REGEX =
-  /property=["']og:image["'][^>]*content=["']([^"'>"]+)["']|content=["']([^"'>"]+)["'][^>]*property=["']og:image["']/i;
+  /property=["']og:image(?::secure_url)?["'][^>]*content=["']([^"'>"]+)["']|content=["']([^"'>"]+)["'][^>]*property=["']og:image(?::secure_url)?["']/i;
+
+const TWITTER_IMAGE_REGEX =
+  /name=["']twitter:image(?::src)?["'][^>]*content=["']([^"'>"]+)["']|content=["']([^"'>"]+)["'][^>]*name=["']twitter:image(?::src)?["']/i;
 
 /** Max HTML bytes to scan for og:image (meta is almost always in head). */
 const HTML_SCAN_MAX = 512_000;
@@ -19,10 +22,30 @@ export function resolveArticleImageUrl(raw: string, articlePageUrl: string): str
 
 export function extractOgImageFromHtml(html: string, pageUrl: string): string | undefined {
   const slice = html.length > HTML_SCAN_MAX ? html.slice(0, HTML_SCAN_MAX) : html;
-  const m = slice.match(OG_REGEX);
-  const raw = m?.[1] ?? m?.[2];
-  if (!raw) return undefined;
-  return resolveArticleImageUrl(raw, pageUrl);
+
+  const tryMeta = (re: RegExp): string | undefined => {
+    const m = slice.match(re);
+    const raw = m?.[1] ?? m?.[2];
+    if (!raw) return undefined;
+    return resolveArticleImageUrl(raw.trim(), pageUrl);
+  };
+
+  const fromOg = tryMeta(OG_REGEX);
+  if (fromOg) return fromOg;
+
+  const fromTw = tryMeta(TWITTER_IMAGE_REGEX);
+  if (fromTw) return fromTw;
+
+  // JSON-LD (Next.js / many news sites)
+  const jldImg =
+    slice.match(/"image"\s*:\s*\[\s*"([^"]+)"/)
+    ?? slice.match(/"image"\s*:\s*"([^"]+)"/);
+  if (jldImg?.[1]) {
+    const resolved = resolveArticleImageUrl(jldImg[1].trim(), pageUrl);
+    if (resolved) return resolved;
+  }
+
+  return undefined;
 }
 
 /** Basic SSRF guard — public http(s) only, no loopback. */
