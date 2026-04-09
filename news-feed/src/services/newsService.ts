@@ -219,7 +219,7 @@ async function fetchXML(feedUrl: string, signal: AbortSignal): Promise<string> {
 
 export async function fetchSource(source: NewsSource): Promise<Article[]> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 6000); // 6 s — fail fast
+  const timeout = setTimeout(() => controller.abort(), 30000); // 30 s
   try {
     const xml = await fetchXML(source.feedUrl, controller.signal);
     return parseFeed(xml, source);
