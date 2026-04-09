@@ -6,7 +6,7 @@ import {
   DEFAULT_PREFS,
   markRead, markSeen, toggleSaved,
   boostTopic, toggleSource, toggleTopic, isSourceEnabled,
-  upvote, downvote, applyDecay, resetLearnedWeights,
+  upvote, downvote, applyDecay, resetLearnedWeights, clearViewedCache,
 } from '../services/storage';
 import type { Article, Topic, UserPrefs } from '../types';
 
@@ -210,6 +210,14 @@ export function useFeed() {
     setAllArticles(rankFeed(articlePool, next));
   }, [updatePrefs, articlePool]);
 
+  const handleClearViewed = useCallback(() => {
+    const next = clearViewedCache(prefsRef.current);
+    updatePrefs(next);
+    markedSeenRef.current.clear();
+    setVisibleCount(PAGE_SIZE);
+    setAllArticles(rankFeed(articlePool, next));
+  }, [updatePrefs, articlePool]);
+
   const handleRefresh = useCallback(() => refresh(prefsRef.current), [refresh]);
 
   // Saved articles come from the raw pool so they survive the seenIds filter
@@ -234,6 +242,7 @@ export function useFeed() {
     onToggleSource:   handleToggleSource,
     onToggleTopic:    handleToggleTopic,
     onResetPrefs:     handleResetPrefs,
+    onClearViewed:    handleClearViewed,
     onRefresh:        handleRefresh,
   };
 }

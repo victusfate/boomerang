@@ -25,7 +25,7 @@ export default function App() {
     visibleArticles, savedArticles, hasMore, totalLoaded,
     loading, refreshing, loadingMore, error, prefs, lastRefresh,
     onOpen, onSave, onUpvote, onDownvote, onLoadMore,
-    onToggleSource, onToggleTopic, onResetPrefs, onRefresh,
+    onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
   } = useFeed();
 
   const [view, setView] = useState<FeedView>('feed');
@@ -198,6 +198,7 @@ export default function App() {
           onToggleSource={onToggleSource}
           onToggleTopic={onToggleTopic}
           onResetPrefs={onResetPrefs}
+          onClearViewed={onClearViewed}
           onClose={() => setShowSettings(false)}
         />
       )}

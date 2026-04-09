@@ -189,3 +189,7 @@ export function resetLearnedWeights(prefs: UserPrefs): UserPrefs {
     lastDecayAt:    Date.now(),
   };
 }
+
+export function clearViewedCache(prefs: UserPrefs): UserPrefs {
+  return { ...prefs, seenIds: [], readIds: [] };
+}
