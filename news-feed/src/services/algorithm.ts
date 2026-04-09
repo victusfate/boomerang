@@ -1,4 +1,5 @@
 import type { Article, Topic, UserPrefs } from '../types';
+import { filterAds } from './adFilter';
 
 // Exponential decay: half-life of 12 hours
 function recencyScore(publishedAt: Date): number {
@@ -49,8 +50,11 @@ export function rankFeed(articles: Article[], prefs: UserPrefs): Article[] {
   const seenSet = new Set([...prefs.readIds, ...prefs.seenIds]);
   const unread = articles.filter(a => !seenSet.has(a.id));
 
+  // Remove promotional / ad content
+  const nonAd = filterAds(unread);
+
   // Deduplicate similar stories
-  const unique = deduplicateArticles(unread);
+  const unique = deduplicateArticles(nonAd);
 
   // Count per source before scoring (approximate diversity)
   const counts: Record<string, number> = {};
