@@ -10,6 +10,8 @@ const ALLOWED_ORIGINS = [
 ];
 
 const BUNDLE_CACHE_TTL_SEC = 300;
+/** Hotlinked images via GET /image — cache longer than JSON. */
+const IMAGE_PROXY_CACHE_TTL_SEC = 86_400;
 
 function isAllowedOrigin(origin: string): boolean {
   if (!origin) return false;
@@ -143,6 +145,54 @@ export default {
       const response = json(body, request);
       ctx.waitUntil(cache.put(cacheKey, response.clone()));
       return response;
+    }
+
+    /**
+     * Optional image proxy: GET /image?url=… — same-origin + CORS for the news app when a host blocks hotlinking.
+     * Returns upstream bytes with Content-Type; rejects obvious HTML responses.
+     */
+    if (url.pathname === '/image' && request.method === 'GET') {
+      const target = url.searchParams.get('url');
+      if (!target || !isAllowedOgFetchUrl(target)) {
+        return new Response('Bad Request', { status: 400, headers: corsHeaders(request) });
+      }
+
+      const cacheKey = new Request(url.toString(), { method: 'GET' });
+      const cache = caches.default;
+      const cached = await cache.match(cacheKey);
+      if (cached) {
+        const h = new Headers(cached.headers);
+        const cors = corsHeaders(request);
+        cors.forEach((v, k) => h.set(k, v));
+        return new Response(cached.body, { status: cached.status, headers: h });
+      }
+
+      let upstream: Response;
+      try {
+        upstream = await fetch(target, {
+          redirect: 'follow',
+          headers: { 'User-Agent': 'BoomerangRSS/1.0 (image-proxy; +https://github.com/victusfate/boomerang)' },
+        });
+      } catch {
+        return new Response(null, { status: 502, headers: corsHeaders(request) });
+      }
+
+      if (!upstream.ok) {
+        return new Response(null, { status: 502, headers: corsHeaders(request) });
+      }
+
+      const mime = upstream.headers.get('Content-Type') ?? '';
+      if (mime.includes('text/html')) {
+        return new Response(null, { status: 422, headers: corsHeaders(request) });
+      }
+
+      const out = new Headers(corsHeaders(request));
+      const ct = mime.startsWith('image/') ? mime : (mime || 'application/octet-stream');
+      out.set('Content-Type', ct);
+      out.set('Cache-Control', `public, max-age=${IMAGE_PROXY_CACHE_TTL_SEC}`);
+      const res = new Response(upstream.body, { status: 200, headers: out });
+      ctx.waitUntil(cache.put(cacheKey, res.clone()));
+      return res;
     }
 
     return new Response('Not Found', { status: 404, headers: corsHeaders(request) });

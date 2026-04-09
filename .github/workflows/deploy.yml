@@ -30,10 +30,12 @@ jobs:
         working-directory: news-feed
         env:
           GITHUB_PAGES: 'true'
+          # Baked into the JS at build time — must be set or production has no Worker URL (no bundle/og requests).
           VITE_RSS_WORKER_URL: ${{ vars.VITE_RSS_WORKER_URL }}
         run: |
           if [ -z "$VITE_RSS_WORKER_URL" ]; then
-            echo "::warning title=RSS Worker URL missing::Set repository variable VITE_RSS_WORKER_URL to your Worker origin (no trailing slash), e.g. https://boomerang-rss.boomerang.workers.dev — then redeploy. Without it the app uses CORS proxies only, so Cloudflare shows 0 requests."
+            echo "::error title=VITE_RSS_WORKER_URL missing::Add a GitHub repository variable: Settings → Secrets and variables → Actions → Variables → New repository variable. Name: VITE_RSS_WORKER_URL. Value: your Worker origin with no trailing slash (e.g. https://boomerang-rss.<account>.workers.dev). Then re-run this workflow."
+            exit 1
           fi
           npm ci
           npm run build

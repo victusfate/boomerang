@@ -1,7 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Article, UserPrefs } from '../types';
 import { getRssWorkerBaseUrl } from '../services/newsService';
 import { TOPIC_META } from './TopicFilter';
+
+/** Match worker `normalizeHttpUrl` — fixes `&amp;` in stored URLs and canonicalizes for href / window.open. */
+function normalizeArticleNavUrl(raw: string): string {
+  let s = raw.trim();
+  if (s.includes('&amp;')) s = s.replace(/&amp;/g, '&');
+  try {
+    const u = new URL(s);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return raw.trim();
+    return u.href;
+  } catch {
+    return raw.trim();
+  }
+}
 
 /** Resolve image hrefs against the article page so relative paths are not loaded from the SPA origin. */
 function resolveArticleImageUrl(raw: string, articlePageUrl: string): string | undefined {
@@ -91,9 +104,12 @@ export function ArticleCard({ article, prefs, onOpen, onSave, onUpvote, onDownvo
 
   const primaryTopic = article.topics[0];
   const topicMeta    = TOPIC_META[primaryTopic];
-  const isVideo      = article.imageUrl?.includes('img.youtube.com');
+  const navUrl         = useMemo(() => normalizeArticleNavUrl(article.url), [article.url]);
+  const isVideo =
+    article.imageUrl?.includes('img.youtube.com') === true
+    || /youtube\.com|youtu\.be/i.test(navUrl);
 
-  const { cardRef, imageUrl, onImageError } = useLazyOGImage(article.url, article.imageUrl);
+  const { cardRef, imageUrl, onImageError } = useLazyOGImage(navUrl, article.imageUrl);
 
   const handleDownvote = () => {
     setDismissed(true);
@@ -105,6 +121,26 @@ export function ArticleCard({ article, prefs, onOpen, onSave, onUpvote, onDownvo
     onUpvote(article);
   };
 
+  /** Defer prefs so re-rank does not cancel navigation. */
+  const deferMarkOpen = () => {
+    window.setTimeout(() => onOpen(article), 0);
+  };
+
+  /**
+   * Plain click: synchronous window.open (reliable for youtube.com + PWAs). Modifier+click keeps default
+   * (new tab) behavior.
+   */
+  const handleArticleNavClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (e.button !== 0) return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) {
+      deferMarkOpen();
+      return;
+    }
+    e.preventDefault();
+    window.open(navUrl, '_blank', 'noopener,noreferrer');
+    deferMarkOpen();
+  };
+
   return (
     <article
       className={`card ${dismissed ? 'card-dismissed' : ''}`}
@@ -112,11 +148,11 @@ export function ArticleCard({ article, prefs, onOpen, onSave, onUpvote, onDownvo
     >
       {imageUrl && (
         <a
-          href={article.url}
+          href={navUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="card-image-link"
-          onClick={() => onOpen(article)}
+          onClick={handleArticleNavClick}
         >
           <img
             src={imageUrl}
@@ -143,11 +179,11 @@ export function ArticleCard({ article, prefs, onOpen, onSave, onUpvote, onDownvo
         </div>
 
         <a
-          href={article.url}
+          href={navUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="card-title-link"
-          onClick={() => onOpen(article)}
+          onClick={handleArticleNavClick}
         >
           <h2 className="card-title">{article.title}</h2>
         </a>
@@ -158,11 +194,11 @@ export function ArticleCard({ article, prefs, onOpen, onSave, onUpvote, onDownvo
 
         <div className="card-actions">
           <a
-            href={article.url}
+            href={navUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="btn-read"
-            onClick={() => onOpen(article)}
+            onClick={handleArticleNavClick}
           >
             {isVideo ? 'Watch →' : 'Read →'}
           </a>

@@ -56,6 +56,19 @@ function decodeEntities(text: string): string {
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n));
 }
 
+/** Canonical http(s) URL — fixes literal &amp; in XML hrefs (breaks YouTube watch links in browsers). */
+function normalizeHttpUrl(raw: string): string {
+  let s = raw.trim();
+  if (s.includes('&amp;')) s = s.replace(/&amp;/g, '&');
+  try {
+    const u = new URL(s);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return raw.trim();
+    return u.href;
+  } catch {
+    return raw.trim();
+  }
+}
+
 function extractYouTubeThumbnail(text: string): string | undefined {
   const match = text.match(
     /(?:youtube\.com\/watch\?[^"'\s]*v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/
@@ -88,6 +101,80 @@ function extractImageFromDescription(rawDesc: string, articleUrl: string): strin
   return undefined;
 }
 
+/** media:thumbnail @url (Atom/YouTube, Apple Podcasts, many RSS feeds). */
+function urlsFromMediaThumbnailNodes(raw: unknown): string[] {
+  if (raw == null) return [];
+  const list = Array.isArray(raw) ? raw : [raw];
+  const out: string[] = [];
+  for (const n of list) {
+    if (n && typeof n === 'object' && '@_url' in n) {
+      const u = String((n as { '@_url': string })['@_url']).trim();
+      if (u) out.push(u);
+    }
+  }
+  return out;
+}
+
+function extractMediaThumbnailFromRecord(rec: Record<string, unknown>): string | undefined {
+  const group = rec['media:group'];
+  if (group != null) {
+    const groups = Array.isArray(group) ? group : [group];
+    for (const raw of groups) {
+      if (raw && typeof raw === 'object') {
+        const g = raw as Record<string, unknown>;
+        const fromGroup = urlsFromMediaThumbnailNodes(g['media:thumbnail'])[0];
+        if (fromGroup) return fromGroup;
+      }
+    }
+  }
+  const top = urlsFromMediaThumbnailNodes(rec['media:thumbnail'])[0];
+  if (top) return top;
+  return undefined;
+}
+
+/** RSS enclosure when type is image/*. */
+function extractEnclosureImageUrl(item: Record<string, unknown>): string | undefined {
+  const enc = item.enclosure;
+  if (enc == null) return undefined;
+  const list = Array.isArray(enc) ? enc : [enc];
+  for (const e of list) {
+    if (!e || typeof e !== 'object') continue;
+    const o = e as { '@_url'?: string; '@_type'?: string };
+    const t = (o['@_type'] ?? '').toLowerCase();
+    if (t.startsWith('image/') && o['@_url']) return String(o['@_url']).trim();
+  }
+  return undefined;
+}
+
+/** media:content with medium=image or image/* type (some feeds). */
+function extractMediaContentImageUrl(rec: Record<string, unknown>): string | undefined {
+  const raw = rec['media:content'];
+  if (raw == null) return undefined;
+  const list = Array.isArray(raw) ? raw : [raw];
+  for (const n of list) {
+    if (!n || typeof n !== 'object') continue;
+    const o = n as { '@_url'?: string; '@_medium'?: string; '@_type'?: string };
+    const medium = (o['@_medium'] ?? '').toLowerCase();
+    const type = (o['@_type'] ?? '').toLowerCase();
+    if (o['@_url'] && (medium === 'image' || type.startsWith('image/'))) {
+      return String(o['@_url']).trim();
+    }
+  }
+  return undefined;
+}
+
+function pickStructuredImage(
+  record: Record<string, unknown>,
+  articleUrl: string,
+): string | undefined {
+  const raw =
+    extractEnclosureImageUrl(record)
+    ?? extractMediaContentImageUrl(record)
+    ?? extractMediaThumbnailFromRecord(record);
+  if (!raw) return undefined;
+  return resolveArticleImageUrl(raw, articleUrl);
+}
+
 function textVal(v: unknown): string {
   if (v == null) return '';
   if (typeof v === 'string') return v;
@@ -99,6 +186,13 @@ function parseAtomLink(entry: Record<string, unknown>): string {
   const link = entry.link;
   if (!link) return '';
   const arr = Array.isArray(link) ? link : [link];
+  // YouTube & most Atom feeds: rel="alternate" is the article page (prefer over rel="self" etc.).
+  for (const l of arr) {
+    if (typeof l === 'object' && l !== null && '@_href' in l) {
+      const rel = (l as { '@_rel'?: string })['@_rel'];
+      if (rel === 'alternate') return String((l as { '@_href': string })['@_href']);
+    }
+  }
   for (const l of arr) {
     if (typeof l === 'object' && l !== null && '@_href' in l) {
       const rel = (l as { '@_rel'?: string })['@_rel'];
@@ -148,7 +242,7 @@ export function parseFeed(xml: string, source: NewsSource): ArticleWire[] {
       } else {
         rawLink = textVal(item.link);
       }
-      const url = rawLink.trim();
+      const url = normalizeHttpUrl(rawLink);
       if (!title || !url || !url.startsWith('http')) continue;
 
       const enc = (item as Record<string, unknown>)['content:encoded'];
@@ -158,7 +252,9 @@ export function parseFeed(xml: string, source: NewsSource): ArticleWire[] {
       const description = stripHTML(decodeEntities(rawDesc)).slice(0, 280);
       const pubDateStr = textVal(item.pubDate ?? item.published ?? item['dc:date']);
       const publishedAt = pubDateStr ? new Date(pubDateStr) : new Date();
-      const imageUrl = extractImageFromDescription(rawDesc, url);
+      const imageUrl =
+        pickStructuredImage(item as Record<string, unknown>, url)
+        ?? extractImageFromDescription(rawDesc, url);
       const topics = detectTopics(title + ' ' + description);
 
       out.push({
@@ -181,7 +277,7 @@ export function parseFeed(xml: string, source: NewsSource): ArticleWire[] {
     const entries = asArray(feed.entry as Record<string, unknown> | undefined);
     for (const entry of entries) {
       const title = decodeEntities(stripHTML(textVal(entry.title)));
-      const url = parseAtomLink(entry);
+      const url = normalizeHttpUrl(parseAtomLink(entry));
       if (!title || !url || !url.startsWith('http')) continue;
 
       const contentEl = entry.content;
@@ -195,7 +291,9 @@ export function parseFeed(xml: string, source: NewsSource): ArticleWire[] {
       const description = stripHTML(decodeEntities(rawDesc)).slice(0, 280);
       const pubDateStr = textVal(entry.published ?? entry.updated);
       const publishedAt = pubDateStr ? new Date(pubDateStr) : new Date();
-      const imageUrl = extractImageFromDescription(rawDesc, url);
+      const imageUrl =
+        pickStructuredImage(entry, url)
+        ?? extractImageFromDescription(rawDesc, url);
       const topics = detectTopics(title + ' ' + description);
 
       out.push({
