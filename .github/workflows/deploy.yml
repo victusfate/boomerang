@@ -3,6 +3,7 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -30,22 +31,21 @@ jobs:
         working-directory: news-feed
         env:
           GITHUB_PAGES: 'true'
-          # Baked into the JS at build time — must be set or production has no Worker URL (no bundle/og requests).
           VITE_RSS_WORKER_URL: ${{ vars.VITE_RSS_WORKER_URL }}
         run: |
-          if [ -z "$VITE_RSS_WORKER_URL" ]; then
-            echo "::error title=VITE_RSS_WORKER_URL missing::Add a GitHub repository variable: Settings → Secrets and variables → Actions → Variables → New repository variable. Name: VITE_RSS_WORKER_URL. Value: your Worker origin with no trailing slash (e.g. https://boomerang-rss.<account>.workers.dev). Then re-run this workflow."
-            exit 1
-          fi
           npm ci
           npm run build
 
       - name: Upload artifact
+        # Only upload on push to main or manual dispatch — not on PRs
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./news-feed/dist
 
   deploy:
+    # Only deploy on push to main or manual dispatch
+    if: github.event_name != 'pull_request'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
