@@ -12,6 +12,10 @@ const ALLOWED_ORIGINS = [
 const BUNDLE_CACHE_TTL_SEC = 300;
 /** Hotlinked images via GET /image — cache longer than JSON. */
 const IMAGE_PROXY_CACHE_TTL_SEC = 86_400;
+/** Max bytes to buffer when fetching article HTML for og:image extraction. */
+const MAX_HTML_BYTES = 1 * 1024 * 1024; // 1 MB
+/** Max bytes to proxy for images — rejects oversized upstream responses. */
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 function isAllowedOrigin(origin: string): boolean {
   if (!origin) return false;
@@ -140,7 +144,11 @@ export default {
         if (!upstream.ok) {
           return json({ imageUrl: null }, request, { status: 502 });
         }
-        html = await upstream.text();
+        const cl = parseInt(upstream.headers.get('Content-Length') ?? '0', 10);
+        if (cl > MAX_HTML_BYTES) return json({ imageUrl: null }, request, { status: 413 });
+        const buf = await upstream.arrayBuffer();
+        if (buf.byteLength > MAX_HTML_BYTES) return json({ imageUrl: null }, request, { status: 413 });
+        html = new TextDecoder().decode(buf);
       } catch {
         return json({ imageUrl: null }, request, { status: 502 });
       }
@@ -190,12 +198,20 @@ export default {
       if (mime.includes('text/html')) {
         return new Response(null, { status: 422, headers: corsHeaders(request) });
       }
+      const imgCl = parseInt(upstream.headers.get('Content-Length') ?? '0', 10);
+      if (imgCl > MAX_IMAGE_BYTES) {
+        return new Response(null, { status: 413, headers: corsHeaders(request) });
+      }
+      const imgBuf = await upstream.arrayBuffer();
+      if (imgBuf.byteLength > MAX_IMAGE_BYTES) {
+        return new Response(null, { status: 413, headers: corsHeaders(request) });
+      }
 
       const out = new Headers(corsHeaders(request));
       const ct = mime.startsWith('image/') ? mime : (mime || 'application/octet-stream');
       out.set('Content-Type', ct);
       out.set('Cache-Control', `public, max-age=${IMAGE_PROXY_CACHE_TTL_SEC}`);
-      const res = new Response(upstream.body, { status: 200, headers: out });
+      const res = new Response(imgBuf, { status: 200, headers: out });
       ctx.waitUntil(cache.put(cacheKey, res.clone()));
       return res;
     }

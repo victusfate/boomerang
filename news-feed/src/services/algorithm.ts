@@ -1,6 +1,6 @@
 import type { Article, Topic, UserPrefs } from '../types';
 import { filterAds } from './adFilter';
-import { extractKeywords } from './storage';
+import { extractKeywords, isTopicEnabled } from './storage';
 
 // Exponential decay: half-life of 12 hours
 function recencyScore(publishedAt: Date): number {
@@ -61,8 +61,13 @@ export function rankFeed(articles: Article[], prefs: UserPrefs): Article[] {
   // Remove promotional / ad content
   const nonAd = filterAds(unread);
 
+  // Apply topic filter from Settings (enabledTopics = [] means all enabled)
+  const topicFiltered = prefs.enabledTopics.length === 0
+    ? nonAd
+    : nonAd.filter(a => a.topics.some(t => isTopicEnabled(t, prefs)));
+
   // Deduplicate similar stories
-  const unique = deduplicateArticles(nonAd);
+  const unique = deduplicateArticles(topicFiltered);
 
   // Count per source before scoring (approximate diversity)
   const counts: Record<string, number> = {};

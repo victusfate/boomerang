@@ -5,12 +5,14 @@
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "fast-xml-parser": "^4.5.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260409.1",
     "typescript": "^5.5.2",
     "wrangler": "^4.81.0"
   }

@@ -231,10 +231,10 @@ export function parseFeed(xml: string, source: NewsSource): ArticleWire[] {
   const rss = (doc as { rss?: { channel?: unknown } }).rss;
   if (rss?.channel) {
     const channel = rss.channel as Record<string, unknown>;
-    const items = asArray(channel.item as Record<string, unknown> | undefined);
+    const items = asArray<Record<string, unknown>>(channel.item as Record<string, unknown> | undefined);
     for (const item of items) {
       const title = decodeEntities(stripHTML(textVal(item.title)));
-      const linkRaw = item.link as unknown;
+      const linkRaw = item.link;
       let rawLink = '';
       if (typeof linkRaw === 'string') rawLink = linkRaw;
       else if (linkRaw && typeof linkRaw === 'object' && '@_href' in linkRaw) {
@@ -245,7 +245,7 @@ export function parseFeed(xml: string, source: NewsSource): ArticleWire[] {
       const url = normalizeHttpUrl(rawLink);
       if (!title || !url || !url.startsWith('http')) continue;
 
-      const enc = (item as Record<string, unknown>)['content:encoded'];
+      const enc = item['content:encoded'];
       const rawDesc = textVal(
         item.description ?? enc ?? item.summary ?? '',
       );
@@ -253,7 +253,7 @@ export function parseFeed(xml: string, source: NewsSource): ArticleWire[] {
       const pubDateStr = textVal(item.pubDate ?? item.published ?? item['dc:date']);
       const publishedAt = pubDateStr ? new Date(pubDateStr) : new Date();
       const imageUrl =
-        pickStructuredImage(item as Record<string, unknown>, url)
+        pickStructuredImage(item, url)
         ?? extractImageFromDescription(rawDesc, url);
       const topics = detectTopics(title + ' ' + description);
 
@@ -274,7 +274,7 @@ export function parseFeed(xml: string, source: NewsSource): ArticleWire[] {
 
   const feed = (doc as { feed?: { entry?: unknown } }).feed;
   if (feed?.entry) {
-    const entries = asArray(feed.entry as Record<string, unknown> | undefined);
+    const entries = asArray<Record<string, unknown>>(feed.entry as Record<string, unknown> | undefined);
     for (const entry of entries) {
       const title = decodeEntities(stripHTML(textVal(entry.title)));
       const url = normalizeHttpUrl(parseAtomLink(entry));
