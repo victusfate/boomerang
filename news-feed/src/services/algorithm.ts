@@ -1,5 +1,6 @@
 import type { Article, Topic, UserPrefs } from '../types';
 import { filterAds } from './adFilter';
+import { extractKeywords } from './storage';
 
 // Exponential decay: half-life of 12 hours
 function recencyScore(publishedAt: Date): number {
@@ -30,8 +31,8 @@ export function scoreArticle(article: Article, prefs: UserPrefs, sourceArticleCo
   // Recency (0–1)
   const r = recencyScore(article.publishedAt);
 
-  // Source quality weight
-  const srcW = prefs.sourceWeights[article.sourceId] ?? 1.0;
+  // Source quality weight (clamped so downvoted sources still appear, just less)
+  const srcW = Math.max(prefs.sourceWeights[article.sourceId] ?? 1.0, 0.1);
 
   // Topic relevance based on user engagement
   const topicScore = article.topics.reduce((acc: number, t: Topic) => {
@@ -42,13 +43,20 @@ export function scoreArticle(article: Article, prefs: UserPrefs, sourceArticleCo
   const srcCount = sourceArticleCounts[article.sourceId] ?? 0;
   const diversity = 1 / (1 + Math.log1p(srcCount));
 
-  return r * srcW * topicScore * diversity;
+  // Keyword affinity: sum learned weights for words in title+description,
+  // bounded by tanh so it nudges ranking rather than overwhelming recency.
+  const kwRaw = extractKeywords(article.title + ' ' + article.description)
+    .reduce((sum, kw) => sum + (prefs.keywordWeights[kw] ?? 0), 0);
+  const kwBonus = Math.tanh(kwRaw) * 0.5;
+
+  return r * srcW * topicScore * diversity + kwBonus;
 }
 
 export function rankFeed(articles: Article[], prefs: UserPrefs): Article[] {
-  // Filter articles already read or seen in a previous session
-  const seenSet = new Set([...prefs.readIds, ...prefs.seenIds]);
-  const unread = articles.filter(a => !seenSet.has(a.id));
+  // Filter articles already read, seen, or explicitly downvoted
+  const seenSet     = new Set([...prefs.readIds, ...prefs.seenIds]);
+  const downvoteSet = new Set(prefs.downvotedIds);
+  const unread = articles.filter(a => !seenSet.has(a.id) && !downvoteSet.has(a.id));
 
   // Remove promotional / ad content
   const nonAd = filterAds(unread);

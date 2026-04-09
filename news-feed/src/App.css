@@ -304,11 +304,44 @@ html, body {
   margin-bottom: 10px;
 }
 
+/* Dismissed card: fade + collapse before React removes it from DOM */
+@keyframes cardDismiss {
+  0%   { opacity: 1; max-height: 600px; margin-bottom: 8px; }
+  60%  { opacity: 0; max-height: 600px; }
+  100% { opacity: 0; max-height: 0;   margin-bottom: 0; padding: 0; }
+}
+.card-dismissed {
+  overflow: hidden;
+  animation: cardDismiss 0.28s ease forwards;
+  pointer-events: none;
+}
+
 .card-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
+
+.card-vote-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.btn-vote {
+  background: none;
+  border: none;
+  color: var(--sub);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 4px 7px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+  line-height: 1;
+}
+.btn-vote:hover { background: var(--border); color: var(--text); }
+.btn-upvote.active   { color: #4caf50; }
+.btn-downvote.active { color: #e05050; }
 
 .btn-read {
   font-size: 0.8rem;
@@ -461,3 +494,15 @@ html, body {
   margin-bottom: 8px;
 }
 .settings-about strong { color: var(--text); }
+
+.btn-reset-prefs {
+  background: none;
+  border: 1px solid #e05050;
+  color: #e05050;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-reset-prefs:hover { background: #e05050; color: #fff; }
