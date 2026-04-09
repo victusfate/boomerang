@@ -23,7 +23,7 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 export default function App() {
   const {
     visibleArticles, savedArticles, hasMore, totalLoaded,
-    loading, refreshing, loadingMore, error, prefs, lastRefresh,
+    loading, refreshing, error, prefs, lastRefresh,
     onOpen, onSave, onUpvote, onDownvote, onLoadMore,
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
   } = useFeed();
@@ -32,25 +32,25 @@ export default function App() {
   const [topicFilter, setTopicFilter] = useState<Topic | null>(null);
   const [showSettings, setShowSettings] = useState(false);
 
-  // Sentinel element watched by IntersectionObserver to trigger load-more
+  // Sentinel element watched by IntersectionObserver to trigger load-more.
+  // The callback is kept in a ref so the observer itself is only created once
+  // per view-change — avoids continuous disconnect/reconnect as state updates.
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const onLoadMoreRef = useRef(onLoadMore);
+  onLoadMoreRef.current = onLoadMore;
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel || view !== 'feed') return;
 
     const observer = new IntersectionObserver(
-      entries => {
-        if (entries[0].isIntersecting && hasMore && !loading && !loadingMore) {
-          onLoadMore();
-        }
-      },
-      { rootMargin: '300px' } // start loading 300px before the bottom edge
+      entries => { if (entries[0].isIntersecting) onLoadMoreRef.current(); },
+      { rootMargin: '600px' } // start loading well before the bottom edge
     );
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, loading, loadingMore, onLoadMore, view]);
+  }, [view]); // only recreate when switching views
 
   const filteredArticles = useMemo(() => {
     // Saved view uses the raw article pool (not the seen-filtered ranked list)
@@ -161,17 +161,8 @@ export default function App() {
         {/* Sentinel — IntersectionObserver target */}
         {view === 'feed' && <div ref={sentinelRef} className="sentinel" aria-hidden="true" />}
 
-        {/* Load-more skeleton */}
-        {loadingMore && (
-          <div className="feed-loading">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="skeleton-card" style={{ animationDelay: `${i * 0.08}s` }} />
-            ))}
-          </div>
-        )}
-
         {/* All caught up */}
-        {!loading && !loadingMore && !hasMore && visibleArticles.length > 0 && view === 'feed' && !topicFilter && (
+        {!loading && !refreshing && !hasMore && visibleArticles.length > 0 && view === 'feed' && !topicFilter && (
           <div className="feed-end">
             <span className="feed-end-icon">✓</span>
             <p>All caught up</p>
@@ -179,7 +170,7 @@ export default function App() {
           </div>
         )}
 
-        {!loading && filteredArticles.length === 0 && !error && (
+        {!loading && !refreshing && filteredArticles.length === 0 && !error && (
           <div className="feed-empty">
             {view === 'saved' ? (
               prefs.savedIds.length > 0

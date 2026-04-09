@@ -221,17 +221,23 @@ html, body {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 0.3; }
 }
 
 /* ── Article Card ────────────────────────────────────────────── */
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .card {
   background: var(--card);
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--border);
   transition: border-color 0.15s;
+  animation: cardIn 0.2s ease both;
 }
 .card:hover { border-color: var(--sub); }
 

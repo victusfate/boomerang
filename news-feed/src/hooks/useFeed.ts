@@ -39,10 +39,9 @@ export function useFeed() {
   const [articlePool, setArticlePool] = useState<Article[]>([]);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  const [loading, setLoading]         = useState(true);
-  const [refreshing, setRefreshing]   = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError]             = useState<string | null>(null);
+  const [loading, setLoading]       = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError]           = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const prefsRef        = useRef(prefs);
@@ -111,7 +110,8 @@ export function useFeed() {
       const ranked = rankFeed(accumulated, currentPrefs);
       setAllArticles(ranked);
       if (loading) setLoading(false);
-      if (refreshing) setRefreshing(false);
+      // Keep refreshing=true until all sources settle — prevents the empty-state
+      // message flashing when tier-1 articles are all already seen.
     };
 
     try {
@@ -162,13 +162,9 @@ export function useFeed() {
 
   // ── Pagination ────────────────────────────────────────────────────────────────
   const loadMore = useCallback(() => {
-    if (loadingMore) return;
-    setLoadingMore(true);
-    setTimeout(() => {
-      setVisibleCount(prev => Math.min(prev + PAGE_SIZE, allArticles.length));
-      setLoadingMore(false);
-    }, 150);
-  }, [loadingMore, allArticles.length]);
+    if (visibleCount >= allArticles.length) return;
+    setVisibleCount(prev => Math.min(prev + PAGE_SIZE, allArticles.length));
+  }, [visibleCount, allArticles.length]);
 
   // ── Article interactions ──────────────────────────────────────────────────────
   const handleOpen = useCallback((article: Article) => {
@@ -230,7 +226,6 @@ export function useFeed() {
     totalLoaded: allArticles.length,
     loading,
     refreshing,
-    loadingMore,
     error,
     prefs,
     lastRefresh,
@@ -238,7 +233,7 @@ export function useFeed() {
     onSave:           handleSave,
     onUpvote:         handleUpvote,
     onDownvote:       handleDownvote,
-    onLoadMore:       loadMore,
+    onLoadMore: loadMore,
     onToggleSource:   handleToggleSource,
     onToggleTopic:    handleToggleTopic,
     onResetPrefs:     handleResetPrefs,
