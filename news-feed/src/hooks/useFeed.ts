@@ -241,10 +241,9 @@ export function useFeed() {
   }, [updatePrefs]);
 
   const handleUpvote = useCallback((article: Article) => {
-    const next = upvote(article, prefsRef.current);
-    updatePrefs(next);
-    const pool = articlePoolRef.current;
-    setAllArticles(prev => rankFeed(pool.length ? pool : prev, next));
+    updatePrefs(upvote(article, prefsRef.current));
+    // No re-rank: upvoted card stays visible; button highlight comes from prefs.upvotedIds.
+    // Weights take effect on the next feed refresh.
   }, [updatePrefs]);
 
   const handleDownvote = useCallback((article: Article) => {
