@@ -4,10 +4,10 @@
 
 | Path | What it is |
 |---|---|
-| `news-feed/` | News PWA (React + Vite + Fireproof), deployed to GitHub Pages `/boomerang/` root |
+| `news-feed/` | News PWA (React + Vite + Fireproof), deployed to GitHub Pages at `/boomerang` |
 | `rss-worker/` | Cloudflare Worker — RSS aggregation (`GET /bundle`), staggered upstream fetches |
 | `.github/workflows/deploy.yml` | Builds `news-feed/` only; uploads `news-feed/dist` |
-| `/` (repo root) | Optional `npm run dev` / `build` forwards to `news-feed/`; **`make`** runs GitHub Pages–style build + preview (`/boomerang/`) |
+| `/` (repo root) | `npm run dev` / `build` / `preview` forward to `news-feed/`. **`npm run preview:gh-pages`** = GitHub Pages–style build + preview (`http://localhost:4173/boomerang`). **`make`** same (needs GNU Make). |
 
 ## PR workflow — always follow this order
 
@@ -44,8 +44,8 @@
 - **Storage**: Fireproof (`use-fireproof ^0.19.0`) — database name `boomerang-news`
   - `user-prefs` document: topic weights, seenIds, readIds, savedIds, source/topic toggles
   - `feed-cache` document: last ranked article list + fetchedAt timestamp
-- **RSS fetching**: Prefer **Cloudflare Worker** (`rss-worker/`). Set `VITE_RSS_WORKER_URL` at build time (no trailing slash), e.g. `https://boomerang-rss.boomerang.workers.dev` — that is `https://<wrangler-name>.<account-subdomain>.workers.dev` (not the bare account URL `https://boomerang.workers.dev`). GitHub Actions reads **repository variable** `VITE_RSS_WORKER_URL`. Worker exposes `GET /bundle?include=id1,id2,...`. If unset, fallback: CORS proxies `allorigins.win` + `corsproxy.io`.
-- **PWA**: `vite-plugin-pwa` (RSS not cached via allorigins when using the Worker)
+- **RSS fetching**: **Cloudflare Worker only** (`rss-worker/`). Set `VITE_RSS_WORKER_URL` at build time (no trailing slash), e.g. `https://boomerang-rss.boomerang.workers.dev` — that is `https://<wrangler-name>.<account-subdomain>.workers.dev` (not the bare account URL `https://boomerang.workers.dev`). GitHub Actions reads **repository variable** `VITE_RSS_WORKER_URL`. Worker exposes `GET /bundle?include=id1,id2,...`. There is no browser RSS or CORS-proxy fallback; local dev uses `VITE_RSS_WORKER_URL=http://127.0.0.1:8787` with `wrangler dev`.
+- **PWA**: `vite-plugin-pwa`
 
 ## Key behaviours to preserve
 

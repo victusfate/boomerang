@@ -140,7 +140,7 @@ export function useFeed() {
         const hadPool = articlePoolRef.current.length > 0;
         setError(
           hadPool
-            ? 'Could not refresh feed — showing last cached articles.'
+            ? 'Feed service returned no articles — showing cached list below.'
             : 'No articles loaded. Check your connection and try again.',
         );
       } else {
@@ -162,10 +162,11 @@ export function useFeed() {
     } catch (e) {
       if (fetchIdRef.current === myFetchId) {
         const hadPool = articlePoolRef.current.length > 0;
+        const detail = e instanceof Error ? e.message : 'Failed to load feed';
         setError(
           hadPool
-            ? 'Could not refresh feed — showing last cached articles.'
-            : (e instanceof Error ? e.message : 'Failed to load feed'),
+            ? `Could not refresh — the list below is cached from an earlier load. ${detail}`
+            : detail,
         );
       }
     } finally {

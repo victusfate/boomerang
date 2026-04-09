@@ -32,6 +32,9 @@ jobs:
           GITHUB_PAGES: 'true'
           VITE_RSS_WORKER_URL: ${{ vars.VITE_RSS_WORKER_URL }}
         run: |
+          if [ -z "$VITE_RSS_WORKER_URL" ]; then
+            echo "::warning title=RSS Worker URL missing::Set repository variable VITE_RSS_WORKER_URL to your Worker origin (no trailing slash), e.g. https://boomerang-rss.boomerang.workers.dev — then redeploy. Without it the app uses CORS proxies only, so Cloudflare shows 0 requests."
+          fi
           npm ci
           npm run build
 

@@ -7,7 +7,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "build:gh-pages": "tsc && cross-env GITHUB_PAGES=true vite build",
-    "preview:gh-pages": "npm run build:gh-pages && vite preview"
+    "preview:gh-pages": "npm run build:gh-pages && cross-env GITHUB_PAGES=true vite preview"
   },
   "dependencies": {
     "react": "^18.3.1",

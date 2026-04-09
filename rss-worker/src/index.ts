@@ -1,17 +1,32 @@
 import { DEFAULT_SOURCES, SOURCE_BY_ID, type NewsSource } from './sources';
 import { fetchFeedsStaggered } from './rssFetch';
 
+/** Production + explicit dev URLs. Local Vite may use any port — see `isAllowedOrigin`. */
 const ALLOWED_ORIGINS = [
   'https://victusfate.github.io',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173',
 ];
 
 const BUNDLE_CACHE_TTL_SEC = 300;
 
+function isAllowedOrigin(origin: string): boolean {
+  if (!origin) return false;
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== 'http:') return false;
+    return u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
+}
+
 function corsHeaders(request: Request): Headers {
   const origin = request.headers.get('Origin') ?? '';
-  const allow = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  const allow = isAllowedOrigin(origin) ? origin : ALLOWED_ORIGINS[0];
   const h = new Headers();
   h.set('Access-Control-Allow-Origin', allow);
   h.set('Access-Control-Allow-Methods', 'GET, OPTIONS');

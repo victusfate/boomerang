@@ -1,5 +1,5 @@
 # Requires GNU Make (Git for Windows: add Git's usr\bin to PATH, or use Git Bash).
-# Default: production-like preview at /boomerang/ (same base as GitHub Pages).
+# Default: production-like preview at /boomerang (same base as GitHub Pages).
 
 .PHONY: help preview-pages run dev worker install
 
@@ -7,7 +7,8 @@
 
 help:
 	@echo "Boomerang — common targets"
-	@echo "  make / make preview-pages  Build news-feed with base /boomerang/, then vite preview"
+	@echo "  make / make preview-pages  Build news-feed with base /boomerang, then vite preview"
+	@echo "  (no make on Windows PS?)    npm run preview:gh-pages   — same as above"
 	@echo "  make run                   Same as preview-pages"
 	@echo "  make dev                   Vite dev — http://localhost:5173/  (set news-feed/.env for Worker)"
 	@echo "  make worker                Wrangler dev — http://127.0.0.1:8787"

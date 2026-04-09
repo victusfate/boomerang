@@ -2,10 +2,15 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
-const base = process.env.GITHUB_PAGES === 'true' ? '/boomerang/' : '/';
+/** GitHub project site path; no trailing slash so the canonical URL is …/boomerang not …/boomerang/ */
+const base = process.env.GITHUB_PAGES === 'true' ? '/boomerang' : '/';
 
 export default defineConfig({
   base,
+  // Preview must use the same `base` as the build (set GITHUB_PAGES=true for gh-pages preview).
+  preview: {
+    open: base === '/boomerang' ? '/boomerang' : '/',
+  },
   plugins: [
     react(),
     VitePWA({
@@ -28,7 +33,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png}'],
-        // RSS is fetched via Cloudflare Worker (VITE_RSS_WORKER_URL) or same-origin; no allorigins cache.
+        // RSS is fetched only via Cloudflare Worker (VITE_RSS_WORKER_URL); no RSS proxy caching.
       },
     }),
   ],
