@@ -6,6 +6,7 @@ import {
   DEFAULT_PREFS,
   markRead, markSeen, toggleSaved,
   boostTopic, toggleSource, toggleTopic, isSourceEnabled,
+  upvote, downvote, applyDecay, resetLearnedWeights,
 } from '../services/storage';
 import type { Article, Topic, UserPrefs } from '../types';
 
@@ -29,14 +30,17 @@ function dehydrate(articles: Article[]): StoredArticle[] {
 export function useFeed() {
   const { database } = useFireproof('boomerang-news');
 
-  const [prefs, setPrefsState]     = useState<UserPrefs>(DEFAULT_PREFS);
+  const [prefs, setPrefsState]      = useState<UserPrefs>(DEFAULT_PREFS);
   const [prefsReady, setPrefsReady] = useState(false);
 
+  // Full ranked list (seenIds + downvotedIds filtered)
   const [allArticles, setAllArticles] = useState<Article[]>([]);
+  // Raw pool — every fetched article, unfiltered; used for the Saved view
+  const [articlePool, setArticlePool] = useState<Article[]>([]);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const [loading, setLoading]         = useState(true);
-  const [refreshing, setRefreshing]   = useState(false); // background refresh over cache
+  const [refreshing, setRefreshing]   = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError]             = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -55,28 +59,34 @@ export function useFeed() {
   // ── Load prefs + cache from Fireproof in parallel on mount ───────────────────
   useEffect(() => {
     const prefsPromise = database.get<PrefsDoc>(PREFS_ID)
-      .then(doc => setPrefsState({ ...DEFAULT_PREFS, ...doc }))
-      .catch(() => {});                  // no stored prefs yet — defaults are fine
+      .then(doc => {
+        const merged = { ...DEFAULT_PREFS, ...doc };
+        // Apply decay before setting — may update keyword weights
+        const decayed = applyDecay(merged);
+        setPrefsState(decayed);
+        if (decayed !== merged) {
+          database.put({ _id: PREFS_ID, ...decayed } as PrefsDoc).catch(console.error);
+        }
+        return decayed;
+      })
+      .catch(() => DEFAULT_PREFS);
 
     const cachePromise = database.get<FeedCacheDoc>(CACHE_ID)
       .then(cache => {
         if (!cache.articles?.length) return null;
         return { articles: hydrate(cache.articles), fetchedAt: cache.fetchedAt };
       })
-      .catch(() => null);               // no cache yet
+      .catch(() => null);
 
-    Promise.all([prefsPromise, cachePromise]).then(([, cached]) => {
+    Promise.all([prefsPromise, cachePromise]).then(([loadedPrefs, cached]) => {
       setPrefsReady(true);
       if (cached?.articles.length) {
-        // Apply seenIds filter with the just-loaded prefs
-        const p = prefsRef.current;
-        const seen = new Set([...p.seenIds, ...p.readIds]);
-        const fresh = cached.articles.filter(a => !seen.has(a.id));
-        if (fresh.length) {
-          setAllArticles(rankFeed(fresh, p));
+        setArticlePool(cached.articles);
+        const ranked = rankFeed(cached.articles, loadedPrefs);
+        if (ranked.length) {
+          setAllArticles(ranked);
           setLoading(false);
         }
-        // Skip network refresh if cache is still warm
         const stale = Date.now() - cached.fetchedAt > CACHE_TTL;
         if (!stale) setLastRefresh(new Date(cached.fetchedAt));
       }
@@ -90,10 +100,9 @@ export function useFeed() {
     setError(null);
 
     const activeSources = DEFAULT_SOURCES.filter(s => isSourceEnabled(s.id, currentPrefs));
-    const seen = new Set([...currentPrefs.seenIds, ...currentPrefs.readIds]);
 
-    // Streaming: re-rank and show as each source resolves
     const onBatch = (accumulated: Article[]) => {
+      setArticlePool(accumulated);
       const ranked = rankFeed(accumulated, currentPrefs);
       setAllArticles(ranked);
       if (loading) setLoading(false);
@@ -105,13 +114,12 @@ export function useFeed() {
       if (all.length === 0) {
         setError('No articles loaded. Check your connection and try again.');
       } else {
+        setArticlePool(all);
         const ranked = rankFeed(all, currentPrefs);
         setAllArticles(ranked);
         setVisibleCount(PAGE_SIZE);
         markedSeenRef.current.clear();
-        // Persist to Fireproof cache (store unseen articles for next cold start)
-        const toCache = all.filter(a => !seen.has(a.id));
-        database.put({ _id: CACHE_ID, articles: dehydrate(toCache), fetchedAt: Date.now() })
+        database.put({ _id: CACHE_ID, articles: dehydrate(all), fetchedAt: Date.now() })
           .catch(console.error);
       }
     } catch (e) {
@@ -123,10 +131,9 @@ export function useFeed() {
     }
   }, [allArticles.length, database, loading, refreshing]);
 
-  // ── Trigger refresh once prefs are loaded (skip if cache was fresh) ───────────
+  // ── Trigger refresh once prefs are loaded ─────────────────────────────────────
   useEffect(() => {
     if (!prefsReady) return;
-    // If we already set lastRefresh from a warm cache, don't re-fetch yet
     if (lastRefresh && Date.now() - lastRefresh.getTime() < CACHE_TTL) return;
     refresh(prefsRef.current);
   }, [prefsReady]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -169,6 +176,19 @@ export function useFeed() {
     updatePrefs(toggleSaved(id, prefsRef.current));
   }, [updatePrefs]);
 
+  const handleUpvote = useCallback((article: Article) => {
+    const next = upvote(article, prefsRef.current);
+    updatePrefs(next);
+    setAllArticles(prev => rankFeed(articlePool.length ? articlePool : prev, next));
+  }, [updatePrefs, articlePool]);
+
+  const handleDownvote = useCallback((article: Article) => {
+    const next = downvote(article, prefsRef.current);
+    updatePrefs(next);
+    // Re-rank immediately so the article disappears from the feed
+    setAllArticles(prev => rankFeed(articlePool.length ? articlePool : prev, next));
+  }, [updatePrefs, articlePool]);
+
   const handleToggleSource = useCallback((sourceId: string) => {
     const next = toggleSource(sourceId, prefsRef.current);
     updatePrefs(next);
@@ -179,10 +199,20 @@ export function useFeed() {
     updatePrefs(toggleTopic(topic, prefsRef.current));
   }, [updatePrefs]);
 
+  const handleResetPrefs = useCallback(() => {
+    const next = resetLearnedWeights(prefsRef.current);
+    updatePrefs(next);
+    setAllArticles(rankFeed(articlePool, next));
+  }, [updatePrefs, articlePool]);
+
   const handleRefresh = useCallback(() => refresh(prefsRef.current), [refresh]);
+
+  // Saved articles come from the raw pool so they survive the seenIds filter
+  const savedArticles = articlePool.filter(a => prefs.savedIds.includes(a.id));
 
   return {
     visibleArticles: allArticles.slice(0, visibleCount),
+    savedArticles,
     hasMore:     visibleCount < allArticles.length,
     totalLoaded: allArticles.length,
     loading,
@@ -193,9 +223,12 @@ export function useFeed() {
     lastRefresh,
     onOpen:           handleOpen,
     onSave:           handleSave,
+    onUpvote:         handleUpvote,
+    onDownvote:       handleDownvote,
     onLoadMore:       loadMore,
     onToggleSource:   handleToggleSource,
     onToggleTopic:    handleToggleTopic,
+    onResetPrefs:     handleResetPrefs,
     onRefresh:        handleRefresh,
   };
 }

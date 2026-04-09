@@ -5,14 +5,47 @@ import { TOPIC_META } from './TopicFilter';
 const OG_REGEX =
   /property=["']og:image["'][^>]*content=["']([^"'>"]+)["']|content=["']([^"'>"]+)["'][^>]*property=["']og:image["']/i;
 
-// Lazily fetches og:image for the article when the card scrolls into view.
-// Skips the fetch if the article already has an image from the RSS feed.
+// Try both CORS proxies; return the first og:image found, or undefined.
+async function fetchOGImage(url: string): Promise<string | undefined> {
+  const signal = AbortSignal.timeout(10000);
+
+  const tryPrimary = fetch(
+    `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`, { signal }
+  ).then(r => r.json()).then((d: { contents?: string }) => {
+    const m = d.contents?.match(OG_REGEX);
+    const img = m?.[1] ?? m?.[2];
+    if (!img) throw new Error('no og:image');
+    return img;
+  });
+
+  const tryFallback = fetch(
+    `https://corsproxy.io/?${encodeURIComponent(url)}`, { signal }
+  ).then(r => r.text()).then(html => {
+    const m = html.match(OG_REGEX);
+    const img = m?.[1] ?? m?.[2];
+    if (!img) throw new Error('no og:image');
+    return img;
+  });
+
+  // Return whichever resolves first; if both fail, return undefined.
+  return new Promise<string | undefined>(resolve => {
+    let failures = 0;
+    const fail = () => { if (++failures === 2) resolve(undefined); };
+    tryPrimary.then(resolve).catch(fail);
+    tryFallback.then(resolve).catch(fail);
+  });
+}
+
 function useLazyOGImage(articleUrl: string, existingImage?: string) {
   const [lazyImg, setLazyImg] = useState<string | undefined>(undefined);
+  const [imgFailed, setImgFailed] = useState(false);
   const cardRef = useRef<HTMLElement>(null);
 
+  // Fetch og:image when: no RSS image at all, OR the RSS image failed to load.
+  const shouldFetch = !existingImage || imgFailed;
+
   useEffect(() => {
-    if (existingImage) return;
+    if (!shouldFetch) return;
     const el = cardRef.current;
     if (!el) return;
 
@@ -20,26 +53,17 @@ function useLazyOGImage(articleUrl: string, existingImage?: string) {
       entries => {
         if (!entries[0].isIntersecting) return;
         observer.disconnect();
-
-        fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(articleUrl)}`, {
-          signal: AbortSignal.timeout(8000),
-        })
-          .then(r => r.json())
-          .then((data: { contents: string }) => {
-            const m = data.contents?.match(OG_REGEX);
-            const img = m?.[1] ?? m?.[2];
-            if (img) setLazyImg(img);
-          })
-          .catch(() => {});
+        fetchOGImage(articleUrl).then(img => { if (img) setLazyImg(img); }).catch(() => {});
       },
-      { rootMargin: '400px' }, // fetch before the card is fully visible
+      { rootMargin: '400px' },
     );
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [articleUrl, existingImage]);
+  }, [articleUrl, shouldFetch]);
 
-  return { cardRef, imageUrl: existingImage ?? lazyImg };
+  const imageUrl = imgFailed ? lazyImg : (existingImage ?? lazyImg);
+  return { cardRef, imageUrl, onImageError: () => setImgFailed(true) };
 }
 
 function timeAgo(date: Date): string {
@@ -56,18 +80,38 @@ interface Props {
   prefs: UserPrefs;
   onOpen: (article: Article) => void;
   onSave: (id: string) => void;
+  onUpvote: (article: Article) => void;
+  onDownvote: (article: Article) => void;
 }
 
-export function ArticleCard({ article, prefs, onOpen, onSave }: Props) {
-  const saved = prefs.savedIds.includes(article.id);
-  const primaryTopic = article.topics[0];
-  const topicMeta = TOPIC_META[primaryTopic];
-  const isVideo = article.imageUrl?.includes('img.youtube.com');
+export function ArticleCard({ article, prefs, onOpen, onSave, onUpvote, onDownvote }: Props) {
+  const saved     = prefs.savedIds.includes(article.id);
+  const votedUp   = prefs.upvotedIds.includes(article.id);
+  const votedDown = prefs.downvotedIds.includes(article.id);
 
-  const { cardRef, imageUrl } = useLazyOGImage(article.url, article.imageUrl);
+  const [dismissed, setDismissed] = useState(false);
+
+  const primaryTopic = article.topics[0];
+  const topicMeta    = TOPIC_META[primaryTopic];
+  const isVideo      = article.imageUrl?.includes('img.youtube.com');
+
+  const { cardRef, imageUrl, onImageError } = useLazyOGImage(article.url, article.imageUrl);
+
+  const handleDownvote = () => {
+    setDismissed(true);
+    // Small delay so the fade-out animation plays before React removes the card
+    setTimeout(() => onDownvote(article), 280);
+  };
+
+  const handleUpvote = () => {
+    onUpvote(article);
+  };
 
   return (
-    <article className="card" ref={cardRef as React.RefObject<HTMLElement>}>
+    <article
+      className={`card ${dismissed ? 'card-dismissed' : ''}`}
+      ref={cardRef as React.RefObject<HTMLElement>}
+    >
       {imageUrl && (
         <a
           href={article.url}
@@ -81,7 +125,7 @@ export function ArticleCard({ article, prefs, onOpen, onSave }: Props) {
             alt=""
             className="card-image"
             loading="lazy"
-            onError={e => { (e.target as HTMLImageElement).closest('.card-image-link')?.remove(); }}
+            onError={() => onImageError()}
           />
           {isVideo && (
             <span className="card-play-btn" aria-label="Play video">▶</span>
@@ -124,14 +168,33 @@ export function ArticleCard({ article, prefs, onOpen, onSave }: Props) {
           >
             {isVideo ? 'Watch →' : 'Read →'}
           </a>
-          <button
-            className={`btn-save ${saved ? 'saved' : ''}`}
-            onClick={() => onSave(article.id)}
-            aria-label={saved ? 'Remove bookmark' : 'Bookmark'}
-            title={saved ? 'Remove bookmark' : 'Bookmark'}
-          >
-            {saved ? '★' : '☆'}
-          </button>
+
+          <div className="card-vote-group">
+            <button
+              className={`btn-vote btn-upvote ${votedUp ? 'active' : ''}`}
+              onClick={handleUpvote}
+              aria-label="More like this"
+              title="More like this"
+            >
+              ▲
+            </button>
+            <button
+              className={`btn-vote btn-downvote ${votedDown ? 'active' : ''}`}
+              onClick={handleDownvote}
+              aria-label="Less like this"
+              title="Less like this"
+            >
+              ▼
+            </button>
+            <button
+              className={`btn-save ${saved ? 'saved' : ''}`}
+              onClick={() => onSave(article.id)}
+              aria-label={saved ? 'Remove bookmark' : 'Bookmark'}
+              title={saved ? 'Remove bookmark' : 'Bookmark'}
+            >
+              {saved ? '★' : '☆'}
+            </button>
+          </div>
         </div>
       </div>
     </article>

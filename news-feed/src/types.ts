@@ -32,13 +32,17 @@ export interface NewsSource {
 }
 
 export interface UserPrefs {
-  topicWeights: Partial<Record<Topic, number>>;
-  sourceWeights: Record<string, number>;
-  readIds: string[];
-  savedIds: string[];
-  seenIds: string[];       // articles shown in feed — filtered on next refresh
+  topicWeights:   Partial<Record<Topic, number>>;
+  sourceWeights:  Record<string, number>;
+  keywordWeights: Record<string, number>;  // per-word learned signal
+  readIds:        string[];
+  savedIds:       string[];
+  seenIds:        string[];       // articles shown in feed — filtered on next refresh
+  upvotedIds:     string[];       // explicit likes
+  downvotedIds:   string[];       // permanently hidden
+  lastDecayAt:    number;         // timestamp for periodic weight decay
   enabledSources: string[];
-  enabledTopics: Topic[];
+  enabledTopics:  Topic[];
 }
 
 export type FeedView = 'feed' | 'saved' | 'settings';

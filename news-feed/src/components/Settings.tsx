@@ -9,10 +9,11 @@ interface Props {
   prefs: UserPrefs;
   onToggleSource: (id: string) => void;
   onToggleTopic: (topic: Topic) => void;
+  onResetPrefs: () => void;
   onClose: () => void;
 }
 
-export function Settings({ prefs, onToggleSource, onToggleTopic, onClose }: Props) {
+export function Settings({ prefs, onToggleSource, onToggleTopic, onResetPrefs, onClose }: Props) {
   return (
     <div className="settings-overlay" role="dialog" aria-modal="true" aria-label="Settings">
       <div className="settings-panel">
@@ -69,6 +70,16 @@ export function Settings({ prefs, onToggleSource, onToggleTopic, onClose }: Prop
               );
             })}
           </div>
+        </section>
+
+        <section className="settings-section">
+          <h3>Preferences</h3>
+          <p className="settings-hint">
+            Reset all learned weights from votes and reading history. Source and topic toggles are preserved.
+          </p>
+          <button className="btn-reset-prefs" onClick={() => { onResetPrefs(); onClose(); }}>
+            Reset learned preferences
+          </button>
         </section>
 
         <section className="settings-section">

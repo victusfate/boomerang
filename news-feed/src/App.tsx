@@ -22,10 +22,10 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 
 export default function App() {
   const {
-    visibleArticles, hasMore, totalLoaded,
+    visibleArticles, savedArticles, hasMore, totalLoaded,
     loading, refreshing, loadingMore, error, prefs, lastRefresh,
-    onOpen, onSave, onLoadMore,
-    onToggleSource, onToggleTopic, onRefresh,
+    onOpen, onSave, onUpvote, onDownvote, onLoadMore,
+    onToggleSource, onToggleTopic, onResetPrefs, onRefresh,
   } = useFeed();
 
   const [view, setView] = useState<FeedView>('feed');
@@ -53,14 +53,13 @@ export default function App() {
   }, [hasMore, loading, loadingMore, onLoadMore, view]);
 
   const filteredArticles = useMemo(() => {
-    let list = view === 'saved'
-      ? visibleArticles.filter(a => prefs.savedIds.includes(a.id))
-      : visibleArticles;
+    // Saved view uses the raw article pool (not the seen-filtered ranked list)
+    let list = view === 'saved' ? savedArticles : visibleArticles;
     if (topicFilter) {
       list = list.filter(a => a.topics.includes(topicFilter));
     }
     return list;
-  }, [visibleArticles, view, topicFilter, prefs.savedIds]);
+  }, [visibleArticles, savedArticles, view, topicFilter]);
 
   function formatLastRefresh() {
     if (!lastRefresh) return '';
@@ -154,6 +153,8 @@ export default function App() {
             prefs={prefs}
             onOpen={onOpen}
             onSave={onSave}
+            onUpvote={onUpvote}
+            onDownvote={onDownvote}
           />
         ))}
 
@@ -194,6 +195,7 @@ export default function App() {
           prefs={prefs}
           onToggleSource={onToggleSource}
           onToggleTopic={onToggleTopic}
+          onResetPrefs={onResetPrefs}
           onClose={() => setShowSettings(false)}
         />
       )}
