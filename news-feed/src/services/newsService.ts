@@ -63,8 +63,20 @@ export const DEFAULT_SOURCES: NewsSource[] = [
 const MISSING_WORKER_MSG =
   'RSS is served only via the Cloudflare Worker. Set VITE_RSS_WORKER_URL (e.g. https://boomerang-rss.boomerang.workers.dev or http://127.0.0.1:8787 for wrangler dev) and rebuild.';
 
+/** Worker origin (bundle + `/og-image`). Throws if env is unset — same as `fetchAllSources`. */
+export function getRssWorkerBaseUrl(): string {
+  if (!RSS_WORKER_URL) throw new Error(MISSING_WORKER_MSG);
+  return RSS_WORKER_URL;
+}
+
+function isYoutubeSourceId(id: string): boolean {
+  return id.startsWith('yt-');
+}
+
 /**
- * Fetches all enabled sources in one Worker request (`GET /bundle?include=...`).
+ * Fetches enabled sources via the Worker (`GET /bundle?include=...`).
+ * Text RSS and YouTube Atom feeds are requested in parallel as two bundle calls so each
+ * Cloudflare Worker invocation stays under the per-invocation subrequest limit (~50).
  * No browser-side RSS or CORS-proxy fallback — misconfigured builds fail fast.
  */
 export async function fetchAllSources(
@@ -77,25 +89,51 @@ export async function fetchAllSources(
   return fetchAllSourcesViaWorker(sources, onBatch);
 }
 
+async function fetchBundleJson(ids: string[]): Promise<{
+  articles: Array<Omit<Article, 'publishedAt' | 'score'> & { publishedAt: string }>;
+}> {
+  const qs = ids.join(',');
+  const url = `${RSS_WORKER_URL}/bundle?include=${encodeURIComponent(qs)}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Feed service returned ${res.status}`);
+  }
+  return res.json();
+}
+
+function mapBundleArticles(
+  data: Array<Omit<Article, 'publishedAt' | 'score'> & { publishedAt: string }>,
+): Article[] {
+  return data.map(a => ({
+    ...a,
+    publishedAt: new Date(a.publishedAt),
+  }));
+}
+
 async function fetchAllSourcesViaWorker(
   sources: NewsSource[],
   onBatch?: (articles: Article[]) => void,
 ): Promise<Article[]> {
   if (sources.length === 0) return [];
 
-  const qs = sources.map(s => s.id).join(',');
-  const url = `${RSS_WORKER_URL}/bundle?include=${encodeURIComponent(qs)}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Feed service returned ${res.status}`);
+  const ytIds = sources.filter(s => isYoutubeSourceId(s.id)).map(s => s.id);
+  const nonYtIds = sources.filter(s => !isYoutubeSourceId(s.id)).map(s => s.id);
+
+  let raw: Array<Omit<Article, 'publishedAt' | 'score'> & { publishedAt: string }>;
+
+  if (ytIds.length === 0) {
+    raw = (await fetchBundleJson(nonYtIds)).articles;
+  } else if (nonYtIds.length === 0) {
+    raw = (await fetchBundleJson(ytIds)).articles;
+  } else {
+    const [nonYtData, ytData] = await Promise.all([
+      fetchBundleJson(nonYtIds),
+      fetchBundleJson(ytIds),
+    ]);
+    raw = [...nonYtData.articles, ...ytData.articles];
   }
-  const data = (await res.json()) as {
-    articles: Array<Omit<Article, 'publishedAt' | 'score'> & { publishedAt: string }>;
-  };
-  const articles: Article[] = data.articles.map(a => ({
-    ...a,
-    publishedAt: new Date(a.publishedAt),
-  }));
+
+  const articles = mapBundleArticles(raw);
   if (articles.length > 0) {
     onBatch?.(articles);
   }

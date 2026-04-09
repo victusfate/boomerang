@@ -1,39 +1,34 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Article, UserPrefs } from '../types';
+import { getRssWorkerBaseUrl } from '../services/newsService';
 import { TOPIC_META } from './TopicFilter';
 
-const OG_REGEX =
-  /property=["']og:image["'][^>]*content=["']([^"'>"]+)["']|content=["']([^"'>"]+)["'][^>]*property=["']og:image["']/i;
+/** Resolve image hrefs against the article page so relative paths are not loaded from the SPA origin. */
+function resolveArticleImageUrl(raw: string, articlePageUrl: string): string | undefined {
+  const t = raw.trim();
+  if (!t) return undefined;
+  if (t.startsWith('?') || t.startsWith('&')) return undefined;
+  try {
+    const u = new URL(t, articlePageUrl);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return undefined;
+    return u.href;
+  } catch {
+    return undefined;
+  }
+}
 
-// Try both CORS proxies; return the first og:image found, or undefined.
-async function fetchOGImage(url: string): Promise<string | undefined> {
+/** Lazy og:image via Cloudflare Worker (`GET /og-image`) — no third-party CORS proxies. */
+async function fetchOGImage(articlePageUrl: string): Promise<string | undefined> {
   const signal = AbortSignal.timeout(10000);
-
-  const tryPrimary = fetch(
-    `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`, { signal }
-  ).then(r => r.json()).then((d: { contents?: string }) => {
-    const m = d.contents?.match(OG_REGEX);
-    const img = m?.[1] ?? m?.[2];
-    if (!img) throw new Error('no og:image');
-    return img;
-  });
-
-  const tryFallback = fetch(
-    `https://corsproxy.io/?${encodeURIComponent(url)}`, { signal }
-  ).then(r => r.text()).then(html => {
-    const m = html.match(OG_REGEX);
-    const img = m?.[1] ?? m?.[2];
-    if (!img) throw new Error('no og:image');
-    return img;
-  });
-
-  // Return whichever resolves first; if both fail, return undefined.
-  return new Promise<string | undefined>(resolve => {
-    let failures = 0;
-    const fail = () => { if (++failures === 2) resolve(undefined); };
-    tryPrimary.then(resolve).catch(fail);
-    tryFallback.then(resolve).catch(fail);
-  });
+  const base = getRssWorkerBaseUrl();
+  const res = await fetch(
+    `${base}/og-image?url=${encodeURIComponent(articlePageUrl)}`,
+    { signal },
+  );
+  if (!res.ok) return undefined;
+  const d = (await res.json()) as { imageUrl: string | null };
+  if (!d.imageUrl) return undefined;
+  return resolveArticleImageUrl(d.imageUrl, articlePageUrl) ?? d.imageUrl;
 }
 
 function useLazyOGImage(articleUrl: string, existingImage?: string) {
@@ -53,7 +48,9 @@ function useLazyOGImage(articleUrl: string, existingImage?: string) {
       entries => {
         if (!entries[0].isIntersecting) return;
         observer.disconnect();
-        fetchOGImage(articleUrl).then(img => { if (img) setLazyImg(img); }).catch(() => {});
+        fetchOGImage(articleUrl).then(img => {
+          if (img) setLazyImg(img);
+        }).catch(() => {});
       },
       { rootMargin: '400px' },
     );
@@ -62,7 +59,8 @@ function useLazyOGImage(articleUrl: string, existingImage?: string) {
     return () => observer.disconnect();
   }, [articleUrl, shouldFetch]);
 
-  const imageUrl = imgFailed ? lazyImg : (existingImage ?? lazyImg);
+  const raw = imgFailed ? lazyImg : (existingImage ?? lazyImg);
+  const imageUrl = raw ? resolveArticleImageUrl(raw, articleUrl) : undefined;
   return { cardRef, imageUrl, onImageError: () => setImgFailed(true) };
 }
 

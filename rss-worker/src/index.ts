@@ -1,11 +1,10 @@
 import { DEFAULT_SOURCES, SOURCE_BY_ID, type NewsSource } from './sources';
 import { fetchFeedsStaggered } from './rssFetch';
+import { extractOgImageFromHtml, isAllowedOgFetchUrl } from './ogImage';
 
 /** Production + explicit dev URLs. Local Vite may use any port — see `isAllowedOrigin`. */
 const ALLOWED_ORIGINS = [
   'https://victusfate.github.io',
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
   'http://localhost:4173',
   'http://127.0.0.1:4173',
 ];
@@ -103,6 +102,44 @@ export default {
         fetchedAt: Date.now(),
       };
 
+      const response = json(body, request);
+      ctx.waitUntil(cache.put(cacheKey, response.clone()));
+      return response;
+    }
+
+    /** Lazy card images: fetch article HTML in the Worker (no browser CORS) and return og:image URL. */
+    if (url.pathname === '/og-image' && request.method === 'GET') {
+      const target = url.searchParams.get('url');
+      if (!target || !isAllowedOgFetchUrl(target)) {
+        return json({ imageUrl: null }, request, { status: 400 });
+      }
+
+      const cacheKey = new Request(url.toString(), { method: 'GET' });
+      const cache = caches.default;
+      const cached = await cache.match(cacheKey);
+      if (cached) {
+        const h = new Headers(cached.headers);
+        const cors = corsHeaders(request);
+        cors.forEach((v, k) => h.set(k, v));
+        return new Response(cached.body, { status: cached.status, headers: h });
+      }
+
+      let html: string;
+      try {
+        const upstream = await fetch(target, {
+          redirect: 'follow',
+          headers: { 'User-Agent': 'BoomerangRSS/1.0 (og-image; +https://github.com/victusfate/boomerang)' },
+        });
+        if (!upstream.ok) {
+          return json({ imageUrl: null }, request, { status: 502 });
+        }
+        html = await upstream.text();
+      } catch {
+        return json({ imageUrl: null }, request, { status: 502 });
+      }
+
+      const resolved = extractOgImageFromHtml(html, target);
+      const body = { imageUrl: resolved ?? null };
       const response = json(body, request);
       ctx.waitUntil(cache.put(cacheKey, response.clone()));
       return response;

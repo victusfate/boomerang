@@ -58,18 +58,34 @@ function decodeEntities(text: string): string {
 
 function extractYouTubeThumbnail(text: string): string | undefined {
   const match = text.match(
-    /(?:youtube\.com\/watch\?[^"'\s]*v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/
+    /(?:youtube\.com\/watch\?[^"'\s]*v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/
   );
   return match ? `https://img.youtube.com/vi/${match[1]}/hqdefault.jpg` : undefined;
+}
+
+/** Resolve RSS/HTML image hrefs against the article link so paths are not resolved against the SPA origin in the browser. */
+function resolveArticleImageUrl(raw: string, articlePageUrl: string): string | undefined {
+  const t = raw.trim();
+  if (!t) return undefined;
+  if (t.startsWith('?') || t.startsWith('&')) return undefined;
+  try {
+    const u = new URL(t, articlePageUrl);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return undefined;
+    return u.href;
+  } catch {
+    return undefined;
+  }
 }
 
 function extractImageFromDescription(rawDesc: string, articleUrl: string): string | undefined {
   const ytThumb = extractYouTubeThumbnail(articleUrl + ' ' + rawDesc);
   if (ytThumb) return ytThumb;
   const ogMatch = rawDesc.match(/property=["']og:image["'][^>]*content=["']([^"'>"]+)["']|content=["']([^"'>"]+)["'][^>]*property=["']og:image["']/i);
-  if (ogMatch) return ogMatch[1] ?? ogMatch[2];
+  const og = ogMatch?.[1] ?? ogMatch?.[2];
+  if (og) return resolveArticleImageUrl(og, articleUrl);
   const imgMatch = rawDesc.match(/<img[^>]+src=["']([^"']+)["']/i);
-  return imgMatch?.[1];
+  if (imgMatch?.[1]) return resolveArticleImageUrl(imgMatch[1], articleUrl);
+  return undefined;
 }
 
 function textVal(v: unknown): string {
