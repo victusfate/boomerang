@@ -23,7 +23,7 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 export default function App() {
   const {
     visibleArticles, savedArticles, hasMore, totalLoaded,
-    loading, refreshing, error, prefs, lastRefresh,
+    loading, refreshing, fetching, error, prefs, lastRefresh,
     onOpen, onSave, onUpvote, onDownvote, onLoadMore,
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
   } = useFeed();
@@ -53,13 +53,18 @@ export default function App() {
   }, [view]); // only recreate when switching views
 
   const filteredArticles = useMemo(() => {
-    // Saved view uses the raw article pool (not the seen-filtered ranked list)
     let list = view === 'saved' ? savedArticles : visibleArticles;
-    if (topicFilter) {
-      list = list.filter(a => a.topics.includes(topicFilter));
-    }
+    if (topicFilter) list = list.filter(a => a.topics.includes(topicFilter));
     return list;
   }, [visibleArticles, savedArticles, view, topicFilter]);
+
+  // When a topic filter is active and the visible slice has no matches yet,
+  // automatically load more so the user isn't stuck on a false empty state.
+  useEffect(() => {
+    if (!topicFilter || view !== 'feed') return;
+    if (fetching || loading || !hasMore) return;
+    if (filteredArticles.length === 0) onLoadMore();
+  }, [topicFilter, view, fetching, loading, hasMore, filteredArticles.length, onLoadMore]);
 
   function formatLastRefresh() {
     if (!lastRefresh) return '';
@@ -162,7 +167,7 @@ export default function App() {
         {view === 'feed' && <div ref={sentinelRef} className="sentinel" aria-hidden="true" />}
 
         {/* All caught up */}
-        {!loading && !refreshing && !hasMore && visibleArticles.length > 0 && view === 'feed' && !topicFilter && (
+        {!loading && !fetching && !hasMore && visibleArticles.length > 0 && view === 'feed' && !topicFilter && (
           <div className="feed-end">
             <span className="feed-end-icon">✓</span>
             <p>All caught up</p>
@@ -170,13 +175,13 @@ export default function App() {
           </div>
         )}
 
-        {!loading && !refreshing && filteredArticles.length === 0 && !error && (
+        {!loading && !fetching && filteredArticles.length === 0 && !error && (
           <div className="feed-empty">
             {view === 'saved' ? (
               prefs.savedIds.length > 0
                 ? <p>Loading saved articles…</p>
                 : <p>No saved articles yet. Tap ☆ to bookmark.</p>
-            ) : (
+            ) : topicFilter && hasMore ? null : (
               <p>No articles match this filter.</p>
             )}
           </div>
