@@ -26,6 +26,7 @@ export default function App() {
     loading, refreshing, fetching, error, prefs, lastRefresh,
     onOpen, onSave, onUpvote, onDownvote, onSeen, onLoadMore,
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
+    onAddCustomSource, onRemoveCustomSource, onExportBookmark, onImportBookmark,
   } = useFeed();
 
   const [view, setView] = useState<FeedView>('feed');
@@ -197,6 +198,10 @@ export default function App() {
           onResetPrefs={onResetPrefs}
           onClearViewed={onClearViewed}
           onClose={() => setShowSettings(false)}
+          onAddCustomSource={onAddCustomSource}
+          onRemoveCustomSource={onRemoveCustomSource}
+          onExportBookmark={onExportBookmark}
+          onImportBookmark={onImportBookmark}
         />
       )}
     </>

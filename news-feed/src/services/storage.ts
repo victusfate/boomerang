@@ -1,7 +1,7 @@
 // Pure utility functions for prefs manipulation.
 // Persistence is handled by Fireproof in useFeed.ts.
 
-import type { Article, Topic, UserPrefs } from '../types';
+import type { Article, CustomSource, Topic, UserPrefs } from '../types';
 
 export const DEFAULT_PREFS: UserPrefs = {
   topicWeights:   {},
@@ -15,6 +15,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   lastDecayAt:    0,
   enabledSources: [],   // empty = all enabled
   enabledTopics:  [],   // empty = all enabled
+  customSources:  [],
 };
 
 // ── Keyword extraction ────────────────────────────────────────────────────────
@@ -196,4 +197,77 @@ export function resetLearnedWeights(prefs: UserPrefs): UserPrefs {
 
 export function clearViewedCache(prefs: UserPrefs): UserPrefs {
   return { ...prefs, seenIds: [], readIds: [] };
+}
+
+// ── Custom sources ────────────────────────────────────────────────────────────
+
+export function addCustomSource(source: CustomSource, prefs: UserPrefs): UserPrefs {
+  if (prefs.customSources.some(s => s.id === source.id)) return prefs;
+  return { ...prefs, customSources: [...prefs.customSources, source] };
+}
+
+export function removeCustomSource(id: string, prefs: UserPrefs): UserPrefs {
+  return { ...prefs, customSources: prefs.customSources.filter(s => s.id !== id) };
+}
+
+// ── Bookmark export / import ──────────────────────────────────────────────────
+// Encodes key preferences as a base64 URL fragment for cross-device restore.
+// Uses TextEncoder so non-ASCII source names survive the round-trip.
+
+interface BookmarkPayload {
+  v: 1;
+  upvotedIds:    string[];
+  downvotedIds:  string[];
+  savedIds:      string[];
+  readIds:       string[];
+  customSources: CustomSource[];
+  enabledSources: string[];
+  enabledTopics:  string[];
+  topicWeights:   Partial<Record<Topic, number>>;
+  sourceWeights:  Record<string, number>;
+  keywordWeights: Record<string, number>;
+}
+
+export function exportPrefsBookmark(prefs: UserPrefs): string {
+  const payload: BookmarkPayload = {
+    v: 1,
+    upvotedIds:    prefs.upvotedIds,
+    downvotedIds:  prefs.downvotedIds,
+    savedIds:      prefs.savedIds,
+    readIds:       prefs.readIds,
+    customSources: prefs.customSources,
+    enabledSources: prefs.enabledSources,
+    enabledTopics:  prefs.enabledTopics as string[],
+    topicWeights:   prefs.topicWeights,
+    sourceWeights:  prefs.sourceWeights,
+    keywordWeights: prefs.keywordWeights,
+  };
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  let binary = '';
+  bytes.forEach(b => { binary += String.fromCharCode(b); });
+  return btoa(binary);
+}
+
+export function importPrefsBookmark(encoded: string): Partial<UserPrefs> | null {
+  try {
+    const binary = atob(encoded.trim());
+    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+    const json = new TextDecoder().decode(bytes);
+    const p = JSON.parse(json) as Partial<BookmarkPayload>;
+    if (p.v !== 1) return null;
+    const out: Partial<UserPrefs> = {};
+    if (Array.isArray(p.upvotedIds))    out.upvotedIds    = p.upvotedIds;
+    if (Array.isArray(p.downvotedIds))  out.downvotedIds  = p.downvotedIds;
+    if (Array.isArray(p.savedIds))      out.savedIds      = p.savedIds;
+    if (Array.isArray(p.readIds))       out.readIds       = p.readIds;
+    if (Array.isArray(p.customSources)) out.customSources = p.customSources;
+    if (Array.isArray(p.enabledSources)) out.enabledSources = p.enabledSources;
+    if (Array.isArray(p.enabledTopics))  out.enabledTopics  = p.enabledTopics as Topic[];
+    if (p.topicWeights && typeof p.topicWeights === 'object')   out.topicWeights   = p.topicWeights;
+    if (p.sourceWeights && typeof p.sourceWeights === 'object') out.sourceWeights  = p.sourceWeights;
+    if (p.keywordWeights && typeof p.keywordWeights === 'object') out.keywordWeights = p.keywordWeights;
+    return out;
+  } catch {
+    return null;
+  }
 }

@@ -7,8 +7,9 @@ import {
   markRead, markSeen, toggleSaved,
   boostTopic, toggleSource, toggleTopic, isSourceEnabled,
   upvote, downvote, applyDecay, resetLearnedWeights, clearViewedCache,
+  addCustomSource, removeCustomSource, exportPrefsBookmark, importPrefsBookmark,
 } from '../services/storage';
-import type { Article, Topic, UserPrefs } from '../types';
+import type { Article, CustomSource, Topic, UserPrefs } from '../types';
 
 const PAGE_SIZE   = 5;
 const CACHE_TTL   = 15 * 60 * 1000;
@@ -148,7 +149,7 @@ export function useFeed() {
 
     let feedSuccess = false;
     try {
-      const all = await fetchAllSources(activeSources, onBatch);
+      const all = await fetchAllSources(activeSources, currentPrefs.customSources ?? [], onBatch);
       if (fetchIdRef.current !== myFetchId) return; // superseded — bail out
 
       if (all.length === 0) {
@@ -299,6 +300,48 @@ export function useFeed() {
     refresh(prefsRef.current, true);
   }, [refresh]);
 
+  // ── Custom sources ────────────────────────────────────────────────────────────
+  const handleAddCustomSource = useCallback((source: CustomSource) => {
+    const next = addCustomSource(source, prefsRef.current);
+    updatePrefs(next);
+    fetchIdRef.current++;
+    fetchingRef.current = false;
+    refresh(next, false); // background merge — prepend new articles
+  }, [updatePrefs, refresh]);
+
+  const handleRemoveCustomSource = useCallback((id: string) => {
+    const next = removeCustomSource(id, prefsRef.current);
+    updatePrefs(next);
+    fetchIdRef.current++;
+    fetchingRef.current = false;
+    refresh(next, true); // explicit — re-rank without removed source's articles
+  }, [updatePrefs, refresh]);
+
+  // ── Bookmark export / import ──────────────────────────────────────────────────
+  const handleExportBookmark = useCallback((): string => {
+    const encoded = exportPrefsBookmark(prefsRef.current);
+    const url = new URL(window.location.href);
+    url.hash = `bm=${encoded}`;
+    return url.toString();
+  }, []);
+
+  const handleImportBookmark = useCallback((encoded: string): boolean => {
+    // Accept either a full URL (extract hash) or a bare base64 string
+    let b64 = encoded.trim();
+    try {
+      const hashIdx = b64.indexOf('#bm=');
+      if (hashIdx !== -1) b64 = b64.slice(hashIdx + 4);
+    } catch { /* not a URL — use as-is */ }
+    const imported = importPrefsBookmark(b64);
+    if (!imported) return false;
+    const next: UserPrefs = { ...DEFAULT_PREFS, ...prefsRef.current, ...imported };
+    updatePrefs(next);
+    fetchIdRef.current++;
+    fetchingRef.current = false;
+    refresh(next, true);
+    return true;
+  }, [updatePrefs, refresh]);
+
   const savedArticles = articlePool.filter(a => prefs.savedIds.includes(a.id));
 
   return {
@@ -318,10 +361,14 @@ export function useFeed() {
     onDownvote:     handleDownvote,
     onSeen:         handleSeen,
     onLoadMore:     loadMore,
-    onToggleSource: handleToggleSource,
-    onToggleTopic:  handleToggleTopic,
-    onResetPrefs:   handleResetPrefs,
-    onClearViewed:  handleClearViewed,
-    onRefresh:      handleRefresh,
+    onToggleSource:      handleToggleSource,
+    onToggleTopic:       handleToggleTopic,
+    onResetPrefs:        handleResetPrefs,
+    onClearViewed:       handleClearViewed,
+    onRefresh:           handleRefresh,
+    onAddCustomSource:   handleAddCustomSource,
+    onRemoveCustomSource: handleRemoveCustomSource,
+    onExportBookmark:    handleExportBookmark,
+    onImportBookmark:    handleImportBookmark,
   };
 }

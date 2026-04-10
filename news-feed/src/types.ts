@@ -31,6 +31,12 @@ export interface NewsSource {
   priority?: 1 | 2;  // 1 = render first; 2 = background batch (default)
 }
 
+export interface CustomSource {
+  id: string;       // e.g. 'custom-1abc2'
+  name: string;     // display name
+  feedUrl: string;  // RSS/Atom feed URL
+}
+
 export interface UserPrefs {
   topicWeights:   Partial<Record<Topic, number>>;
   sourceWeights:  Record<string, number>;
@@ -43,6 +49,7 @@ export interface UserPrefs {
   lastDecayAt:    number;         // timestamp for periodic weight decay
   enabledSources: string[];
   enabledTopics:  Topic[];
+  customSources:  CustomSource[];
 }
 
 export type FeedView = 'feed' | 'saved' | 'settings';
