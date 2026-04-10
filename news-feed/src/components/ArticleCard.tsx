@@ -86,6 +86,9 @@ function timeAgo(date: Date): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+/** ms the card must be ≥50% visible before it counts as "seen" */
+const DWELL_MS = 3_000;
+
 interface Props {
   article: Article;
   prefs: UserPrefs;
@@ -93,9 +96,10 @@ interface Props {
   onSave: (id: string) => void;
   onUpvote: (article: Article) => void;
   onDownvote: (article: Article) => void;
+  onSeen?: (id: string) => void;
 }
 
-export function ArticleCard({ article, prefs, onOpen, onSave, onUpvote, onDownvote }: Props) {
+export function ArticleCard({ article, prefs, onOpen, onSave, onUpvote, onDownvote, onSeen }: Props) {
   const saved     = prefs.savedIds.includes(article.id);
   const votedUp   = prefs.upvotedIds.includes(article.id);
   const votedDown = prefs.downvotedIds.includes(article.id);
@@ -110,6 +114,23 @@ export function ArticleCard({ article, prefs, onOpen, onSave, onUpvote, onDownvo
     || /youtube\.com|youtu\.be/i.test(navUrl);
 
   const { cardRef, imageUrl, onImageError } = useLazyOGImage(navUrl, article.imageUrl);
+
+  // Mark as seen after DWELL_MS of ≥50% visibility
+  useEffect(() => {
+    if (!onSeen) return;
+    const el = cardRef.current;
+    if (!el) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        if (!timer) timer = setTimeout(() => { onSeen(article.id); timer = null; }, DWELL_MS);
+      } else {
+        if (timer) { clearTimeout(timer); timer = null; }
+      }
+    }, { threshold: 0.5 });
+    observer.observe(el);
+    return () => { observer.disconnect(); if (timer) clearTimeout(timer); };
+  }, [article.id, onSeen]); // cardRef is stable — excluded intentionally
 
   const handleDownvote = () => {
     setDismissed(true);

@@ -24,7 +24,7 @@ export default function App() {
   const {
     visibleArticles, savedArticles, hasMore, totalLoaded,
     loading, refreshing, fetching, error, prefs, lastRefresh,
-    onOpen, onSave, onUpvote, onDownvote, onLoadMore,
+    onOpen, onSave, onUpvote, onDownvote, onSeen, onLoadMore,
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
   } = useFeed();
 
@@ -160,6 +160,7 @@ export default function App() {
             onSave={onSave}
             onUpvote={onUpvote}
             onDownvote={onDownvote}
+            onSeen={onSeen}
           />
         ))}
 

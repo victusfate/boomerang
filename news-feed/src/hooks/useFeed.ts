@@ -219,20 +219,17 @@ export function useFeed() {
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [lastRefresh]); // only reset timer when lastRefresh changes — not on refresh identity change
 
-  // ── Mark articles as seen when they enter the visible window ─────────────────
-  useEffect(() => {
-    if (allArticles.length === 0) return;
-    const batch    = allArticles.slice(0, visibleCount);
-    const freshIds = batch.map(a => a.id).filter(id => !markedSeenRef.current.has(id));
-    if (freshIds.length === 0) return;
-    freshIds.forEach(id => markedSeenRef.current.add(id));
-    // Use functional updater pattern to avoid concurrent lost-update race
+  // ── Mark a single article as seen after the user has dwelt on it ─────────────
+  // Called by ArticleCard via IntersectionObserver + dwell timer (see ArticleCard.tsx).
+  const handleSeen = useCallback((id: string) => {
+    if (markedSeenRef.current.has(id)) return; // already counted this session
+    markedSeenRef.current.add(id);
     setPrefsState(prev => {
-      const next = markSeen(freshIds, prev);
+      const next = markSeen([id], prev);
       database.put({ _id: PREFS_ID, ...next } as PrefsDoc).catch(console.error);
       return next;
     });
-  }, [visibleCount, allArticles, database]);
+  }, [database]);
 
   // ── Pagination ────────────────────────────────────────────────────────────────
   const loadMore = useCallback(() => {
@@ -319,6 +316,7 @@ export function useFeed() {
     onSave:         handleSave,
     onUpvote:       handleUpvote,
     onDownvote:     handleDownvote,
+    onSeen:         handleSeen,
     onLoadMore:     loadMore,
     onToggleSource: handleToggleSource,
     onToggleTopic:  handleToggleTopic,
