@@ -242,15 +242,14 @@ export function useFeed() {
 
   const handleUpvote = useCallback((article: Article) => {
     updatePrefs(upvote(article, prefsRef.current));
-    // No re-rank: upvoted card stays visible; button highlight comes from prefs.upvotedIds.
-    // Weights take effect on the next feed refresh.
+    // No re-rank: card stays visible; ▲ highlight comes from prefs.upvotedIds.
   }, [updatePrefs]);
 
   const handleDownvote = useCallback((article: Article) => {
-    const next = downvote(article, prefsRef.current);
-    updatePrefs(next);
-    const pool = articlePoolRef.current;
-    setAllArticles(prev => rankFeed(pool.length ? pool : prev, next));
+    updatePrefs(downvote(article, prefsRef.current));
+    // Splice out only the downvoted card — avoid rankFeed(pool) which would also
+    // filter seenIds and collapse the rest of the visible feed.
+    setAllArticles(prev => prev.filter(a => a.id !== article.id));
   }, [updatePrefs]);
 
   const handleToggleSource = useCallback((sourceId: string) => {
