@@ -1,4 +1,4 @@
-import type { Article, NewsSource } from '../types';
+import type { Article, CustomSource, NewsSource } from '../types';
 
 /** Set at build time to Cloudflare Worker origin (e.g. https://boomerang-rss.xxx.workers.dev) */
 const RSS_WORKER_URL = import.meta.env.VITE_RSS_WORKER_URL?.replace(/\/$/, '') ?? '';
@@ -81,19 +81,27 @@ function isYoutubeSourceId(id: string): boolean {
  */
 export async function fetchAllSources(
   sources: NewsSource[],
+  customSources: CustomSource[],
   onBatch?: (articles: Article[]) => void,
 ): Promise<Article[]> {
   if (!RSS_WORKER_URL) {
     throw new Error(MISSING_WORKER_MSG);
   }
-  return fetchAllSourcesViaWorker(sources, onBatch);
+  return fetchAllSourcesViaWorker(sources, customSources, onBatch);
 }
 
-async function fetchBundleJson(ids: string[]): Promise<{
+async function fetchBundleJson(ids: string[], customSources: CustomSource[] = []): Promise<{
   articles: Array<Omit<Article, 'publishedAt' | 'score'> & { publishedAt: string }>;
 }> {
   const qs = ids.join(',');
-  const url = `${RSS_WORKER_URL}/bundle?include=${encodeURIComponent(qs)}`;
+  let url = `${RSS_WORKER_URL}/bundle?include=${encodeURIComponent(qs)}`;
+  if (customSources.length > 0) {
+    const payload = customSources.map(s => ({ id: s.id, name: s.name, feedUrl: s.feedUrl }));
+    const bytes = new TextEncoder().encode(JSON.stringify(payload));
+    let binary = '';
+    bytes.forEach(b => { binary += String.fromCharCode(b); });
+    url += `&customFeeds=${encodeURIComponent(btoa(binary))}`;
+  }
   const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) {
     throw new Error(`Feed service returned ${res.status}`);
@@ -112,22 +120,25 @@ function mapBundleArticles(
 
 async function fetchAllSourcesViaWorker(
   sources: NewsSource[],
+  customSources: CustomSource[],
   onBatch?: (articles: Article[]) => void,
 ): Promise<Article[]> {
-  if (sources.length === 0) return [];
+  if (sources.length === 0 && customSources.length === 0) return [];
 
-  const ytIds = sources.filter(s => isYoutubeSourceId(s.id)).map(s => s.id);
+  const ytIds    = sources.filter(s =>  isYoutubeSourceId(s.id)).map(s => s.id);
   const nonYtIds = sources.filter(s => !isYoutubeSourceId(s.id)).map(s => s.id);
+  // Custom sources go with the non-YT bundle call to avoid a third round-trip
+  const needsNonYtCall = nonYtIds.length > 0 || customSources.length > 0;
 
   let raw: Array<Omit<Article, 'publishedAt' | 'score'> & { publishedAt: string }>;
 
-  if (ytIds.length === 0) {
-    raw = (await fetchBundleJson(nonYtIds)).articles;
-  } else if (nonYtIds.length === 0) {
+  if (!needsNonYtCall) {
     raw = (await fetchBundleJson(ytIds)).articles;
+  } else if (ytIds.length === 0) {
+    raw = (await fetchBundleJson(nonYtIds, customSources)).articles;
   } else {
     const [nonYtData, ytData] = await Promise.all([
-      fetchBundleJson(nonYtIds),
+      fetchBundleJson(nonYtIds, customSources),
       fetchBundleJson(ytIds),
     ]);
     raw = [...nonYtData.articles, ...ytData.articles];

@@ -61,6 +61,31 @@ function resolveSources(searchParams: URLSearchParams): NewsSource[] {
   return out;
 }
 
+/** Parse `customFeeds` base64 param — returns only SSRF-safe https:// URLs. */
+function resolveCustomSources(searchParams: URLSearchParams): NewsSource[] {
+  const param = searchParams.get('customFeeds');
+  if (!param) return [];
+  try {
+    const binary = atob(param);
+    const bytes = Uint8Array.from(binary, (c: string) => c.charCodeAt(0));
+    const json = new TextDecoder().decode(bytes);
+    const raw = JSON.parse(json) as Array<{ id?: unknown; name?: unknown; feedUrl?: unknown }>;
+    if (!Array.isArray(raw)) return [];
+    const out: NewsSource[] = [];
+    for (const item of raw) {
+      const id = typeof item.id === 'string' ? item.id.trim() : '';
+      const name = typeof item.name === 'string' ? item.name.trim() : '';
+      const feedUrl = typeof item.feedUrl === 'string' ? item.feedUrl.trim() : '';
+      if (!id || !name || !feedUrl) continue;
+      if (!isAllowedOgFetchUrl(feedUrl)) continue; // SSRF protection
+      out.push({ id: `custom-${id}`, name, feedUrl, category: 'general', enabled: true });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 export default {
   async fetch(request: Request, _env: Env, ctx: ExecutionContext): Promise<Response> {
     if (request.method === 'OPTIONS') {
@@ -85,7 +110,8 @@ export default {
       }
 
       const sources = resolveSources(url.searchParams);
-      if (sources.length === 0) {
+      const customSources = resolveCustomSources(url.searchParams);
+      if (sources.length === 0 && customSources.length === 0) {
         return json(
           {
             ok: false,
@@ -99,7 +125,7 @@ export default {
         );
       }
 
-      const { articles, errors } = await fetchFeedsStaggered(sources);
+      const { articles, errors } = await fetchFeedsStaggered([...sources, ...customSources]);
       const body = {
         ok: true,
         articles,
