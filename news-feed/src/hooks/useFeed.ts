@@ -121,13 +121,28 @@ export function useFeed() {
 
     const activeSources = DEFAULT_SOURCES.filter(s => isSourceEnabled(s.id, currentPrefs));
 
+    // Merges ranked articles into the feed without collapsing the current visible list.
+    // On explicit refresh the feed is fully replaced; on background refresh only
+    // genuinely new articles (not already in the current feed) are prepended.
+    const mergeFeed = (ranked: Article[]) => {
+      if (explicit || allArticlesRef.current.length === 0) {
+        allArticlesRef.current = ranked;
+        setAllArticles(ranked);
+      } else {
+        const currentIds = new Set(allArticlesRef.current.map(a => a.id));
+        const brandNew = ranked.filter(a => !currentIds.has(a.id));
+        const merged = [...brandNew, ...allArticlesRef.current];
+        allArticlesRef.current = merged;
+        setAllArticles(merged);
+      }
+    };
+
     const onBatch = (accumulated: Article[]) => {
       if (fetchIdRef.current !== myFetchId) return; // stale fetch — discard
       articlePoolRef.current = accumulated;
       setArticlePool(accumulated);
       const ranked = rankFeed(accumulated, currentPrefs);
-      allArticlesRef.current = ranked;
-      setAllArticles(ranked);
+      mergeFeed(ranked);
       setLoading(false);
     };
 
@@ -149,9 +164,8 @@ export function useFeed() {
         articlePoolRef.current = all;
         setArticlePool(all);
         const ranked = rankFeed(all, currentPrefs);
-        allArticlesRef.current = ranked;
-        setAllArticles(ranked);
-        // Only reset scroll position on explicit user-triggered refresh
+        mergeFeed(ranked);
+        // On explicit refresh also reset scroll and seen-session tracking
         if (explicit) {
           setVisibleCount(PAGE_SIZE);
           markedSeenRef.current.clear();
