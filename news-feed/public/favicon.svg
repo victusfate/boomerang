@@ -1,4 +1,49 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="8" fill="#6c63ff"/>
-  <text x="16" y="22" font-size="18" text-anchor="middle" fill="white" font-family="sans-serif">N</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Boomerang">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#16161f"/>
+      <stop offset="100%" stop-color="#0a0a10"/>
+    </linearGradient>
+    <linearGradient id="wing" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#c4b5fd"/>
+      <stop offset="35%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.45"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="soft" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- Rounded square — fits PWA maskable safe zone -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- Thick V-shaped boomerang (returning style), centered -->
+  <g filter="url(#soft)">
+    <path
+      fill="url(#wing)"
+      d="M 256 118
+         C 248 118 242 122 238 128
+         L 118 328
+         C 108 344 116 364 134 368
+         L 168 374
+         C 182 376 194 368 200 356
+         L 256 248
+         L 312 356
+         C 318 368 330 376 344 374
+         L 378 368
+         C 396 364 404 344 394 328
+         L 274 128
+         C 270 122 264 118 256 118 Z"/>
+    <path
+      fill="url(#shine)"
+      d="M 256 168 L 176 312 C 172 320 176 330 186 332 L 210 336 L 256 248 L 302 336 L 326 332
+         C 336 330 340 320 336 312 Z"/>
+  </g>
 </svg>

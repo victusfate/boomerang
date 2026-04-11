@@ -1,7 +1,15 @@
 import type { Article, CustomSource, NewsSource } from '../types';
 
-/** Set at build time to Cloudflare Worker origin (e.g. https://boomerang-rss.xxx.workers.dev) */
-const RSS_WORKER_URL = import.meta.env.VITE_RSS_WORKER_URL?.replace(/\/$/, '') ?? '';
+/**
+ * Production default — same Worker the repo deploys (`rss-worker/wrangler.jsonc` name + account subdomain).
+ * Set `VITE_RSS_WORKER_URL` at build time to override (e.g. GitHub Actions variable).
+ * Without this fallback, a missing env yields an empty string and no `/bundle` requests are made.
+ */
+const DEFAULT_RSS_WORKER_URL = 'https://boomerang-rss.boomerang.workers.dev';
+
+const envWorker = import.meta.env.VITE_RSS_WORKER_URL?.replace(/\/$/, '') ?? '';
+const RSS_WORKER_URL =
+  envWorker || (import.meta.env.PROD ? DEFAULT_RSS_WORKER_URL : '');
 
 // Sources are split into two tiers:
 //   priority=1  fast/reliable feeds that render first (visible within ~2 s)
