@@ -28,6 +28,13 @@ function dehydrate(articles: Article[]): StoredArticle[] {
   return articles.map(a => ({ ...a, publishedAt: a.publishedAt.toISOString() }));
 }
 
+/** Survives React Strict Mode remount so we don't double-fetch after #bm= import */
+declare global {
+  interface Window {
+    __boomerangSkipInitialRefresh?: boolean;
+  }
+}
+
 export function useFeed() {
   const { database } = useFireproof('boomerang-news');
 
@@ -210,13 +217,6 @@ export function useFeed() {
     }
   }, [database]); // stable — does not depend on volatile state
 
-  // ── Trigger refresh once prefs are ready ─────────────────────────────────────
-  useEffect(() => {
-    if (!prefsReady) return;
-    if (lastRefresh && Date.now() - lastRefresh.getTime() < CACHE_TTL) return;
-    refresh(prefsRef.current);
-  }, [prefsReady, refresh]);
-
   // ── Auto-refresh timer — uses stable `refresh` ref via timerRef ──────────────
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
@@ -361,6 +361,29 @@ export function useFeed() {
     refresh(next, true);
     return true;
   }, [updatePrefs, refresh]);
+
+  const handleImportBookmarkRef = useRef(handleImportBookmark);
+  handleImportBookmarkRef.current = handleImportBookmark;
+
+  // Restore from bookmark URL hash on load (opening …#bm=… in a private window / new profile)
+  useEffect(() => {
+    if (!prefsReady) return;
+    if (!window.location.hash.startsWith('#bm=')) return;
+    const ok = handleImportBookmarkRef.current(window.location.href);
+    if (ok) window.__boomerangSkipInitialRefresh = true;
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }, [prefsReady]);
+
+  // Trigger refresh once prefs are ready (skipped when #bm= import already invoked refresh)
+  useEffect(() => {
+    if (!prefsReady) return;
+    if (window.__boomerangSkipInitialRefresh) {
+      window.__boomerangSkipInitialRefresh = false;
+      return;
+    }
+    if (lastRefresh && Date.now() - lastRefresh.getTime() < CACHE_TTL) return;
+    refresh(prefsRef.current);
+  }, [prefsReady, refresh, lastRefresh]);
 
   const savedArticles = articlePool.filter(a => prefs.savedIds.includes(a.id));
 

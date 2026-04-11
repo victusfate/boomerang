@@ -207,7 +207,8 @@ export function Settings({
           <p className="settings-hint">
             Copies a long URL to your clipboard. It includes preferences, custom feeds, and your
             <strong>saved articles</strong> (so starred items show up in a new browser or private window,
-            not just the IDs). Use a fresh export after adding saves.
+            not just the IDs). Use a fresh export after adding saves. You can also paste the full URL
+            into the address bar — the app will import it automatically when the page loads.
           </p>
           <div className="settings-field">
             <span className="settings-label" id="bookmark-export-label">Export</span>
