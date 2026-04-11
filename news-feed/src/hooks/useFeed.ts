@@ -8,6 +8,7 @@ import {
   boostTopic, toggleSource, toggleTopic, isSourceEnabled,
   upvote, downvote, applyDecay, resetLearnedWeights, clearViewedCache,
   addCustomSource, removeCustomSource, exportPrefsBookmark, importPrefsBookmark,
+  mergePoolWithSavedSnapshots,
 } from '../services/storage';
 import type { Article, CustomSource, Topic, UserPrefs } from '../types';
 
@@ -59,6 +60,8 @@ export function useFeed() {
   const fetchIdRef = useRef(0);
   // Prevents concurrent fetches from firing simultaneously.
   const fetchingRef = useRef(false);
+  /** Bookmark v2 snapshots — merged into the pool after fetch so Saved works in a fresh profile */
+  const pendingSavedSnapshotsRef = useRef<Map<string, Article>>(new Map());
 
   // ── Persist prefs ────────────────────────────────────────────────────────────
   const updatePrefs = useCallback((next: UserPrefs) => {
@@ -140,9 +143,14 @@ export function useFeed() {
 
     const onBatch = (accumulated: Article[]) => {
       if (fetchIdRef.current !== myFetchId) return; // stale fetch — discard
-      articlePoolRef.current = accumulated;
-      setArticlePool(accumulated);
-      const ranked = rankFeed(accumulated, currentPrefs);
+      const merged = mergePoolWithSavedSnapshots(
+        accumulated,
+        currentPrefs.savedIds,
+        pendingSavedSnapshotsRef.current,
+      );
+      articlePoolRef.current = merged;
+      setArticlePool(merged);
+      const ranked = rankFeed(merged, currentPrefs);
       mergeFeed(ranked);
       setLoading(false);
     };
@@ -152,7 +160,9 @@ export function useFeed() {
       const all = await fetchAllSources(activeSources, currentPrefs.customSources ?? [], onBatch);
       if (fetchIdRef.current !== myFetchId) return; // superseded — bail out
 
-      if (all.length === 0) {
+      const merged = mergePoolWithSavedSnapshots(all, currentPrefs.savedIds, pendingSavedSnapshotsRef.current);
+
+      if (merged.length === 0) {
         const hadPool = articlePoolRef.current.length > 0;
         setError(
           hadPool
@@ -160,18 +170,19 @@ export function useFeed() {
             : 'No articles loaded. Check your connection and try again.',
         );
       } else {
+        pendingSavedSnapshotsRef.current.clear();
         feedSuccess = true;
         setError(null);
-        articlePoolRef.current = all;
-        setArticlePool(all);
-        const ranked = rankFeed(all, currentPrefs);
+        articlePoolRef.current = merged;
+        setArticlePool(merged);
+        const ranked = rankFeed(merged, currentPrefs);
         mergeFeed(ranked);
         // On explicit refresh also reset scroll and seen-session tracking
         if (explicit) {
           setVisibleCount(PAGE_SIZE);
           markedSeenRef.current.clear();
         }
-        database.put({ _id: CACHE_ID, articles: dehydrate(all), fetchedAt: Date.now() })
+        database.put({ _id: CACHE_ID, articles: dehydrate(merged), fetchedAt: Date.now() })
           .catch(console.error);
       }
     } catch (e) {
@@ -319,7 +330,8 @@ export function useFeed() {
 
   // ── Bookmark export / import ──────────────────────────────────────────────────
   const handleExportBookmark = useCallback((): string => {
-    const encoded = exportPrefsBookmark(prefsRef.current);
+    const saved = articlePoolRef.current.filter(a => prefsRef.current.savedIds.includes(a.id));
+    const encoded = exportPrefsBookmark(prefsRef.current, saved);
     const url = new URL(window.location.href);
     url.hash = `bm=${encoded}`;
     return url.toString();
@@ -334,7 +346,15 @@ export function useFeed() {
     } catch { /* not a URL — use as-is */ }
     const imported = importPrefsBookmark(b64);
     if (!imported) return false;
-    const next: UserPrefs = { ...DEFAULT_PREFS, ...prefsRef.current, ...imported };
+    const { prefs: importedPrefs, savedSnapshots } = imported;
+    const next: UserPrefs = { ...DEFAULT_PREFS, ...prefsRef.current, ...importedPrefs };
+    if (savedSnapshots?.length) {
+      pendingSavedSnapshotsRef.current.clear();
+      for (const s of savedSnapshots) {
+        const a: Article = { ...s, publishedAt: new Date(s.publishedAt) };
+        pendingSavedSnapshotsRef.current.set(a.id, a);
+      }
+    }
     updatePrefs(next);
     fetchIdRef.current++;
     fetchingRef.current = false;

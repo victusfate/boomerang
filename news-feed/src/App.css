@@ -678,6 +678,72 @@ html, body {
 }
 
 /* ── Bookmark / import ─────────────────────────────────────────────────────── */
+.settings-section-bookmark .settings-hint strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-field-import {
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.settings-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+  opacity: 0.8;
+}
+.settings-hint-tight {
+  margin-bottom: 0;
+  margin-top: 0;
+}
+.settings-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--settings-muted-surface);
+  border: 1px solid var(--settings-btn-border);
+  color: var(--accent);
+  white-space: nowrap;
+}
+.settings-textarea {
+  background: var(--settings-input-bg);
+  border: 1px solid var(--settings-input-border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: var(--text);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  outline: none;
+  resize: vertical;
+  min-height: 96px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.settings-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.2);
+}
+.settings-textarea::placeholder {
+  color: var(--sub);
+  opacity: 0.85;
+  font-family: var(--font);
+}
+.btn-import-apply {
+  margin-top: 2px;
+}
+
 .btn-bookmark {
   background: var(--settings-btn);
   border: 1px solid var(--settings-btn-border);

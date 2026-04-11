@@ -202,35 +202,52 @@ export function Settings({
         </section>
 
         {/* ── Bookmark ───────────────────────────────────────────────────── */}
-        <section className="settings-section">
+        <section className="settings-section settings-section-bookmark">
           <h3>Backup &amp; Restore</h3>
           <p className="settings-hint">
-            Export your saves, votes, custom sources, and preferences as a shareable URL.
-            Paste it on another device to restore everything.
+            Copies a long URL to your clipboard. It includes preferences, custom feeds, and your
+            <strong>saved articles</strong> (so starred items show up in a new browser or private window,
+            not just the IDs). Use a fresh export after adding saves.
           </p>
-          <button className="btn-bookmark" onClick={handleCopyBookmark}>
-            {bookmarkCopied ? 'Copied!' : 'Copy bookmark URL'}
-          </button>
+          <div className="settings-field">
+            <span className="settings-label" id="bookmark-export-label">Export</span>
+            <button
+              type="button"
+              className="btn-bookmark"
+              onClick={handleCopyBookmark}
+              aria-labelledby="bookmark-export-label"
+            >
+              {bookmarkCopied ? 'Copied to clipboard' : 'Copy backup URL'}
+            </button>
+          </div>
 
-          <p className="settings-hint" style={{ marginTop: '16px' }}>Restore from a bookmark URL:</p>
-          <div className="bookmark-import-row">
-            <input
-              type="text"
-              className="custom-source-input"
-              placeholder="Paste bookmark URL or base64 string"
+          <div className="settings-field settings-field-import">
+            <label className="settings-label" htmlFor="bookmark-import-input">Import</label>
+            <p className="settings-hint settings-hint-tight">
+              Paste the full URL from <strong>Copy backup URL</strong>, or paste only the base64 part after{' '}
+              <code className="settings-code">#bm=</code>.
+            </p>
+            <textarea
+              id="bookmark-import-input"
+              className="settings-textarea"
+              placeholder="https://…/boomerang/#bm=…  or paste the base64 payload only"
+              rows={4}
+              autoComplete="off"
+              spellCheck={false}
               value={importValue}
               onChange={e => { setImportValue(e.target.value); setImportStatus('idle'); }}
             />
             <button
-              className="btn-add-source"
+              type="button"
+              className="btn-add-source btn-import-apply"
               onClick={handleImport}
               disabled={!importValue.trim()}
             >
-              Import
+              Apply import
             </button>
           </div>
-          {importStatus === 'ok'    && <p className="import-status ok">Imported — feed refreshing.</p>}
-          {importStatus === 'error' && <p className="import-status error">Invalid bookmark — check the URL and try again.</p>}
+          {importStatus === 'ok'    && <p className="import-status ok">Imported — preferences applied and feed refreshing.</p>}
+          {importStatus === 'error' && <p className="import-status error">Could not read that bookmark — paste the full URL or the base64 block and try again.</p>}
         </section>
 
         <section className="settings-section">

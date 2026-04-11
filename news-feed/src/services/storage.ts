@@ -213,8 +213,18 @@ export function removeCustomSource(id: string, prefs: UserPrefs): UserPrefs {
 // ── Bookmark export / import ──────────────────────────────────────────────────
 // Encodes key preferences as a base64 URL fragment for cross-device restore.
 // Uses TextEncoder so non-ASCII source names survive the round-trip.
+// v2 adds optional savedSnapshots so starred items survive import in an empty profile
+// (e.g. private window) — RSS alone may not include older saved article IDs.
 
-interface BookmarkPayload {
+export type BookmarkArticleSnapshot = Omit<Article, 'publishedAt'> & { publishedAt: string };
+
+export interface ImportedBookmark {
+  prefs: Partial<UserPrefs>;
+  /** Article bodies for saved IDs when re-exported from v2 bookmarks */
+  savedSnapshots?: BookmarkArticleSnapshot[];
+}
+
+interface BookmarkPayloadV1 {
   v: 1;
   upvotedIds:    string[];
   downvotedIds:  string[];
@@ -228,9 +238,13 @@ interface BookmarkPayload {
   keywordWeights: Record<string, number>;
 }
 
-export function exportPrefsBookmark(prefs: UserPrefs): string {
-  const payload: BookmarkPayload = {
-    v: 1,
+interface BookmarkPayloadV2 extends Omit<BookmarkPayloadV1, 'v'> {
+  v: 2;
+  savedSnapshots?: BookmarkArticleSnapshot[];
+}
+
+function prefsToBookmarkFields(prefs: UserPrefs): Omit<BookmarkPayloadV1, 'v'> {
+  return {
     upvotedIds:    prefs.upvotedIds,
     downvotedIds:  prefs.downvotedIds,
     savedIds:      prefs.savedIds,
@@ -242,32 +256,73 @@ export function exportPrefsBookmark(prefs: UserPrefs): string {
     sourceWeights:  prefs.sourceWeights,
     keywordWeights: prefs.keywordWeights,
   };
+}
+
+function articleToSnapshot(a: Article): BookmarkArticleSnapshot {
+  return { ...a, publishedAt: a.publishedAt.toISOString() };
+}
+
+/** @param savedArticles — current article rows for saved IDs (so imports work without RSS overlap) */
+export function exportPrefsBookmark(prefs: UserPrefs, savedArticles?: Article[]): string {
+  const fields = prefsToBookmarkFields(prefs);
+  const payload: BookmarkPayloadV2 = {
+    v: 2,
+    ...fields,
+    savedSnapshots:
+      savedArticles && savedArticles.length > 0 ? savedArticles.map(articleToSnapshot) : undefined,
+  };
   const bytes = new TextEncoder().encode(JSON.stringify(payload));
   let binary = '';
   bytes.forEach(b => { binary += String.fromCharCode(b); });
   return btoa(binary);
 }
 
-export function importPrefsBookmark(encoded: string): Partial<UserPrefs> | null {
+function parseBookmarkPrefs(p: Partial<Omit<BookmarkPayloadV1, 'v'>>): Partial<UserPrefs> {
+  const out: Partial<UserPrefs> = {};
+  if (Array.isArray(p.upvotedIds))    out.upvotedIds    = p.upvotedIds;
+  if (Array.isArray(p.downvotedIds))  out.downvotedIds  = p.downvotedIds;
+  if (Array.isArray(p.savedIds))      out.savedIds      = p.savedIds;
+  if (Array.isArray(p.readIds))       out.readIds       = p.readIds;
+  if (Array.isArray(p.customSources)) out.customSources = p.customSources;
+  if (Array.isArray(p.enabledSources)) out.enabledSources = p.enabledSources;
+  if (Array.isArray(p.enabledTopics))  out.enabledTopics  = p.enabledTopics as Topic[];
+  if (p.topicWeights && typeof p.topicWeights === 'object')   out.topicWeights   = p.topicWeights;
+  if (p.sourceWeights && typeof p.sourceWeights === 'object') out.sourceWeights  = p.sourceWeights;
+  if (p.keywordWeights && typeof p.keywordWeights === 'object') out.keywordWeights = p.keywordWeights;
+  return out;
+}
+
+export function importPrefsBookmark(encoded: string): ImportedBookmark | null {
   try {
     const binary = atob(encoded.trim());
     const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
     const json = new TextDecoder().decode(bytes);
-    const p = JSON.parse(json) as Partial<BookmarkPayload>;
-    if (p.v !== 1) return null;
-    const out: Partial<UserPrefs> = {};
-    if (Array.isArray(p.upvotedIds))    out.upvotedIds    = p.upvotedIds;
-    if (Array.isArray(p.downvotedIds))  out.downvotedIds  = p.downvotedIds;
-    if (Array.isArray(p.savedIds))      out.savedIds      = p.savedIds;
-    if (Array.isArray(p.readIds))       out.readIds       = p.readIds;
-    if (Array.isArray(p.customSources)) out.customSources = p.customSources;
-    if (Array.isArray(p.enabledSources)) out.enabledSources = p.enabledSources;
-    if (Array.isArray(p.enabledTopics))  out.enabledTopics  = p.enabledTopics as Topic[];
-    if (p.topicWeights && typeof p.topicWeights === 'object')   out.topicWeights   = p.topicWeights;
-    if (p.sourceWeights && typeof p.sourceWeights === 'object') out.sourceWeights  = p.sourceWeights;
-    if (p.keywordWeights && typeof p.keywordWeights === 'object') out.keywordWeights = p.keywordWeights;
-    return out;
+    const p = JSON.parse(json) as Partial<BookmarkPayloadV1 | BookmarkPayloadV2>;
+    if (p.v !== 1 && p.v !== 2) return null;
+    const prefs = parseBookmarkPrefs(p);
+    let savedSnapshots: BookmarkArticleSnapshot[] | undefined;
+    if (p.v === 2 && Array.isArray(p.savedSnapshots) && p.savedSnapshots.length > 0) {
+      savedSnapshots = p.savedSnapshots.filter(
+        s => s && typeof s.id === 'string' && typeof s.title === 'string' && typeof s.url === 'string',
+      );
+    }
+    return { prefs, savedSnapshots };
   } catch {
     return null;
   }
+}
+
+/** Merge fetched articles with bookmark snapshots so saved items missing from RSS still appear. */
+export function mergePoolWithSavedSnapshots(
+  fetched: Article[],
+  savedIds: string[],
+  snapshots: Map<string, Article>,
+): Article[] {
+  const byId = new Map(fetched.map(a => [a.id, a]));
+  for (const id of savedIds) {
+    if (!byId.has(id) && snapshots.has(id)) {
+      byId.set(id, snapshots.get(id)!);
+    }
+  }
+  return Array.from(byId.values());
 }
