@@ -441,3 +441,64 @@ export function importOPML(xml: string, defaultSources: NewsSource[]): ImportedO
     return null;
   }
 }
+
+// ── Browser bookmarks export / import ─────────────────────────────────────────
+
+function bmId(url: string): string {
+  // Stable ID derived from URL so re-imports don't duplicate
+  let h = 0;
+  for (let i = 0; i < url.length; i++) { h = Math.imul(31, h) + url.charCodeAt(i) | 0; }
+  return `bm-${(h >>> 0).toString(36)}`;
+}
+
+/** Export saved articles as a Netscape HTML bookmarks file. */
+export function exportBookmarkHTML(articles: Article[]): string {
+  const items = articles.map(a => {
+    const ts = Math.floor(a.publishedAt.getTime() / 1000);
+    return `    <DT><A HREF="${escapeXml(a.url)}" ADD_DATE="${ts}">${escapeXml(a.title)}</A>`;
+  }).join('\n');
+  return [
+    '<!DOCTYPE NETSCAPE-Bookmark-file-1>',
+    '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+    '<TITLE>Boomerang Saved Articles</TITLE>',
+    '<H1>Boomerang Saved Articles</H1>',
+    '<DL><p>',
+    '  <DT><H3>Saved</H3>',
+    '  <DL><p>',
+    items,
+    '  </DL><p>',
+    '</DL>',
+  ].join('\n');
+}
+
+/** Parse a Netscape HTML bookmarks file and return minimal Article objects. */
+export function importBookmarkHTML(html: string): Article[] | null {
+  try {
+    const doc    = new DOMParser().parseFromString(html, 'text/html');
+    const links  = Array.from(doc.querySelectorAll<HTMLAnchorElement>('a[href]'));
+    if (links.length === 0) return null;
+    const articles: Article[] = [];
+    for (const a of links) {
+      const url = a.getAttribute('href')?.trim();
+      if (!url || !/^https?:\/\//i.test(url)) continue;
+      const title   = a.textContent?.trim() || url;
+      const addDate = a.getAttribute('ADD_DATE');
+      const ts      = addDate ? parseInt(addDate, 10) * 1000 : Date.now();
+      let host = url;
+      try { host = new URL(url).hostname.replace(/^www\./, ''); } catch { /* ignore */ }
+      articles.push({
+        id:          bmId(url),
+        title,
+        url,
+        description: '',
+        publishedAt: new Date(isNaN(ts) ? Date.now() : ts),
+        source:      host,
+        sourceId:    `bm-${host}`,
+        topics:      [],
+      });
+    }
+    return articles.length > 0 ? articles : null;
+  } catch {
+    return null;
+  }
+}

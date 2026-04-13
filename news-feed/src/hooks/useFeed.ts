@@ -8,16 +8,19 @@ import {
   boostTopic, toggleSource, toggleTopic, isSourceEnabled,
   upvote, downvote, applyDecay, resetLearnedWeights, clearViewedCache,
   addCustomSource, removeCustomSource, exportOPML, importOPML,
+  exportBookmarkHTML, importBookmarkHTML,
 } from '../services/storage';
 import type { Article, CustomSource, Topic, UserPrefs } from '../types';
 
-const PAGE_SIZE   = 5;
-const CACHE_TTL   = 15 * 60 * 1000;
-const PREFS_ID    = 'user-prefs';
-const CACHE_ID    = 'feed-cache';
+const PAGE_SIZE          = 5;
+const CACHE_TTL          = 15 * 60 * 1000;
+const PREFS_ID           = 'user-prefs';
+const CACHE_ID           = 'feed-cache';
+const IMPORTED_SAVES_ID  = 'imported-saves';
 
 type StoredArticle = Omit<Article, 'publishedAt'> & { publishedAt: string };
-interface FeedCacheDoc { _id: string; articles: StoredArticle[]; fetchedAt: number }
+interface FeedCacheDoc    { _id: string; articles: StoredArticle[]; fetchedAt: number }
+interface ImportedSavesDoc { _id: string; articles: StoredArticle[] }
 type PrefsDoc = UserPrefs & { _id: string };
 
 function hydrate(stored: StoredArticle[]): Article[] {
@@ -61,6 +64,12 @@ export function useFeed() {
   // Prevents concurrent fetches from firing simultaneously.
   const fetchingRef = useRef(false);
 
+  // Bookmark-imported saves — kept separate from the RSS pool so they only
+  // appear in the Saved view and never pollute the main feed.
+  const [importedSaves, setImportedSaves] = useState<Article[]>([]);
+  const importedSavesRef = useRef<Article[]>([]);
+  importedSavesRef.current = importedSaves;
+
   // ── Persist prefs ────────────────────────────────────────────────────────────
   const updatePrefs = useCallback((next: UserPrefs) => {
     setPrefsState(next);
@@ -96,7 +105,15 @@ export function useFeed() {
         : null)
       .catch(() => null);
 
-    Promise.all([prefsPromise, cachePromise]).then(([loadedPrefs, cached]) => {
+    const importedSavesPromise = database.get<ImportedSavesDoc>(IMPORTED_SAVES_ID)
+      .then(doc => doc.articles?.length ? hydrate(doc.articles) : [])
+      .catch(() => [] as Article[]);
+
+    Promise.all([prefsPromise, cachePromise, importedSavesPromise]).then(([loadedPrefs, cached, imported]) => {
+      if (imported.length) {
+        importedSavesRef.current = imported;
+        setImportedSaves(imported);
+      }
       setPrefsReady(true);
 
       if (cached?.articles.length) {
@@ -319,6 +336,47 @@ export function useFeed() {
     refresh(next, true); // explicit — re-rank without removed source's articles
   }, [updatePrefs, refresh]);
 
+  // ── Bookmark HTML export / import ────────────────────────────────────────────
+  const handleExportBookmarks = useCallback(() => {
+    const poolIds = new Set(articlePoolRef.current.map(a => a.id));
+    const allSaved = [
+      ...articlePoolRef.current.filter(a => prefsRef.current.savedIds.includes(a.id)),
+      ...importedSavesRef.current.filter(
+        a => prefsRef.current.savedIds.includes(a.id) && !poolIds.has(a.id),
+      ),
+    ];
+    const html = exportBookmarkHTML(allSaved);
+    const blob = new Blob([html], { type: 'text/html' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'boomerang-saves.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleImportBookmarks = useCallback((html: string): boolean => {
+    const parsed = importBookmarkHTML(html);
+    if (!parsed) return false;
+    // Merge with existing imported saves, deduplicating by ID
+    const existing = new Map(importedSavesRef.current.map(a => [a.id, a]));
+    for (const a of parsed) existing.set(a.id, a);
+    const merged = Array.from(existing.values());
+    importedSavesRef.current = merged;
+    setImportedSaves(merged);
+    database.put({ _id: IMPORTED_SAVES_ID, articles: dehydrate(merged) } as ImportedSavesDoc)
+      .catch(console.error);
+    // Add all imported IDs to savedIds
+    const existingSaved = new Set(prefsRef.current.savedIds);
+    const newIds = parsed.map(a => a.id).filter(id => !existingSaved.has(id));
+    if (newIds.length) {
+      updatePrefs({ ...prefsRef.current, savedIds: [...prefsRef.current.savedIds, ...newIds] });
+    }
+    return true;
+  }, [database, updatePrefs]);
+
   // ── OPML export / import ──────────────────────────────────────────────────────
   const handleExportOPML = useCallback(() => {
     const { disabledSourceIds = [], customSources = [] } = prefsRef.current;
@@ -356,7 +414,13 @@ export function useFeed() {
     refresh(prefsRef.current);
   }, [prefsReady, refresh, lastRefresh]);
 
-  const savedArticles = articlePool.filter(a => prefs.savedIds.includes(a.id));
+  const savedIds  = new Set(prefs.savedIds);
+  const poolIds   = new Set(articlePool.map(a => a.id));
+  const savedArticles = [
+    ...articlePool.filter(a => savedIds.has(a.id)),
+    // Imported bookmark articles not already in the RSS pool
+    ...importedSaves.filter(a => savedIds.has(a.id) && !poolIds.has(a.id)),
+  ];
 
   return {
     visibleArticles: allArticles.slice(0, visibleCount),
@@ -384,5 +448,7 @@ export function useFeed() {
     onRemoveCustomSource: handleRemoveCustomSource,
     onExportOPML:         handleExportOPML,
     onImportOPML:         handleImportOPML,
+    onExportBookmarks:    handleExportBookmarks,
+    onImportBookmarks:    handleImportBookmarks,
   };
 }

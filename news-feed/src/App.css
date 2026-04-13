@@ -699,6 +699,12 @@ html, body {
   align-items: center;
   gap: 10px;
 }
+.opml-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}
+
 /* Hide the native file input — we trigger it via button */
 .opml-file-input {
   position: absolute;

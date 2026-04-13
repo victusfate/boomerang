@@ -19,22 +19,27 @@ interface Props {
   onRemoveCustomSource: (id: string) => void;
   onExportOPML: () => void;
   onImportOPML: (xml: string) => boolean;
+  onExportBookmarks: () => void;
+  onImportBookmarks: (html: string) => boolean;
 }
 
 export function Settings({
   prefs, onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onClose,
   onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
+  onExportBookmarks, onImportBookmarks,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const bmFileInputRef = useRef<HTMLInputElement>(null);
 
   // Custom source form
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl]   = useState('');
 
-  // Import status
-  const [importStatus, setImportStatus] = useState<'idle' | 'ok' | 'error'>('idle');
+  // Import status: separate for OPML and bookmarks
+  const [importStatus, setImportStatus]   = useState<'idle' | 'ok' | 'error'>('idle');
+  const [bmImportStatus, setBmImportStatus] = useState<'idle' | 'ok' | 'error'>('idle');
 
   useEffect(() => {
     previousFocusRef.current = document.activeElement;
@@ -85,6 +90,20 @@ export function Settings({
     };
     reader.readAsText(file);
     // Reset so the same file can be re-imported
+    e.target.value = '';
+  };
+
+  const handleBMFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const html = ev.target?.result as string;
+      const ok = onImportBookmarks(html);
+      setBmImportStatus(ok ? 'ok' : 'error');
+      if (ok) setTimeout(() => setBmImportStatus('idle'), 3000);
+    };
+    reader.readAsText(file);
     e.target.value = '';
   };
 
@@ -229,6 +248,37 @@ export function Settings({
 
           {importStatus === 'ok'    && <p className="import-status ok">Imported — sources updated and feed refreshing.</p>}
           {importStatus === 'error' && <p className="import-status error">Could not read that file — make sure it is a valid OPML or XML file.</p>}
+
+          <div className="opml-divider" />
+
+          <p className="settings-hint">
+            <strong>Saved articles</strong> — export your starred articles as a browser bookmarks file,
+            or import a bookmarks folder to add those URLs to your Saved list.
+          </p>
+          <div className="opml-actions">
+            <button type="button" className="btn-add-source" onClick={onExportBookmarks}>
+              Download saves as bookmarks
+            </button>
+            <div className="opml-import-row">
+              <input
+                ref={bmFileInputRef}
+                type="file"
+                accept=".html,.htm"
+                className="opml-file-input"
+                aria-label="Import bookmarks HTML file"
+                onChange={handleBMFile}
+              />
+              <button
+                type="button"
+                className="btn-add-source"
+                onClick={() => bmFileInputRef.current?.click()}
+              >
+                Import bookmarks file
+              </button>
+            </div>
+          </div>
+          {bmImportStatus === 'ok'    && <p className="import-status ok">Imported — bookmarks added to your Saved list.</p>}
+          {bmImportStatus === 'error' && <p className="import-status error">Could not read that file — make sure it is a browser bookmarks HTML export.</p>}
         </section>
 
         {/* ── Preferences ────────────────────────────────────────────── */}
