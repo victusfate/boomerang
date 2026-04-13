@@ -7,8 +7,7 @@ import {
   markRead, markSeen, toggleSaved,
   boostTopic, toggleSource, toggleTopic, isSourceEnabled,
   upvote, downvote, applyDecay, resetLearnedWeights, clearViewedCache,
-  addCustomSource, removeCustomSource, importPrefsBookmark,
-  mergePoolWithSavedSnapshots, exportOPML, importOPML,
+  addCustomSource, removeCustomSource, exportOPML, importOPML,
 } from '../services/storage';
 import type { Article, CustomSource, Topic, UserPrefs } from '../types';
 
@@ -28,12 +27,6 @@ function dehydrate(articles: Article[]): StoredArticle[] {
   return articles.map(a => ({ ...a, publishedAt: a.publishedAt.toISOString() }));
 }
 
-/** Survives React Strict Mode remount so we don't double-fetch after #bm= import */
-declare global {
-  interface Window {
-    __boomerangSkipInitialRefresh?: boolean;
-  }
-}
 
 export function useFeed() {
   const { database } = useFireproof('boomerang-news');
@@ -67,8 +60,6 @@ export function useFeed() {
   const fetchIdRef = useRef(0);
   // Prevents concurrent fetches from firing simultaneously.
   const fetchingRef = useRef(false);
-  /** Bookmark v2 snapshots — merged into the pool after fetch so Saved works in a fresh profile */
-  const pendingSavedSnapshotsRef = useRef<Map<string, Article>>(new Map());
 
   // ── Persist prefs ────────────────────────────────────────────────────────────
   const updatePrefs = useCallback((next: UserPrefs) => {
@@ -160,15 +151,9 @@ export function useFeed() {
 
     const onBatch = (accumulated: Article[]) => {
       if (fetchIdRef.current !== myFetchId) return; // stale fetch — discard
-      const merged = mergePoolWithSavedSnapshots(
-        accumulated,
-        currentPrefs.savedIds,
-        pendingSavedSnapshotsRef.current,
-      );
-      articlePoolRef.current = merged;
-      setArticlePool(merged);
-      const ranked = rankFeed(merged, currentPrefs);
-      mergeFeed(ranked);
+      articlePoolRef.current = accumulated;
+      setArticlePool(accumulated);
+      mergeFeed(rankFeed(accumulated, currentPrefs));
       setLoading(false);
     };
 
@@ -177,9 +162,7 @@ export function useFeed() {
       const all = await fetchAllSources(activeSources, activeCustomSources, onBatch);
       if (fetchIdRef.current !== myFetchId) return; // superseded — bail out
 
-      const merged = mergePoolWithSavedSnapshots(all, currentPrefs.savedIds, pendingSavedSnapshotsRef.current);
-
-      if (merged.length === 0) {
+      if (all.length === 0) {
         const hadPool = articlePoolRef.current.length > 0;
         setError(
           hadPool
@@ -187,19 +170,17 @@ export function useFeed() {
             : 'No articles loaded. Check your connection and try again.',
         );
       } else {
-        pendingSavedSnapshotsRef.current.clear();
         feedSuccess = true;
         setError(null);
-        articlePoolRef.current = merged;
-        setArticlePool(merged);
-        const ranked = rankFeed(merged, currentPrefs);
-        mergeFeed(ranked);
+        articlePoolRef.current = all;
+        setArticlePool(all);
+        mergeFeed(rankFeed(all, currentPrefs));
         // On explicit refresh also reset scroll and seen-session tracking
         if (explicit) {
           setVisibleCount(PAGE_SIZE);
           markedSeenRef.current.clear();
         }
-        database.put({ _id: CACHE_ID, articles: dehydrate(merged), fetchedAt: Date.now() })
+        database.put({ _id: CACHE_ID, articles: dehydrate(all), fetchedAt: Date.now() })
           .catch(console.error);
       }
     } catch (e) {
@@ -338,35 +319,6 @@ export function useFeed() {
     refresh(next, true); // explicit — re-rank without removed source's articles
   }, [updatePrefs, refresh]);
 
-  // ── Bookmark import (internal — used only for #bm= URL hash restore) ────────
-  const handleImportBookmark = useCallback((encoded: string): boolean => {
-    // Accept either a full URL (extract hash) or a bare base64 string
-    let b64 = encoded.trim();
-    try {
-      const hashIdx = b64.indexOf('#bm=');
-      if (hashIdx !== -1) b64 = b64.slice(hashIdx + 4);
-    } catch { /* not a URL — use as-is */ }
-    const imported = importPrefsBookmark(b64);
-    if (!imported) return false;
-    const { prefs: importedPrefs, savedSnapshots } = imported;
-    const next: UserPrefs = { ...DEFAULT_PREFS, ...prefsRef.current, ...importedPrefs };
-    if (savedSnapshots?.length) {
-      pendingSavedSnapshotsRef.current.clear();
-      for (const s of savedSnapshots) {
-        const a: Article = { ...s, publishedAt: new Date(s.publishedAt) };
-        pendingSavedSnapshotsRef.current.set(a.id, a);
-      }
-    }
-    updatePrefs(next);
-    fetchIdRef.current++;
-    fetchingRef.current = false;
-    refresh(next, true);
-    return true;
-  }, [updatePrefs, refresh]);
-
-  const handleImportBookmarkRef = useRef(handleImportBookmark);
-  handleImportBookmarkRef.current = handleImportBookmark;
-
   // ── OPML export / import ──────────────────────────────────────────────────────
   const handleExportOPML = useCallback(() => {
     const { disabledSourceIds = [], customSources = [] } = prefsRef.current;
@@ -397,22 +349,9 @@ export function useFeed() {
     return true;
   }, [updatePrefs, refresh]);
 
-  // Restore from bookmark URL hash on load (opening …#bm=… in a private window / new profile)
+  // Trigger refresh once prefs are ready
   useEffect(() => {
     if (!prefsReady) return;
-    if (!window.location.hash.startsWith('#bm=')) return;
-    const ok = handleImportBookmarkRef.current(window.location.href);
-    if (ok) window.__boomerangSkipInitialRefresh = true;
-    window.history.replaceState(null, '', window.location.pathname + window.location.search);
-  }, [prefsReady]);
-
-  // Trigger refresh once prefs are ready (skipped when #bm= import already invoked refresh)
-  useEffect(() => {
-    if (!prefsReady) return;
-    if (window.__boomerangSkipInitialRefresh) {
-      window.__boomerangSkipInitialRefresh = false;
-      return;
-    }
     if (lastRefresh && Date.now() - lastRefresh.getTime() < CACHE_TTL) return;
     refresh(prefsRef.current);
   }, [prefsReady, refresh, lastRefresh]);
