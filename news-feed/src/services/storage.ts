@@ -1,7 +1,7 @@
 // Pure utility functions for prefs manipulation.
 // Persistence is handled by Fireproof in useFeed.ts.
 
-import type { Article, CustomSource, Topic, UserPrefs } from '../types';
+import type { Article, CustomSource, NewsSource, Topic, UserPrefs } from '../types';
 
 export const DEFAULT_PREFS: UserPrefs = {
   topicWeights:   {},
@@ -13,7 +13,8 @@ export const DEFAULT_PREFS: UserPrefs = {
   upvotedIds:     [],
   downvotedIds:   [],
   lastDecayAt:    0,
-  enabledSources: [],   // empty = all enabled
+  enabledSources:    [],  // legacy — kept for migration only
+  disabledSourceIds: [],  // blacklist: empty = all enabled
   enabledTopics:  [],   // empty = all enabled
   customSources:  [],
 };
@@ -78,10 +79,11 @@ export function boostTopic(topic: Topic, prefs: UserPrefs): UserPrefs {
 }
 
 export function toggleSource(sourceId: string, prefs: UserPrefs): UserPrefs {
-  const enabled = prefs.enabledSources.includes(sourceId)
-    ? prefs.enabledSources.filter(x => x !== sourceId)
-    : [...prefs.enabledSources, sourceId];
-  return { ...prefs, enabledSources: enabled };
+  const disabled = prefs.disabledSourceIds ?? [];
+  const next = disabled.includes(sourceId)
+    ? disabled.filter(x => x !== sourceId)
+    : [...disabled, sourceId];
+  return { ...prefs, disabledSourceIds: next };
 }
 
 export function toggleTopic(topic: Topic, prefs: UserPrefs): UserPrefs {
@@ -92,7 +94,7 @@ export function toggleTopic(topic: Topic, prefs: UserPrefs): UserPrefs {
 }
 
 export function isSourceEnabled(sourceId: string, prefs: UserPrefs): boolean {
-  return prefs.enabledSources.length === 0 || prefs.enabledSources.includes(sourceId);
+  return !(prefs.disabledSourceIds ?? []).includes(sourceId);
 }
 
 export function isTopicEnabled(topic: Topic, prefs: UserPrefs): boolean {
@@ -325,4 +327,117 @@ export function mergePoolWithSavedSnapshots(
     }
   }
   return Array.from(byId.values());
+}
+
+// ── OPML export / import ──────────────────────────────────────────────────────
+
+function escapeXml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/**
+ * Generate an OPML 2.0 file with all built-in and custom sources.
+ * Disabled sources are marked with `boomerangDisabled="true"` so an import
+ * round-trip preserves the enabled/disabled state.
+ * Custom sources carry `boomerangCustom="true"` so they are re-added on import.
+ */
+export function exportOPML(
+  defaultSources: NewsSource[],
+  customSources: CustomSource[],
+  disabledSourceIds: string[],
+): string {
+  const categories: Record<string, NewsSource[]> = {};
+  for (const s of defaultSources) {
+    (categories[s.category] ??= []).push(s);
+  }
+
+  const toOutline = (name: string, url: string, id: string, extra = '') => {
+    const dis = disabledSourceIds.includes(id) ? ' boomerangDisabled="true"' : '';
+    return `      <outline type="rss" text="${escapeXml(name)}" title="${escapeXml(name)}" xmlUrl="${escapeXml(url)}"${dis}${extra}/>`;
+  };
+
+  const groups: string[] = [];
+  for (const [cat, sources] of Object.entries(categories)) {
+    const label = cat.charAt(0).toUpperCase() + cat.slice(1);
+    const lines = sources.map(s => toOutline(s.name, s.feedUrl, s.id));
+    groups.push(`    <outline text="${label}" title="${label}">\n${lines.join('\n')}\n    </outline>`);
+  }
+  if (customSources.length > 0) {
+    const lines = customSources.map(s => toOutline(s.name, s.feedUrl, s.id, ' boomerangCustom="true"'));
+    groups.push(`    <outline text="Custom" title="Custom">\n${lines.join('\n')}\n    </outline>`);
+  }
+
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<opml version="2.0">',
+    '  <head>',
+    '    <title>Boomerang News Feeds</title>',
+    `    <dateCreated>${new Date().toUTCString()}</dateCreated>`,
+    '  </head>',
+    '  <body>',
+    ...groups,
+    '  </body>',
+    '</opml>',
+  ].join('\n');
+}
+
+export interface ImportedOPML {
+  /** Sources to disable — sources absent from the OPML or marked boomerangDisabled are disabled */
+  disabledSourceIds: string[];
+  /** Custom sources extracted from the OPML (unknown URLs + boomerangCustom entries) */
+  customSources: CustomSource[];
+}
+
+/**
+ * Parse an OPML XML string and return the new source configuration.
+ * Sources present in the file without boomerangDisabled are enabled;
+ * built-in sources absent from the file are disabled.
+ * Unknown URLs become new custom sources.
+ */
+export function importOPML(xml: string, defaultSources: NewsSource[]): ImportedOPML | null {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xml, 'application/xml');
+    if (doc.querySelector('parsererror')) return null;
+
+    const outlines = Array.from(doc.querySelectorAll('outline[xmlUrl]'));
+    if (outlines.length === 0) return null;
+
+    const opmlEntries = new Map<string, { disabled: boolean; custom: boolean; name: string }>();
+    for (const el of outlines) {
+      const xmlUrl = el.getAttribute('xmlUrl')?.trim();
+      if (!xmlUrl) continue;
+      opmlEntries.set(xmlUrl, {
+        disabled: el.getAttribute('boomerangDisabled') === 'true',
+        custom:   el.getAttribute('boomerangCustom')   === 'true',
+        name:     el.getAttribute('text') || el.getAttribute('title') || xmlUrl,
+      });
+    }
+
+    const defaultUrlSet = new Set(defaultSources.map(s => s.feedUrl));
+
+    // Built-in sources not in OPML, or explicitly disabled → go into disabledSourceIds
+    const newDisabledIds: string[] = [];
+    for (const s of defaultSources) {
+      const entry = opmlEntries.get(s.feedUrl);
+      if (!entry || entry.disabled) newDisabledIds.push(s.id);
+    }
+
+    // URLs not matching any built-in source → custom sources
+    const newCustomSources: CustomSource[] = [];
+    let idx = 0;
+    for (const [url, { name }] of opmlEntries) {
+      if (!defaultUrlSet.has(url)) {
+        newCustomSources.push({
+          id: `custom-${Date.now().toString(36)}-${(idx++).toString(36)}`,
+          name,
+          feedUrl: url,
+        });
+      }
+    }
+
+    return { disabledSourceIds: newDisabledIds, customSources: newCustomSources };
+  } catch {
+    return null;
+  }
 }

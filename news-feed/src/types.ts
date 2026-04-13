@@ -43,11 +43,13 @@ export interface UserPrefs {
   keywordWeights: Record<string, number>;  // per-word learned signal
   readIds:        string[];
   savedIds:       string[];
-  seenIds:        string[];       // articles shown in feed — filtered on next refresh
-  upvotedIds:     string[];       // explicit likes
-  downvotedIds:   string[];       // permanently hidden
-  lastDecayAt:    number;         // timestamp for periodic weight decay
+  seenIds:        string[];           // articles shown in feed — filtered on next refresh
+  upvotedIds:     string[];           // explicit likes
+  downvotedIds:   string[];           // permanently hidden
+  lastDecayAt:    number;             // timestamp for periodic weight decay
+  /** @deprecated legacy whitelist — kept only for one-time migration to disabledSourceIds */
   enabledSources: string[];
+  disabledSourceIds: string[];        // blacklist: empty = all enabled
   enabledTopics:  Topic[];
   customSources:  CustomSource[];
 }

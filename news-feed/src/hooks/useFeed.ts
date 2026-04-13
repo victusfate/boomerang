@@ -7,8 +7,8 @@ import {
   markRead, markSeen, toggleSaved,
   boostTopic, toggleSource, toggleTopic, isSourceEnabled,
   upvote, downvote, applyDecay, resetLearnedWeights, clearViewedCache,
-  addCustomSource, removeCustomSource, exportPrefsBookmark, importPrefsBookmark,
-  mergePoolWithSavedSnapshots,
+  addCustomSource, removeCustomSource, importPrefsBookmark,
+  mergePoolWithSavedSnapshots, exportOPML, importOPML,
 } from '../services/storage';
 import type { Article, CustomSource, Topic, UserPrefs } from '../types';
 
@@ -80,7 +80,16 @@ export function useFeed() {
   useEffect(() => {
     const prefsPromise = database.get<PrefsDoc>(PREFS_ID)
       .then(doc => {
-        const merged  = { ...DEFAULT_PREFS, ...doc };
+        let merged: UserPrefs = { ...DEFAULT_PREFS, ...doc };
+        // One-time migration: old whitelist `enabledSources` → blacklist `disabledSourceIds`
+        if ((merged.enabledSources?.length ?? 0) > 0 && (merged.disabledSourceIds?.length ?? 0) === 0) {
+          const enabledSet = new Set(merged.enabledSources);
+          merged = {
+            ...merged,
+            disabledSourceIds: DEFAULT_SOURCES.map(s => s.id).filter(id => !enabledSet.has(id)),
+            enabledSources: [],
+          };
+        }
         const decayed = applyDecay(merged);
         setPrefsState(decayed);
         if (decayed !== merged) {
@@ -130,7 +139,8 @@ export function useFeed() {
     setFetching(true);
     setError(null);
 
-    const activeSources = DEFAULT_SOURCES.filter(s => isSourceEnabled(s.id, currentPrefs));
+    const activeSources       = DEFAULT_SOURCES.filter(s => isSourceEnabled(s.id, currentPrefs));
+    const activeCustomSources = (currentPrefs.customSources ?? []).filter(s => isSourceEnabled(s.id, currentPrefs));
 
     // Merges ranked articles into the feed without collapsing the current visible list.
     // On explicit refresh the feed is fully replaced; on background refresh only
@@ -164,7 +174,7 @@ export function useFeed() {
 
     let feedSuccess = false;
     try {
-      const all = await fetchAllSources(activeSources, currentPrefs.customSources ?? [], onBatch);
+      const all = await fetchAllSources(activeSources, activeCustomSources, onBatch);
       if (fetchIdRef.current !== myFetchId) return; // superseded — bail out
 
       const merged = mergePoolWithSavedSnapshots(all, currentPrefs.savedIds, pendingSavedSnapshotsRef.current);
@@ -328,15 +338,7 @@ export function useFeed() {
     refresh(next, true); // explicit — re-rank without removed source's articles
   }, [updatePrefs, refresh]);
 
-  // ── Bookmark export / import ──────────────────────────────────────────────────
-  const handleExportBookmark = useCallback((): string => {
-    const saved = articlePoolRef.current.filter(a => prefsRef.current.savedIds.includes(a.id));
-    const encoded = exportPrefsBookmark(prefsRef.current, saved);
-    const url = new URL(window.location.href);
-    url.hash = `bm=${encoded}`;
-    return url.toString();
-  }, []);
-
+  // ── Bookmark import (internal — used only for #bm= URL hash restore) ────────
   const handleImportBookmark = useCallback((encoded: string): boolean => {
     // Accept either a full URL (extract hash) or a bare base64 string
     let b64 = encoded.trim();
@@ -364,6 +366,36 @@ export function useFeed() {
 
   const handleImportBookmarkRef = useRef(handleImportBookmark);
   handleImportBookmarkRef.current = handleImportBookmark;
+
+  // ── OPML export / import ──────────────────────────────────────────────────────
+  const handleExportOPML = useCallback(() => {
+    const { disabledSourceIds = [], customSources = [] } = prefsRef.current;
+    const xml = exportOPML(DEFAULT_SOURCES, customSources, disabledSourceIds);
+    const blob = new Blob([xml], { type: 'application/xml' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'boomerang-feeds.opml';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleImportOPML = useCallback((xml: string): boolean => {
+    const result = importOPML(xml, DEFAULT_SOURCES);
+    if (!result) return false;
+    const next: UserPrefs = {
+      ...prefsRef.current,
+      disabledSourceIds: result.disabledSourceIds,
+      customSources: result.customSources,
+    };
+    updatePrefs(next);
+    fetchIdRef.current++;
+    fetchingRef.current = false;
+    refresh(next, true);
+    return true;
+  }, [updatePrefs, refresh]);
 
   // Restore from bookmark URL hash on load (opening …#bm=… in a private window / new profile)
   useEffect(() => {
@@ -409,9 +441,9 @@ export function useFeed() {
     onResetPrefs:        handleResetPrefs,
     onClearViewed:       handleClearViewed,
     onRefresh:           handleRefresh,
-    onAddCustomSource:   handleAddCustomSource,
+    onAddCustomSource:    handleAddCustomSource,
     onRemoveCustomSource: handleRemoveCustomSource,
-    onExportBookmark:    handleExportBookmark,
-    onImportBookmark:    handleImportBookmark,
+    onExportOPML:         handleExportOPML,
+    onImportOPML:         handleImportOPML,
   };
 }

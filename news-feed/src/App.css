@@ -572,6 +572,17 @@ html, body {
   }
 }
 
+/* ── Custom source row with inline toggle + remove ───────────────────────── */
+.source-row-custom {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.source-item-flex {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ── Custom Sources ────────────────────────────────────────────────────────── */
 .custom-source-list {
   list-style: none;
@@ -677,11 +688,27 @@ html, body {
   outline-offset: 2px;
 }
 
-/* ── Bookmark / import ─────────────────────────────────────────────────────── */
-.settings-section-bookmark .settings-hint strong {
-  color: var(--text);
-  font-weight: 600;
+/* ── OPML export / import ──────────────────────────────────────────────────── */
+.opml-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
+.opml-import-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* Hide the native file input — we trigger it via button */
+.opml-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── Bookmark / import (kept for legacy CSS references) ────────────────────── */
 .settings-field {
   display: flex;
   flex-direction: column;

@@ -17,25 +17,24 @@ interface Props {
   onClose: () => void;
   onAddCustomSource: (source: CustomSource) => void;
   onRemoveCustomSource: (id: string) => void;
-  onExportBookmark: () => string;
-  onImportBookmark: (encoded: string) => boolean;
+  onExportOPML: () => void;
+  onImportOPML: (xml: string) => boolean;
 }
 
 export function Settings({
   prefs, onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onClose,
-  onAddCustomSource, onRemoveCustomSource, onExportBookmark, onImportBookmark,
+  onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Custom source form
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl]   = useState('');
 
-  // Bookmark
-  const [bookmarkCopied, setBookmarkCopied] = useState(false);
-  const [importValue, setImportValue]       = useState('');
-  const [importStatus, setImportStatus]     = useState<'idle' | 'ok' | 'error'>('idle');
+  // Import status
+  const [importStatus, setImportStatus] = useState<'idle' | 'ok' | 'error'>('idle');
 
   useEffect(() => {
     previousFocusRef.current = document.activeElement;
@@ -68,33 +67,25 @@ export function Settings({
     const name    = newName.trim();
     const feedUrl = newUrl.trim();
     if (!name || !feedUrl) return;
-    const id = Date.now().toString(36);
+    const id = `custom-${Date.now().toString(36)}`;
     onAddCustomSource({ id, name, feedUrl });
     setNewName('');
     setNewUrl('');
   };
 
-  const handleCopyBookmark = async () => {
-    const url = onExportBookmark();
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      // Fallback: select the text in the hidden field
-      const el = document.createElement('textarea');
-      el.value = url;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand('copy');
-      document.body.removeChild(el);
-    }
-    setBookmarkCopied(true);
-    setTimeout(() => setBookmarkCopied(false), 2500);
-  };
-
-  const handleImport = () => {
-    const ok = onImportBookmark(importValue);
-    setImportStatus(ok ? 'ok' : 'error');
-    if (ok) { setImportValue(''); setTimeout(() => setImportStatus('idle'), 3000); }
+  const handleOPMLFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const xml = ev.target?.result as string;
+      const ok = onImportOPML(xml);
+      setImportStatus(ok ? 'ok' : 'error');
+      if (ok) setTimeout(() => setImportStatus('idle'), 3000);
+    };
+    reader.readAsText(file);
+    // Reset so the same file can be re-imported
+    e.target.value = '';
   };
 
   return (
@@ -105,6 +96,7 @@ export function Settings({
           <button className="btn-close" onClick={onClose} aria-label="Close settings">✕</button>
         </div>
 
+        {/* ── Topics ─────────────────────────────────────────────────── */}
         <section className="settings-section">
           <h3>Topics</h3>
           <p className="settings-hint">Articles you read boost topic weight automatically.</p>
@@ -133,8 +125,10 @@ export function Settings({
           </div>
         </section>
 
+        {/* ── Sources (built-in + custom unified) ────────────────────── */}
         <section className="settings-section">
           <h3>Sources</h3>
+          <p className="settings-hint">Toggle sources on or off. Custom sources can also be removed entirely.</p>
           <div className="source-list">
             {DEFAULT_SOURCES.map(source => {
               const enabled = isSourceEnabled(source.id, prefs);
@@ -147,27 +141,26 @@ export function Settings({
                 >
                   <span className="source-dot" style={{ background: meta?.color ?? '#888' }} />
                   <span className="source-name">{source.name}</span>
-                  <span className="source-cat">{meta?.label}</span>
+                  <span className="source-cat">{meta?.label ?? source.category}</span>
                   <span className={`toggle-indicator ${enabled ? 'on' : ''}`} />
                 </button>
               );
             })}
-          </div>
-        </section>
 
-        {/* ── Custom Sources ─────────────────────────────────────────────── */}
-        <section className="settings-section">
-          <h3>Custom Sources</h3>
-          <p className="settings-hint">Add any RSS or Atom feed URL. Fetched via the worker — no CORS issues.</p>
-
-          {prefs.customSources.length > 0 && (
-            <ul className="custom-source-list">
-              {prefs.customSources.map(src => (
-                <li key={src.id} className="custom-source-item">
-                  <div className="custom-source-info">
-                    <span className="custom-source-name">{src.name}</span>
-                    <span className="custom-source-url">{src.feedUrl}</span>
-                  </div>
+            {prefs.customSources.map(src => {
+              const enabled = isSourceEnabled(src.id, prefs);
+              return (
+                <div key={src.id} className="source-row-custom">
+                  <button
+                    className={`source-item source-item-flex ${enabled ? 'on' : 'off'}`}
+                    onClick={() => onToggleSource(src.id)}
+                    title={src.feedUrl}
+                  >
+                    <span className="source-dot" style={{ background: '#888' }} />
+                    <span className="source-name">{src.name}</span>
+                    <span className="source-cat">Custom</span>
+                    <span className={`toggle-indicator ${enabled ? 'on' : ''}`} />
+                  </button>
                   <button
                     className="btn-remove-source"
                     onClick={() => onRemoveCustomSource(src.id)}
@@ -175,11 +168,12 @@ export function Settings({
                   >
                     ✕
                   </button>
-                </li>
-              ))}
-            </ul>
-          )}
+                </div>
+              );
+            })}
+          </div>
 
+          <p className="settings-hint" style={{ marginTop: '14px' }}>Add a custom RSS or Atom feed URL.</p>
           <form className="custom-source-form" onSubmit={handleAddSource}>
             <input
               type="text"
@@ -197,60 +191,47 @@ export function Settings({
               onChange={e => setNewUrl(e.target.value)}
               required
             />
-            <button type="submit" className="btn-add-source">Add</button>
+            <button type="submit" className="btn-add-source">Add source</button>
           </form>
         </section>
 
-        {/* ── Bookmark ───────────────────────────────────────────────────── */}
-        <section className="settings-section settings-section-bookmark">
-          <h3>Backup &amp; Restore</h3>
+        {/* ── OPML Export / Import ───────────────────────────────────── */}
+        <section className="settings-section">
+          <h3>Export / Import</h3>
           <p className="settings-hint">
-            Copies a long URL to your clipboard. It includes preferences, custom feeds, and your
-            <strong>saved articles</strong> (so starred items show up in a new browser or private window,
-            not just the IDs). Use a fresh export after adding saves. You can also paste the full URL
-            into the address bar — the app will import it automatically when the page loads.
+            Download your subscriptions as an <strong>OPML</strong> file — compatible with any feed reader.
+            Import an OPML file to restore or replace your source list (enabled/disabled state and custom feeds).
           </p>
-          <div className="settings-field">
-            <span className="settings-label" id="bookmark-export-label">Export</span>
-            <button
-              type="button"
-              className="btn-bookmark"
-              onClick={handleCopyBookmark}
-              aria-labelledby="bookmark-export-label"
-            >
-              {bookmarkCopied ? 'Copied to clipboard' : 'Copy backup URL'}
+
+          <div className="opml-actions">
+            <button type="button" className="btn-bookmark" onClick={onExportOPML}>
+              Download OPML
             </button>
+
+            <div className="opml-import-row">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".opml,.xml"
+                className="opml-file-input"
+                aria-label="Import OPML file"
+                onChange={handleOPMLFile}
+              />
+              <button
+                type="button"
+                className="btn-add-source"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Import OPML file
+              </button>
+            </div>
           </div>
 
-          <div className="settings-field settings-field-import">
-            <label className="settings-label" htmlFor="bookmark-import-input">Import</label>
-            <p className="settings-hint settings-hint-tight">
-              Paste the full URL from <strong>Copy backup URL</strong>, or paste only the base64 part after{' '}
-              <code className="settings-code">#bm=</code>.
-            </p>
-            <textarea
-              id="bookmark-import-input"
-              className="settings-textarea"
-              placeholder="https://…/boomerang/#bm=…  or paste the base64 payload only"
-              rows={4}
-              autoComplete="off"
-              spellCheck={false}
-              value={importValue}
-              onChange={e => { setImportValue(e.target.value); setImportStatus('idle'); }}
-            />
-            <button
-              type="button"
-              className="btn-add-source btn-import-apply"
-              onClick={handleImport}
-              disabled={!importValue.trim()}
-            >
-              Apply import
-            </button>
-          </div>
-          {importStatus === 'ok'    && <p className="import-status ok">Imported — preferences applied and feed refreshing.</p>}
-          {importStatus === 'error' && <p className="import-status error">Could not read that bookmark — paste the full URL or the base64 block and try again.</p>}
+          {importStatus === 'ok'    && <p className="import-status ok">Imported — sources updated and feed refreshing.</p>}
+          {importStatus === 'error' && <p className="import-status error">Could not read that file — make sure it is a valid OPML or XML file.</p>}
         </section>
 
+        {/* ── Preferences ────────────────────────────────────────────── */}
         <section className="settings-section">
           <h3>Preferences</h3>
           <p className="settings-hint">Clear viewed history to see previously read articles again.</p>
@@ -265,6 +246,7 @@ export function Settings({
           </button>
         </section>
 
+        {/* ── About ──────────────────────────────────────────────────── */}
         <section className="settings-section">
           <h3>About</h3>
           <p className="settings-about">
