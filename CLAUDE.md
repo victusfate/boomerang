@@ -4,6 +4,7 @@
 
 | Path | What it is |
 |---|---|
+| `shared/rss-sources.json` | Canonical built-in RSS source list — imported at build by `news-feed` and `rss-worker` |
 | `news-feed/` | News PWA (React + Vite + Fireproof), deployed to GitHub Pages at `/boomerang` |
 | `rss-worker/` | Cloudflare Worker — RSS aggregation (`GET /bundle`), staggered upstream fetches |
 | `.github/workflows/deploy.yml` | Builds `news-feed/` only; uploads `news-feed/dist` |
