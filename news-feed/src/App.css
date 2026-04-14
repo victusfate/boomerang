@@ -374,24 +374,32 @@ html, body {
   background: none;
   border: none;
   color: var(--sub);
-  font-size: 0.75rem;
+  font-size: 1rem;
   cursor: pointer;
-  padding: 4px 7px;
+  padding: 8px 12px;
   border-radius: 6px;
   transition: color 0.15s, background 0.15s;
   line-height: 1;
+  min-width: 40px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .btn-vote:hover { background: var(--border); color: var(--text); }
 .btn-upvote.active   { color: #4caf50; }
 .btn-downvote.active { color: #e05050; }
 
 .btn-read {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--accent);
   text-decoration: none;
-  padding: 4px 0;
+  padding: 8px 0;
   letter-spacing: 0.02em;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
 }
 .btn-read:hover { opacity: 0.8; }
 
@@ -399,9 +407,14 @@ html, body {
   background: none;
   border: none;
   color: var(--sub);
-  font-size: 1.1rem;
+  font-size: 1.25rem;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 8px 10px;
+  min-width: 40px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 6px;
   transition: color 0.15s, background 0.15s;
   line-height: 1;
@@ -899,21 +912,27 @@ html, body {
 /* ── Bigger touch targets on mobile ─────────────────────────────────────────── */
 @media (max-width: 640px) {
   .btn-vote {
-    padding: 8px 11px;
-    font-size: 0.9rem;
+    padding: 10px 14px;
+    font-size: 1.1rem;
+    min-width: 44px;
+    min-height: 44px;
   }
   .btn-save {
-    padding: 8px 12px;
-    font-size: 1.25rem;
+    padding: 10px 12px;
+    font-size: 1.4rem;
+    min-width: 44px;
+    min-height: 44px;
   }
   .btn-read {
-    font-size: 0.9rem;
-    padding: 8px 0;
+    font-size: 0.95rem;
+    min-height: 44px;
   }
   .icon-btn {
-    padding: 10px;
+    padding: 12px;
+    min-width: 44px;
+    min-height: 44px;
   }
   .card-body { padding: 14px 16px; }
-  .card-actions { gap: 8px; }
-  .card-vote-group { gap: 4px; }
+  .card-actions { gap: 4px; }
+  .card-vote-group { gap: 2px; }
 }
