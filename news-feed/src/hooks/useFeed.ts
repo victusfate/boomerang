@@ -13,7 +13,6 @@ import {
 import type { Article, CustomSource, Topic, UserPrefs } from '../types';
 
 const PAGE_SIZE          = 5;
-const CACHE_TTL          = 15 * 60 * 1000;
 const PREFS_ID           = 'user-prefs';
 const CACHE_ID           = 'feed-cache';
 const IMPORTED_SAVES_ID  = 'imported-saves';
@@ -56,7 +55,6 @@ export function useFeed() {
   allArticlesRef.current = allArticles;
 
   const markedSeenRef    = useRef(new Set<string>());
-  const timerRef         = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Incremented on every refresh call; onBatch/finally checks this to discard
   // results from a superseded (stale) fetch.
@@ -125,11 +123,8 @@ export function useFeed() {
         setAllArticles(ranked);
         if (ranked.length) setLoading(false);
 
-        // If saved articles are missing from cache (old format), force network refresh
-        const cachedIds    = new Set(cached.articles.map(a => a.id));
-        const missingSaved = loadedPrefs.savedIds.some(id => !cachedIds.has(id));
-        const stale        = missingSaved || Date.now() - cached.fetchedAt > CACHE_TTL;
-        if (!stale) setLastRefresh(new Date(cached.fetchedAt));
+        // Mark cache as valid so we skip the auto-fetch on startup
+        setLastRefresh(new Date(cached.fetchedAt));
       }
     });
   }, [database]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -224,20 +219,6 @@ export function useFeed() {
       }
     }
   }, [database]); // stable — does not depend on volatile state
-
-  // ── Auto-refresh timer — uses stable `refresh` ref via timerRef ──────────────
-  const refreshRef = useRef(refresh);
-  refreshRef.current = refresh;
-
-  useEffect(() => {
-    if (!lastRefresh) return;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(
-      () => refreshRef.current(prefsRef.current),
-      CACHE_TTL,
-    );
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [lastRefresh]); // only reset timer when lastRefresh changes — not on refresh identity change
 
   // ── Mark a single article as seen after the user has dwelt on it ─────────────
   // Called by ArticleCard via IntersectionObserver + dwell timer (see ArticleCard.tsx).
@@ -405,12 +386,14 @@ export function useFeed() {
     return true;
   }, [updatePrefs, refresh]);
 
-  // Trigger refresh once prefs are ready
+  // Auto-fetch on startup only when there is no cached feed to show.
+  // After that, all refreshes are explicit (refresh button or pull-to-refresh).
   useEffect(() => {
     if (!prefsReady) return;
-    if (lastRefresh && Date.now() - lastRefresh.getTime() < CACHE_TTL) return;
+    if (lastRefresh) return; // cache loaded — wait for user to refresh manually
     refresh(prefsRef.current);
-  }, [prefsReady, refresh, lastRefresh]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefsReady]); // one-shot: only runs once when prefs become ready
 
   const savedIds  = new Set(prefs.savedIds);
   const poolIds   = new Set(articlePool.map(a => a.id));

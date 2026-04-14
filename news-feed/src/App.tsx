@@ -5,6 +5,8 @@ import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
 import type { Topic, FeedView } from './types';
 
+const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
+
 function RefreshIcon({ spinning }: { spinning: boolean }) {
   return (
     <svg
@@ -33,6 +35,56 @@ export default function App() {
   const [view, setView] = useState<FeedView>('feed');
   const [topicFilter, setTopicFilter] = useState<Topic | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [pullProgress, setPullProgress] = useState(0); // 0–1
+
+  // Keep a stable ref so the touch handlers always call the latest onRefresh
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
+
+  // Gesture state stored in a ref to avoid re-renders during drag
+  const pullGestureRef = useRef({ active: false, startY: 0, progress: 0 });
+
+  useEffect(() => {
+    if (showSettings) return; // don't capture gestures when settings modal is open
+    let triggered = false;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (window.scrollY > 5) return; // only activate at top of page
+      pullGestureRef.current = { active: true, startY: e.touches[0].clientY, progress: 0 };
+      triggered = false;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      const g = pullGestureRef.current;
+      if (!g.active) return;
+      const delta = e.touches[0].clientY - g.startY;
+      if (delta <= 0) { g.active = false; setPullProgress(0); return; }
+      const progress = Math.min(delta / PULL_THRESHOLD, 1);
+      g.progress = progress;
+      setPullProgress(progress);
+      // Prevent native scroll-bounce while we're handling the pull
+      if (window.scrollY <= 5) e.preventDefault();
+    };
+
+    const onTouchEnd = () => {
+      const g = pullGestureRef.current;
+      if (!g.active) return;
+      const willRefresh = g.progress >= 1 && !triggered;
+      g.active = false;
+      g.progress = 0;
+      setPullProgress(0);
+      if (willRefresh) { triggered = true; onRefreshRef.current(); }
+    };
+
+    document.addEventListener('touchstart', onTouchStart, { passive: true });
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [showSettings]); // pullGestureRef is stable; onRefreshRef is kept current above
 
   // Sentinel element watched by IntersectionObserver to trigger load-more.
   // The callback is kept in a ref so the observer itself is only created once
@@ -134,6 +186,17 @@ export default function App() {
           activeFilter={topicFilter}
           onFilter={setTopicFilter}
         />
+      )}
+
+      {pullProgress > 0 && (
+        <div className="pull-indicator">
+          <div
+            className="pull-indicator-inner"
+            style={{ opacity: pullProgress, transform: `scale(${0.5 + pullProgress * 0.5})` }}
+          >
+            <RefreshIcon spinning={pullProgress >= 1} />
+          </div>
+        </div>
       )}
 
       <main className="feed">
