@@ -104,11 +104,9 @@ export function ArticleCard({ article, prefs, onOpen, onSave, onUpvote, onDownvo
   const votedUp   = prefs.upvotedIds.includes(article.id);
   const votedDown = prefs.downvotedIds.includes(article.id);
 
-  const [dismissed, setDismissed] = useState(false);
-
   const primaryTopic = article.topics[0];
   const topicMeta    = TOPIC_META[primaryTopic];
-  const navUrl         = useMemo(() => normalizeArticleNavUrl(article.url), [article.url]);
+  const navUrl       = useMemo(() => normalizeArticleNavUrl(article.url), [article.url]);
   const isVideo =
     article.imageUrl?.includes('img.youtube.com') === true
     || /youtube\.com|youtu\.be/i.test(navUrl);
@@ -132,41 +130,50 @@ export function ArticleCard({ article, prefs, onOpen, onSave, onUpvote, onDownvo
     return () => { observer.disconnect(); if (timer) clearTimeout(timer); };
   }, [article.id, onSeen]); // cardRef is stable — excluded intentionally
 
-  const handleDownvote = () => {
-    setDismissed(true);
-    // Small delay so the fade-out animation plays before React removes the card
-    setTimeout(() => onDownvote(article), 280);
-  };
-
-  const handleUpvote = () => {
-    onUpvote(article);
-  };
-
   /** Defer prefs so re-rank does not cancel navigation. */
-  const deferMarkOpen = () => {
-    window.setTimeout(() => onOpen(article), 0);
-  };
+  const deferMarkOpen = () => { window.setTimeout(() => onOpen(article), 0); };
 
-  /**
-   * Plain click: synchronous window.open (reliable for youtube.com + PWAs). Modifier+click keeps default
-   * (new tab) behavior.
-   */
   const handleArticleNavClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (e.button !== 0) return;
-    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) {
-      deferMarkOpen();
-      return;
-    }
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) { deferMarkOpen(); return; }
     e.preventDefault();
     window.open(navUrl, '_blank', 'noopener,noreferrer');
     deferMarkOpen();
   };
 
+  // ── Collapsed view for downvoted articles ─────────────────────────────────────
+  if (votedDown) {
+    return (
+      <article className="card card-downvoted" ref={cardRef as React.RefObject<HTMLElement>}>
+        <div className="card-body card-body-collapsed">
+          <div className="card-collapsed-row">
+            <span className="card-source card-source-muted">{article.source}</span>
+            <a
+              href={navUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="card-collapsed-title"
+              onClick={handleArticleNavClick}
+            >
+              {article.title}
+            </a>
+            <button
+              className="btn-vote btn-downvote active"
+              onClick={() => onDownvote(article)}
+              aria-label="Remove downvote"
+              title="Show again"
+            >
+              ▼
+            </button>
+          </div>
+        </div>
+      </article>
+    );
+  }
+
+  // ── Normal card ───────────────────────────────────────────────────────────────
   return (
-    <article
-      className={`card ${dismissed ? 'card-dismissed' : ''}`}
-      ref={cardRef as React.RefObject<HTMLElement>}
-    >
+    <article className="card" ref={cardRef as React.RefObject<HTMLElement>}>
       {imageUrl && (
         <a
           href={navUrl}
@@ -227,17 +234,17 @@ export function ArticleCard({ article, prefs, onOpen, onSave, onUpvote, onDownvo
           <div className="card-vote-group">
             <button
               className={`btn-vote btn-upvote ${votedUp ? 'active' : ''}`}
-              onClick={handleUpvote}
-              aria-label="More like this"
-              title="More like this"
+              onClick={() => onUpvote(article)}
+              aria-label={votedUp ? 'Remove upvote' : 'More like this'}
+              title={votedUp ? 'Remove upvote' : 'More like this'}
             >
               ▲
             </button>
             <button
               className={`btn-vote btn-downvote ${votedDown ? 'active' : ''}`}
-              onClick={handleDownvote}
-              aria-label="Less like this"
-              title="Less like this"
+              onClick={() => onDownvote(article)}
+              aria-label={votedDown ? 'Remove downvote' : 'Less like this'}
+              title={votedDown ? 'Remove downvote' : 'Less like this'}
             >
               ▼
             </button>

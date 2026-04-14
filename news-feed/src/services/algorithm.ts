@@ -53,10 +53,11 @@ export function scoreArticle(article: Article, prefs: UserPrefs, sourceArticleCo
 }
 
 export function rankFeed(articles: Article[], prefs: UserPrefs): Article[] {
-  // Filter articles already read, seen, or explicitly downvoted
+  // Filter articles already read or seen; keep downvoted (they render collapsed at the end)
   const seenSet     = new Set([...prefs.readIds, ...prefs.seenIds]);
   const downvoteSet = new Set(prefs.downvotedIds);
-  const unread = articles.filter(a => !seenSet.has(a.id) && !downvoteSet.has(a.id));
+  const unread     = articles.filter(a => !seenSet.has(a.id) && !downvoteSet.has(a.id));
+  const downvoted  = articles.filter(a => downvoteSet.has(a.id) && !seenSet.has(a.id));
 
   // Remove promotional / ad content
   const nonAd = filterAds(unread);
@@ -92,5 +93,6 @@ export function rankFeed(articles: Article[], prefs: UserPrefs): Article[] {
     }
   }
 
-  return result;
+  // Downvoted articles appear collapsed at the very bottom
+  return [...result, ...downvoted];
 }

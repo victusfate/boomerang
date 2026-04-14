@@ -277,10 +277,8 @@ export function useFeed() {
   }, [updatePrefs]);
 
   const handleDownvote = useCallback((article: Article) => {
+    // Toggle downvote — card stays in the feed and renders collapsed via prefs.downvotedIds
     updatePrefs(downvote(article, prefsRef.current));
-    // Splice out only the downvoted card — avoid rankFeed(pool) which would also
-    // filter seenIds and collapse the rest of the visible feed.
-    setAllArticles(prev => prev.filter(a => a.id !== article.id));
   }, [updatePrefs]);
 
   const handleToggleSource = useCallback((sourceId: string) => {

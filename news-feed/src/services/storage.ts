@@ -104,7 +104,13 @@ export function isTopicEnabled(topic: Topic, prefs: UserPrefs): boolean {
 // ── Vote actions ──────────────────────────────────────────────────────────────
 
 export function upvote(article: Article, prefs: UserPrefs): UserPrefs {
-  if (prefs.upvotedIds.includes(article.id)) return prefs;
+  // Toggle: clicking again removes the upvote (no weight reversal — weights are soft signals)
+  if (prefs.upvotedIds.includes(article.id)) {
+    return {
+      ...prefs,
+      upvotedIds: prefs.upvotedIds.filter(id => id !== article.id),
+    };
+  }
 
   const topicWeights = { ...prefs.topicWeights };
   for (const t of article.topics) {
@@ -133,7 +139,13 @@ export function upvote(article: Article, prefs: UserPrefs): UserPrefs {
 }
 
 export function downvote(article: Article, prefs: UserPrefs): UserPrefs {
-  if (prefs.downvotedIds.includes(article.id)) return prefs;
+  // Toggle: clicking again removes the downvote
+  if (prefs.downvotedIds.includes(article.id)) {
+    return {
+      ...prefs,
+      downvotedIds: prefs.downvotedIds.filter(id => id !== article.id),
+    };
+  }
 
   const topicWeights = { ...prefs.topicWeights };
   for (const t of article.topics) {

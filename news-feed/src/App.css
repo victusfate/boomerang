@@ -325,17 +325,38 @@ html, body {
   margin-bottom: 10px;
 }
 
-/* Dismissed card: fade + collapse before React removes it from DOM */
-@keyframes cardDismiss {
-  0%   { opacity: 1; max-height: 600px; margin-bottom: 8px; }
-  60%  { opacity: 0; max-height: 600px; }
-  100% { opacity: 0; max-height: 0;   margin-bottom: 0; padding: 0; }
+/* Downvoted card: collapsed, greyed-out, title only */
+.card-downvoted {
+  opacity: 0.45;
+  transition: opacity 0.15s;
 }
-.card-dismissed {
+.card-downvoted:hover { opacity: 0.75; }
+
+.card-body-collapsed { padding: 8px 14px; }
+
+.card-collapsed-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.card-source-muted {
+  font-size: 0.72rem;
+  color: var(--sub);
+  flex-shrink: 0;
+  font-weight: 600;
+}
+.card-collapsed-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.875rem;
+  color: var(--sub);
+  text-decoration: none;
+  white-space: nowrap;
   overflow: hidden;
-  animation: cardDismiss 0.28s ease forwards;
-  pointer-events: none;
+  text-overflow: ellipsis;
 }
+.card-collapsed-title:hover { color: var(--text); }
 
 .card-actions {
   display: flex;
@@ -873,4 +894,26 @@ html, body {
     color: #b71c1c;
     border-color: rgba(183, 28, 28, 0.2);
   }
+}
+
+/* ── Bigger touch targets on mobile ─────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .btn-vote {
+    padding: 8px 11px;
+    font-size: 0.9rem;
+  }
+  .btn-save {
+    padding: 8px 12px;
+    font-size: 1.25rem;
+  }
+  .btn-read {
+    font-size: 0.9rem;
+    padding: 8px 0;
+  }
+  .icon-btn {
+    padding: 10px;
+  }
+  .card-body { padding: 14px 16px; }
+  .card-actions { gap: 8px; }
+  .card-vote-group { gap: 4px; }
 }
