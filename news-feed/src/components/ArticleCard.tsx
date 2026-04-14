@@ -92,6 +92,8 @@ const DWELL_MS = 3_000;
 interface Props {
   article: Article;
   prefs: UserPrefs;
+  /** Short enter animation when appended during progressive refresh */
+  animateEnter?: boolean;
   onOpen: (article: Article) => void;
   onSave: (id: string) => void;
   onUpvote: (article: Article) => void;
@@ -99,7 +101,16 @@ interface Props {
   onSeen?: (id: string) => void;
 }
 
-export function ArticleCard({ article, prefs, onOpen, onSave, onUpvote, onDownvote, onSeen }: Props) {
+export function ArticleCard({
+  article,
+  prefs,
+  animateEnter = false,
+  onOpen,
+  onSave,
+  onUpvote,
+  onDownvote,
+  onSeen,
+}: Props) {
   const saved     = prefs.savedIds.includes(article.id);
   const votedUp   = prefs.upvotedIds.includes(article.id);
   const votedDown = prefs.downvotedIds.includes(article.id);
@@ -144,7 +155,10 @@ export function ArticleCard({ article, prefs, onOpen, onSave, onUpvote, onDownvo
   // ── Collapsed view for downvoted articles ─────────────────────────────────────
   if (votedDown) {
     return (
-      <article className="card card-downvoted" ref={cardRef as React.RefObject<HTMLElement>}>
+      <article
+        className={`card card-downvoted${animateEnter ? ' card-enter' : ''}`}
+        ref={cardRef as React.RefObject<HTMLElement>}
+      >
         <div className="card-body card-body-collapsed">
           <div className="card-collapsed-row">
             <span className="card-source card-source-muted">{article.source}</span>
@@ -173,7 +187,7 @@ export function ArticleCard({ article, prefs, onOpen, onSave, onUpvote, onDownvo
 
   // ── Normal card ───────────────────────────────────────────────────────────────
   return (
-    <article className="card" ref={cardRef as React.RefObject<HTMLElement>}>
+    <article className={`card${animateEnter ? ' card-enter' : ''}`} ref={cardRef as React.RefObject<HTMLElement>}>
       {imageUrl && (
         <a
           href={navUrl}

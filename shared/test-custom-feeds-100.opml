@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>Boomerang test — 100 custom feeds</title>
+    <dateCreated>Tue, 14 Apr 2026 16:23:45 GMT</dateCreated>
+  </head>
+  <body>
+    <outline text="Custom" title="Custom">
+      <outline type="rss" text="Rust Blog" title="Rust Blog" xmlUrl="https://blog.rust-lang.org/feed.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Kubernetes.io" title="Kubernetes.io" xmlUrl="https://kubernetes.io/feed.xml" boomerangCustom="true"/>
+      <outline type="rss" text="GitHub Blog" title="GitHub Blog" xmlUrl="https://github.blog/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="Cloudflare Blog" title="Cloudflare Blog" xmlUrl="https://blog.cloudflare.com/rss/" boomerangCustom="true"/>
+      <outline type="rss" text="Stack Overflow Blog" title="Stack Overflow Blog" xmlUrl="https://stackoverflow.blog/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="WebKit" title="WebKit" xmlUrl="https://webkit.org/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="Mozilla Hacks" title="Mozilla Hacks" xmlUrl="https://hacks.mozilla.org/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="V8" title="V8" xmlUrl="https://v8.dev/blog.atom" boomerangCustom="true"/>
+      <outline type="rss" text="Node.js Blog" title="Node.js Blog" xmlUrl="https://nodejs.org/en/feed/blog.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Python Insider" title="Python Insider" xmlUrl="https://blog.python.org/feeds/posts/default" boomerangCustom="true"/>
+      <outline type="rss" text="Go Blog" title="Go Blog" xmlUrl="https://go.dev/blog/feed.atom" boomerangCustom="true"/>
+      <outline type="rss" text="Netflix TechBlog" title="Netflix TechBlog" xmlUrl="https://netflixtechblog.com/feed" boomerangCustom="true"/>
+      <outline type="rss" text="Engineering at Meta" title="Engineering at Meta" xmlUrl="https://engineering.fb.com/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="Dropbox Tech" title="Dropbox Tech" xmlUrl="https://dropbox.tech/feed" boomerangCustom="true"/>
+      <outline type="rss" text="Stripe Blog" title="Stripe Blog" xmlUrl="https://stripe.com/blog/feed.rss" boomerangCustom="true"/>
+      <outline type="rss" text="Shopify Engineering" title="Shopify Engineering" xmlUrl="https://shopify.engineering/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Uber Engineering" title="Uber Engineering" xmlUrl="https://eng.uber.com/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="LinkedIn Engineering" title="LinkedIn Engineering" xmlUrl="https://engineering.linkedin.com/blog.rss" boomerangCustom="true"/>
+      <outline type="rss" text="Discord Blog" title="Discord Blog" xmlUrl="https://discord.com/blog/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Tailwind CSS" title="Tailwind CSS" xmlUrl="https://tailwindcss.com/blog/feed.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Swift.org" title="Swift.org" xmlUrl="https://www.swift.org/atom.xml" boomerangCustom="true"/>
+      <outline type="rss" text="React Blog" title="React Blog" xmlUrl="https://react.dev/blog/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Vue.js News" title="Vue.js News" xmlUrl="https://news.vuejs.org/feed.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Svelte Blog" title="Svelte Blog" xmlUrl="https://svelte.dev/blog/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="TypeScript Blog" title="TypeScript Blog" xmlUrl="https://devblogs.microsoft.com/typescript/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="VS Code Updates" title="VS Code Updates" xmlUrl="https://code.visualstudio.com/feed.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Docker Blog" title="Docker Blog" xmlUrl="https://www.docker.com/blog/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="HashiCorp Blog" title="HashiCorp Blog" xmlUrl="https://www.hashicorp.com/blog/feed.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Elastic Blog" title="Elastic Blog" xmlUrl="https://www.elastic.co/blog/feed" boomerangCustom="true"/>
+      <outline type="rss" text="MongoDB Blog" title="MongoDB Blog" xmlUrl="https://www.mongodb.com/blog/rss" boomerangCustom="true"/>
+      <outline type="rss" text="PostgreSQL News" title="PostgreSQL News" xmlUrl="https://www.postgresql.org/news/feed.xml" boomerangCustom="true"/>
+      <outline type="rss" text="SQLite News" title="SQLite News" xmlUrl="https://sqlite.org/news/feed.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Red Hat Blog" title="Red Hat Blog" xmlUrl="https://www.redhat.com/en/rss/blog" boomerangCustom="true"/>
+      <outline type="rss" text="Ubuntu Blog" title="Ubuntu Blog" xmlUrl="https://ubuntu.com/blog/feed" boomerangCustom="true"/>
+      <outline type="rss" text="Arch Linux News" title="Arch Linux News" xmlUrl="https://archlinux.org/feeds/news/" boomerangCustom="true"/>
+      <outline type="rss" text="EFF Deeplinks" title="EFF Deeplinks" xmlUrl="https://www.eff.org/rss/updates.xml" boomerangCustom="true"/>
+      <outline type="rss" text="ACLU News" title="ACLU News" xmlUrl="https://www.aclu.org/rss-feed/feed" boomerangCustom="true"/>
+      <outline type="rss" text="BBC Technology" title="BBC Technology" xmlUrl="https://feeds.bbci.co.uk/news/technology/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="NASA Image of Day" title="NASA Image of Day" xmlUrl="https://www.nasa.gov/rss/dyn/lg_image_of_the_day.rss" boomerangCustom="true"/>
+      <outline type="rss" text="NASA Breaking" title="NASA Breaking" xmlUrl="https://www.nasa.gov/rss/dyn/breaking_news.rss" boomerangCustom="true"/>
+      <outline type="rss" text="ESA Top News" title="ESA Top News" xmlUrl="https://www.esa.int/rss/Our_Activities" boomerangCustom="true"/>
+      <outline type="rss" text="USGS Earthquakes" title="USGS Earthquakes" xmlUrl="https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.atom" boomerangCustom="true"/>
+      <outline type="rss" text="NIST News" title="NIST News" xmlUrl="https://www.nist.gov/news-events/news/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="CDC MMWR" title="CDC MMWR" xmlUrl="https://www.cdc.gov/mmwr/rss/mmwr.xml" boomerangCustom="true"/>
+      <outline type="rss" text="WHO News" title="WHO News" xmlUrl="https://www.who.int/rss-feeds/news-english.xml" boomerangCustom="true"/>
+      <outline type="rss" text="BBC UK" title="BBC UK" xmlUrl="https://feeds.bbci.co.uk/news/uk/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="CNBC Top News" title="CNBC Top News" xmlUrl="https://www.cnbc.com/id/100003114/device/rss/rss.html" boomerangCustom="true"/>
+      <outline type="rss" text="MarketWatch Top" title="MarketWatch Top" xmlUrl="https://www.marketwatch.com/rss/topstories" boomerangCustom="true"/>
+      <outline type="rss" text="Seeking Alpha" title="Seeking Alpha" xmlUrl="https://seekingalpha.com/feed.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Hacker News" title="Hacker News" xmlUrl="https://news.ycombinator.com/rss" boomerangCustom="true"/>
+      <outline type="rss" text="Lobsters" title="Lobsters" xmlUrl="https://lobste.rs/rss" boomerangCustom="true"/>
+      <outline type="rss" text="Slashdot" title="Slashdot" xmlUrl="https://rss.slashdot.org/Slashdot/slashdotMain" boomerangCustom="true"/>
+      <outline type="rss" text="Ars Technica" title="Ars Technica" xmlUrl="https://feeds.arstechnica.com/arstechnica/index" boomerangCustom="true"/>
+      <outline type="rss" text="The Verge" title="The Verge" xmlUrl="https://www.theverge.com/rss/index.xml" boomerangCustom="true"/>
+      <outline type="rss" text="TechCrunch" title="TechCrunch" xmlUrl="https://techcrunch.com/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="Wired" title="Wired" xmlUrl="https://www.wired.com/feed/rss" boomerangCustom="true"/>
+      <outline type="rss" text="Engadget" title="Engadget" xmlUrl="https://www.engadget.com/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Dev.to" title="Dev.to" xmlUrl="https://dev.to/feed" boomerangCustom="true"/>
+      <outline type="rss" text="Smashing Magazine" title="Smashing Magazine" xmlUrl="https://www.smashingmagazine.com/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="CSS-Tricks" title="CSS-Tricks" xmlUrl="https://css-tricks.com/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="A List Apart" title="A List Apart" xmlUrl="https://alistapart.com/main/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="Web.dev" title="Web.dev" xmlUrl="https://web.dev/feed.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Chromium Blog" title="Chromium Blog" xmlUrl="https://blog.chromium.org/feeds/posts/default" boomerangCustom="true"/>
+      <outline type="rss" text="Android Developers" title="Android Developers" xmlUrl="https://android-developers.googleblog.com/feeds/posts/default" boomerangCustom="true"/>
+      <outline type="rss" text="Apple Newsroom" title="Apple Newsroom" xmlUrl="https://www.apple.com/newsroom/rss-feed.rss" boomerangCustom="true"/>
+      <outline type="rss" text="OpenAI Blog" title="OpenAI Blog" xmlUrl="https://openai.com/blog/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Anthropic News" title="Anthropic News" xmlUrl="https://www.anthropic.com/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Hugging Face Blog" title="Hugging Face Blog" xmlUrl="https://huggingface.co/blog/feed.xml" boomerangCustom="true"/>
+      <outline type="rss" text="PyTorch Blog" title="PyTorch Blog" xmlUrl="https://pytorch.org/blog/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="TensorFlow Blog" title="TensorFlow Blog" xmlUrl="https://blog.tensorflow.org/feeds/posts/default" boomerangCustom="true"/>
+      <outline type="rss" text="LangChain Blog" title="LangChain Blog" xmlUrl="https://blog.langchain.dev/rss/" boomerangCustom="true"/>
+      <outline type="rss" text="Ollama Blog" title="Ollama Blog" xmlUrl="https://ollama.com/blog/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="curl releases" title="curl releases" xmlUrl="https://curl.se/rss/news.rss" boomerangCustom="true"/>
+      <outline type="rss" text="GitLab Blog" title="GitLab Blog" xmlUrl="https://about.gitlab.com/blog/feed.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Bitbucket Blog" title="Bitbucket Blog" xmlUrl="https://bitbucket.org/blog/posts.atom" boomerangCustom="true"/>
+      <outline type="rss" text="Atlassian Blog" title="Atlassian Blog" xmlUrl="https://www.atlassian.com/blog/feed" boomerangCustom="true"/>
+      <outline type="rss" text="Svelte Society" title="Svelte Society" xmlUrl="https://sveltesociety.dev/news/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Astro Blog" title="Astro Blog" xmlUrl="https://astro.build/blog/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Remix Blog" title="Remix Blog" xmlUrl="https://remix.run/blog/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Next.js Blog" title="Next.js Blog" xmlUrl="https://nextjs.org/blog/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Nuxt Blog" title="Nuxt Blog" xmlUrl="https://nuxt.com/blog/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Deno Blog" title="Deno Blog" xmlUrl="https://deno.com/blog/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Bun Blog" title="Bun Blog" xmlUrl="https://bun.sh/blog/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Zig News" title="Zig News" xmlUrl="https://ziglang.org/news/index.xml" boomerangCustom="true"/>
+      <outline type="rss" text="LLVM Blog" title="LLVM Blog" xmlUrl="https://blog.llvm.org/feeds/posts/default" boomerangCustom="true"/>
+      <outline type="rss" text="Qt Blog" title="Qt Blog" xmlUrl="https://www.qt.io/blog/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="KDE News" title="KDE News" xmlUrl="https://dot.kde.org/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="GNOME Planet" title="GNOME Planet" xmlUrl="https://planet.gnome.org/atom.xml" boomerangCustom="true"/>
+      <outline type="rss" text="FOSDEM News" title="FOSDEM News" xmlUrl="https://fosdem.org/news/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="xkcd" title="xkcd" xmlUrl="https://xkcd.com/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="CommitStrip" title="CommitStrip" xmlUrl="https://www.commitstrip.com/en/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="The Oatmeal" title="The Oatmeal" xmlUrl="https://theoatmeal.com/feed.atom" boomerangCustom="true"/>
+      <outline type="rss" text="W3C News" title="W3C News" xmlUrl="https://www.w3.org/blog/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="IETF Blog" title="IETF Blog" xmlUrl="https://www.ietf.org/blog/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="ICANN News" title="ICANN News" xmlUrl="https://www.icann.org/en/news/rss/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Let's Encrypt" title="Let's Encrypt" xmlUrl="https://letsencrypt.org/feed.xml" boomerangCustom="true"/>
+      <outline type="rss" text="Internet Archive" title="Internet Archive" xmlUrl="https://blog.archive.org/feed/" boomerangCustom="true"/>
+      <outline type="rss" text="Tor Blog" title="Tor Blog" xmlUrl="https://blog.torproject.org/rss.xml" boomerangCustom="true"/>
+      <outline type="rss" text="The Guardian World" title="The Guardian World" xmlUrl="https://www.theguardian.com/world/rss" boomerangCustom="true"/>
+      <outline type="rss" text="MIT Tech Review" title="MIT Tech Review" xmlUrl="https://www.technologyreview.com/feed/" boomerangCustom="true"/>
+    </outline>
+  </body>
+</opml>

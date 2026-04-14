@@ -32,6 +32,11 @@
   { "id": "scidaily", "name": "Science Daily", "feedUrl": "https://www.sciencedaily.com/rss/top/science.xml", "category": "science", "enabled": true, "priority": 2 },
   { "id": "grist", "name": "Grist", "feedUrl": "https://grist.org/feed/", "category": "environment", "enabled": true, "priority": 2 },
   { "id": "icn", "name": "Inside Climate News", "feedUrl": "https://insideclimatenews.org/feed/", "category": "environment", "enabled": true, "priority": 2 },
+  { "id": "rustlang", "name": "Rust Blog", "feedUrl": "https://blog.rust-lang.org/feed.xml", "category": "technology", "enabled": true, "priority": 2 },
+  { "id": "k8s", "name": "Kubernetes.io", "feedUrl": "https://kubernetes.io/feed.xml", "category": "technology", "enabled": true, "priority": 2 },
+  { "id": "ghblog", "name": "GitHub Blog", "feedUrl": "https://github.blog/feed/", "category": "technology", "enabled": true, "priority": 2 },
+  { "id": "cfblog", "name": "Cloudflare Blog", "feedUrl": "https://blog.cloudflare.com/rss/", "category": "technology", "enabled": true, "priority": 2 },
+  { "id": "soblog", "name": "Stack Overflow Blog", "feedUrl": "https://stackoverflow.blog/feed/", "category": "technology", "enabled": true, "priority": 2 },
 
   { "id": "yt-kurzgesagt", "name": "Kurzgesagt", "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UCsXVk37bltHxD1rDPwtNM8Q", "category": "science", "enabled": true, "priority": 2 },
   { "id": "yt-veritasium", "name": "Veritasium", "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UCHnyfMqiRRG1u-2MsSQLbXA", "category": "science", "enabled": true, "priority": 2 },

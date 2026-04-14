@@ -25,7 +25,7 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 export default function App() {
   const {
     visibleArticles, savedArticles, hasMore, totalLoaded,
-    loading, refreshing, fetching, error, prefs, lastRefresh,
+    loading, refreshing, fetching, error, prefs, lastRefresh, feedEnterIds,
     onOpen, onSave, onUpvote, onDownvote, onSeen, onLoadMore,
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
@@ -221,6 +221,7 @@ export default function App() {
             key={article.id}
             article={article}
             prefs={prefs}
+            animateEnter={feedEnterIds.includes(article.id)}
             onOpen={onOpen}
             onSave={onSave}
             onUpvote={onUpvote}

@@ -47,12 +47,18 @@ function json(data: unknown, request: Request, init?: ResponseInit): Response {
   return new Response(JSON.stringify(data), { ...init, headers });
 }
 
+/** Client sends this when a bundle has only `customFeeds` — not the same as missing `include` (all defaults). */
+const INCLUDE_NONE_SENTINEL = '__none__';
+
 function resolveSources(searchParams: URLSearchParams): NewsSource[] {
   const include = searchParams.get('include');
-  if (!include || include.trim() === '') {
+  if (include === null || include.trim() === '') {
     return DEFAULT_SOURCES.filter(s => s.enabled);
   }
   const ids = include.split(',').map(s => s.trim()).filter(Boolean);
+  if (ids.length === 1 && ids[0] === INCLUDE_NONE_SENTINEL) {
+    return [];
+  }
   const out: NewsSource[] = [];
   for (const id of ids) {
     const src = SOURCE_BY_ID.get(id);
@@ -135,7 +141,11 @@ export default {
       };
 
       const response = json(body, request);
-      ctx.waitUntil(cache.put(cacheKey, response.clone()));
+      ctx.waitUntil(
+        cache.put(cacheKey, response.clone()).catch(() => {
+          /* ignore — dev / quota / transient cache failures; response already returned */
+        }),
+      );
       return response;
     }
 
@@ -182,7 +192,11 @@ export default {
       const resolved = extractOgImageFromHtml(html, target);
       const body = { imageUrl: resolved ?? null };
       const response = json(body, request);
-      ctx.waitUntil(cache.put(cacheKey, response.clone()));
+      ctx.waitUntil(
+        cache.put(cacheKey, response.clone()).catch(() => {
+          /* ignore — dev / quota / transient cache failures */
+        }),
+      );
       return response;
     }
 
@@ -238,7 +252,11 @@ export default {
       out.set('Content-Type', ct);
       out.set('Cache-Control', `public, max-age=${IMAGE_PROXY_CACHE_TTL_SEC}`);
       const res = new Response(imgBuf, { status: 200, headers: out });
-      ctx.waitUntil(cache.put(cacheKey, res.clone()));
+      ctx.waitUntil(
+        cache.put(cacheKey, res.clone()).catch(() => {
+          /* ignore — dev / quota / transient cache failures */
+        }),
+      );
       return res;
     }
 

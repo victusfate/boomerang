@@ -18,13 +18,35 @@ function titleSimilarity(a: string, b: string): number {
   return shared / Math.max(wordsA.size, wordsB.size);
 }
 
-export function deduplicateArticles(articles: Article[]): Article[] {
+/** Fuzzy dedupe — O(n²); fine for small pools. */
+function deduplicateArticlesFuzzy(articles: Article[]): Article[] {
   const unique: Article[] = [];
   for (const article of articles) {
     const isDupe = unique.some(u => titleSimilarity(u.title, article.title) > 0.65);
     if (!isDupe) unique.push(article);
   }
   return unique;
+}
+
+/** Per-source + normalized title key — O(n); used when the pool is large (many RSS sources). */
+function deduplicateArticlesFast(articles: Article[]): Article[] {
+  const unique: Article[] = [];
+  const seen = new Set<string>();
+  for (const article of articles) {
+    const key = `${article.sourceId}\u0000${article.title.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 160)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(article);
+  }
+  return unique;
+}
+
+/** Above this size, fuzzy pairwise dedupe can block the main thread for seconds. */
+const FUZZY_DEDUPE_MAX = 350;
+
+export function deduplicateArticles(articles: Article[]): Article[] {
+  if (articles.length <= FUZZY_DEDUPE_MAX) return deduplicateArticlesFuzzy(articles);
+  return deduplicateArticlesFast(articles);
 }
 
 export function scoreArticle(article: Article, prefs: UserPrefs, sourceArticleCounts: Record<string, number>): number {

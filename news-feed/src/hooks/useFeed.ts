@@ -40,7 +40,7 @@ export function useFeed() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [loading, setLoading]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [fetching, setFetching]   = useState(false);  // true for entire fetch duration
+  const [fetching, setFetching]   = useState(false);  // cleared on first batch or when fetch ends
   const [error, setError]         = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
@@ -61,6 +61,9 @@ export function useFeed() {
   const fetchIdRef = useRef(0);
   // Prevents concurrent fetches from firing simultaneously.
   const fetchingRef = useRef(false);
+  /** Article ids that just appended — short CSS enter animation (explicit progressive fetch). */
+  const [feedEnterIds, setFeedEnterIds] = useState<string[]>([]);
+  const feedEnterClearTimerRef = useRef<number | null>(null);
 
   // Bookmark-imported saves — kept separate from the RSS pool so they only
   // appear in the Saved view and never pollute the main feed.
@@ -129,6 +132,10 @@ export function useFeed() {
     });
   }, [database]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => () => {
+    if (feedEnterClearTimerRef.current) clearTimeout(feedEnterClearTimerRef.current);
+  }, []);
+
   // ── Network refresh ───────────────────────────────────────────────────────────
   // Stable — only depends on `database`. All other values read via refs.
   const refresh = useCallback(async (currentPrefs: UserPrefs, explicit = false) => {
@@ -137,36 +144,80 @@ export function useFeed() {
 
     const myFetchId = ++fetchIdRef.current;    // mark this fetch generation
 
-    const hasCached = allArticlesRef.current.length > 0;
-    if (hasCached) setRefreshing(true); else setLoading(true);
+    const hadArticles = allArticlesRef.current.length > 0;
+    // Explicit refresh: clear list so progressive batches don't re-rank the whole feed each time.
+    if (explicit) {
+      allArticlesRef.current = [];
+      setAllArticles([]);
+      setLoading(true);
+    } else if (hadArticles) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setFetching(true);
     setError(null);
 
     const activeSources       = DEFAULT_SOURCES.filter(s => isSourceEnabled(s.id, currentPrefs));
     const activeCustomSources = (currentPrefs.customSources ?? []).filter(s => isSourceEnabled(s.id, currentPrefs));
 
-    // Merges ranked articles into the feed without collapsing the current visible list.
-    // On explicit refresh the feed is fully replaced; on background refresh only
-    // genuinely new articles (not already in the current feed) are prepended.
-    const mergeFeed = (ranked: Article[]) => {
-      if (explicit || allArticlesRef.current.length === 0) {
+    /** Preserve existing card order; enrich from ranked; append only ids not yet shown (no full re-sort). */
+    const mergeIncrementalAppend = (ranked: Article[]) => {
+      const prev = allArticlesRef.current;
+      const prevIds = new Set(prev.map(a => a.id));
+      const rankedById = new Map(ranked.map(a => [a.id, a]));
+      const kept = prev.filter(a => rankedById.has(a.id)).map(a => rankedById.get(a.id)!);
+      const newOnes = ranked.filter(a => !prevIds.has(a.id));
+      allArticlesRef.current = [...kept, ...newOnes];
+      setAllArticles([...kept, ...newOnes]);
+      if (newOnes.length > 0 && prev.length > 0) {
+        if (feedEnterClearTimerRef.current) clearTimeout(feedEnterClearTimerRef.current);
+        setFeedEnterIds(newOnes.map(a => a.id));
+        feedEnterClearTimerRef.current = window.setTimeout(() => {
+          feedEnterClearTimerRef.current = null;
+          setFeedEnterIds([]);
+        }, 550);
+      }
+    };
+
+    /** Background refresh: prepend genuinely new stories; keep prior rows stable. */
+    const mergeFeedBackground = (ranked: Article[]) => {
+      if (allArticlesRef.current.length === 0) {
         allArticlesRef.current = ranked;
         setAllArticles(ranked);
-      } else {
-        const currentIds = new Set(allArticlesRef.current.map(a => a.id));
-        const brandNew = ranked.filter(a => !currentIds.has(a.id));
-        const merged = [...brandNew, ...allArticlesRef.current];
-        allArticlesRef.current = merged;
-        setAllArticles(merged);
+        return;
       }
+      const currentIds = new Set(allArticlesRef.current.map(a => a.id));
+      const brandNew = ranked.filter(a => !currentIds.has(a.id));
+      const merged = [...brandNew, ...allArticlesRef.current];
+      allArticlesRef.current = merged;
+      setAllArticles(merged);
+    };
+
+    const applyRankedBatch = (accumulated: Article[]) => {
+      const ranked = rankFeed(accumulated, currentPrefs);
+      if (explicit) mergeIncrementalAppend(ranked);
+      else mergeFeedBackground(ranked);
     };
 
     const onBatch = (accumulated: Article[]) => {
       if (fetchIdRef.current !== myFetchId) return; // stale fetch — discard
-      articlePoolRef.current = accumulated;
-      setArticlePool(accumulated);
-      mergeFeed(rankFeed(accumulated, currentPrefs));
-      setLoading(false);
+      const apply = () => {
+        if (fetchIdRef.current !== myFetchId) return;
+        articlePoolRef.current = accumulated;
+        setArticlePool(accumulated);
+        applyRankedBatch(accumulated);
+        setLoading(false);
+        if (accumulated.length > 0) {
+          setRefreshing(false);
+          setFetching(false);
+        }
+      };
+      if (typeof requestAnimationFrame !== 'undefined') {
+        requestAnimationFrame(() => apply());
+      } else {
+        apply();
+      }
     };
 
     let feedSuccess = false;
@@ -186,7 +237,7 @@ export function useFeed() {
         setError(null);
         articlePoolRef.current = all;
         setArticlePool(all);
-        mergeFeed(rankFeed(all, currentPrefs));
+        applyRankedBatch(all);
         // On explicit refresh also reset scroll and seen-session tracking
         if (explicit) {
           setVisibleCount(PAGE_SIZE);
@@ -431,5 +482,6 @@ export function useFeed() {
     onImportOPML:         handleImportOPML,
     onExportBookmarks:    handleExportBookmarks,
     onImportBookmarks:    handleImportBookmarks,
+    feedEnterIds,
   };
 }
