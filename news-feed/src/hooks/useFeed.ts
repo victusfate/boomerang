@@ -150,6 +150,8 @@ export function useFeed() {
       allArticlesRef.current = [];
       setAllArticles([]);
       setLoading(true);
+      setVisibleCount(PAGE_SIZE);   // reset pagination NOW so the sentinel is fresh
+      markedSeenRef.current.clear();
     } else if (hadArticles) {
       setRefreshing(true);
     } else {
@@ -238,11 +240,6 @@ export function useFeed() {
         articlePoolRef.current = all;
         setArticlePool(all);
         applyRankedBatch(all);
-        // On explicit refresh also reset scroll and seen-session tracking
-        if (explicit) {
-          setVisibleCount(PAGE_SIZE);
-          markedSeenRef.current.clear();
-        }
         database.put({ _id: CACHE_ID, articles: dehydrate(all), fetchedAt: Date.now() })
           .catch(console.error);
       }

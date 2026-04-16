@@ -106,6 +106,22 @@ export default function App() {
     return () => observer.disconnect();
   }, [view]); // only recreate when switching views
 
+  // When new articles arrive (totalLoaded grows), the sentinel may already be
+  // inside the IntersectionObserver's rootMargin zone, so no new IO event fires.
+  // Manually call loadMore whenever the pool grows and the sentinel is still visible.
+  const prevTotalRef = useRef(0);
+  useEffect(() => {
+    if (totalLoaded <= prevTotalRef.current) return;
+    prevTotalRef.current = totalLoaded;
+    if (!hasMore || view !== 'feed') return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const rect = sentinel.getBoundingClientRect();
+    if (rect.top <= window.innerHeight + 600) {
+      onLoadMore();
+    }
+  }, [totalLoaded, hasMore, view, onLoadMore]);
+
   const filteredArticles = useMemo(() => {
     let list = view === 'saved' ? savedArticles : visibleArticles;
     if (topicFilter) list = list.filter(a => a.topics.includes(topicFilter));
