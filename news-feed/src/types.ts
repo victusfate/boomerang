@@ -9,6 +9,8 @@ export interface Article {
   sourceId: string;
   topics: Topic[];
   score?: number;
+  /** Discussion thread URL, e.g. HN comments page from RSS <comments> field */
+  discussionUrl?: string;
 }
 
 export type Topic =

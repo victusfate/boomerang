@@ -12,6 +12,8 @@ export interface ArticleWire {
   source: string;
   sourceId: string;
   topics: Topic[];
+  /** Discussion thread URL from RSS <comments> (e.g. HN item page) */
+  discussionUrl?: string;
 }
 
 const TOPIC_KEYWORDS: Record<Topic, string[]> = {
@@ -257,6 +259,13 @@ export function parseFeed(xml: string, source: NewsSource): ArticleWire[] {
         ?? extractImageFromDescription(rawDesc, url);
       const topics = detectTopics(title + ' ' + description);
 
+      // <comments> is standard RSS — HN uses it for the discussion page.
+      const commentsRaw = textVal(item.comments ?? '').trim();
+      const discussionUrl =
+        commentsRaw.startsWith('https://') && commentsRaw !== url
+          ? normalizeHttpUrl(commentsRaw)
+          : undefined;
+
       out.push({
         id: hashId(url),
         title,
@@ -267,6 +276,7 @@ export function parseFeed(xml: string, source: NewsSource): ArticleWire[] {
         source: source.name,
         sourceId: source.id,
         topics,
+        ...(discussionUrl ? { discussionUrl } : {}),
       });
     }
     return out;

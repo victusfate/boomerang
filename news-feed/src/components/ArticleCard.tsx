@@ -235,15 +235,27 @@ export function ArticleCard({
         )}
 
         <div className="card-actions">
-          <a
-            href={navUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-read"
-            onClick={handleArticleNavClick}
-          >
-            {isVideo ? 'Watch →' : 'Read →'}
-          </a>
+          <div className="card-read-group">
+            <a
+              href={navUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-read"
+              onClick={handleArticleNavClick}
+            >
+              {isVideo ? 'Watch →' : 'Read →'}
+            </a>
+            {article.discussionUrl && (
+              <a
+                href={article.discussionUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-discuss"
+              >
+                Comments →
+              </a>
+            )}
+          </div>
 
           <div className="card-vote-group">
             <button

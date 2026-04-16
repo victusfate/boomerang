@@ -373,6 +373,26 @@ html, body {
   justify-content: space-between;
 }
 
+.card-read-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.btn-discuss {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--sub);
+  text-decoration: none;
+  padding: 8px 0;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  transition: color 0.15s;
+}
+.btn-discuss:hover { color: var(--text); }
+
 .card-vote-group {
   display: flex;
   align-items: center;
