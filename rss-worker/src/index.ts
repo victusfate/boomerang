@@ -9,6 +9,15 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:4173',
 ];
 
+function extraOriginsFromEnv(env: Env): string[] {
+  const raw = env.EXTRA_CORS_ORIGINS?.trim();
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
 const BUNDLE_CACHE_TTL_SEC = 300;
 /** Hotlinked images via GET /image — cache longer than JSON. */
 const IMAGE_PROXY_CACHE_TTL_SEC = 86_400;
@@ -17,11 +26,13 @@ const MAX_HTML_BYTES = 1 * 1024 * 1024; // 1 MB
 /** Max bytes to proxy for images — rejects oversized upstream responses. */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 
-function isAllowedOrigin(origin: string): boolean {
+function isAllowedOrigin(origin: string, env: Env): boolean {
   if (!origin) return false;
   if (ALLOWED_ORIGINS.includes(origin)) return true;
+  if (extraOriginsFromEnv(env).includes(origin)) return true;
   try {
     const u = new URL(origin);
+    if (u.protocol === 'https:' && u.hostname.endsWith('.pages.dev')) return true;
     if (u.protocol !== 'http:') return false;
     return u.hostname === 'localhost' || u.hostname === '127.0.0.1';
   } catch {
@@ -29,9 +40,9 @@ function isAllowedOrigin(origin: string): boolean {
   }
 }
 
-function corsHeaders(request: Request): Headers {
+function corsHeaders(request: Request, env: Env): Headers {
   const origin = request.headers.get('Origin') ?? '';
-  const allow = isAllowedOrigin(origin) ? origin : ALLOWED_ORIGINS[0];
+  const allow = isAllowedOrigin(origin, env) ? origin : ALLOWED_ORIGINS[0];
   const h = new Headers();
   h.set('Access-Control-Allow-Origin', allow);
   h.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -40,8 +51,8 @@ function corsHeaders(request: Request): Headers {
   return h;
 }
 
-function json(data: unknown, request: Request, init?: ResponseInit): Response {
-  const headers = corsHeaders(request);
+function json(data: unknown, request: Request, env: Env, init?: ResponseInit): Response {
+  const headers = corsHeaders(request, env);
   headers.set('Content-Type', 'application/json; charset=utf-8');
   headers.set('Cache-Control', `public, max-age=${BUNDLE_CACHE_TTL_SEC}`);
   return new Response(JSON.stringify(data), { ...init, headers });
@@ -93,15 +104,15 @@ function resolveCustomSources(searchParams: URLSearchParams): NewsSource[] {
 }
 
 export default {
-  async fetch(request: Request, _env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders(request) });
+      return new Response(null, { status: 204, headers: corsHeaders(request, env) });
     }
 
     const url = new URL(request.url);
 
     if (url.pathname === '/health') {
-      return json({ ok: true, service: 'boomerang-rss' }, request);
+      return json({ ok: true, service: 'boomerang-rss' }, request, env);
     }
 
     if (url.pathname === '/bundle' && request.method === 'GET') {
@@ -110,7 +121,7 @@ export default {
       const cached = await cache.match(cacheKey);
       if (cached) {
         const h = new Headers(cached.headers);
-        const cors = corsHeaders(request);
+        const cors = corsHeaders(request, env);
         cors.forEach((v, k) => h.set(k, v));
         return new Response(cached.body, { status: cached.status, headers: h });
       }
@@ -127,6 +138,7 @@ export default {
             fetchedAt: Date.now(),
           },
           request,
+          env,
           { status: 400 },
         );
       }
@@ -140,7 +152,7 @@ export default {
         fetchedAt: Date.now(),
       };
 
-      const response = json(body, request);
+      const response = json(body, request, env);
       ctx.waitUntil(
         cache.put(cacheKey, response.clone()).catch(() => {
           /* ignore — dev / quota / transient cache failures; response already returned */
@@ -153,7 +165,7 @@ export default {
     if (url.pathname === '/og-image' && request.method === 'GET') {
       const target = url.searchParams.get('url');
       if (!target || !isAllowedOgFetchUrl(target)) {
-        return json({ imageUrl: null }, request, { status: 400 });
+        return json({ imageUrl: null }, request, env, { status: 400 });
       }
 
       const cacheKey = new Request(url.toString(), { method: 'GET' });
@@ -161,7 +173,7 @@ export default {
       const cached = await cache.match(cacheKey);
       if (cached) {
         const h = new Headers(cached.headers);
-        const cors = corsHeaders(request);
+        const cors = corsHeaders(request, env);
         cors.forEach((v, k) => h.set(k, v));
         return new Response(cached.body, { status: cached.status, headers: h });
       }
@@ -178,20 +190,20 @@ export default {
           },
         });
         if (!upstream.ok) {
-          return json({ imageUrl: null }, request, { status: 502 });
+          return json({ imageUrl: null }, request, env, { status: 502 });
         }
         const cl = parseInt(upstream.headers.get('Content-Length') ?? '0', 10);
-        if (cl > MAX_HTML_BYTES) return json({ imageUrl: null }, request, { status: 413 });
+        if (cl > MAX_HTML_BYTES) return json({ imageUrl: null }, request, env, { status: 413 });
         const buf = await upstream.arrayBuffer();
-        if (buf.byteLength > MAX_HTML_BYTES) return json({ imageUrl: null }, request, { status: 413 });
+        if (buf.byteLength > MAX_HTML_BYTES) return json({ imageUrl: null }, request, env, { status: 413 });
         html = new TextDecoder().decode(buf);
       } catch {
-        return json({ imageUrl: null }, request, { status: 502 });
+        return json({ imageUrl: null }, request, env, { status: 502 });
       }
 
       const resolved = extractOgImageFromHtml(html, target);
       const body = { imageUrl: resolved ?? null };
-      const response = json(body, request);
+      const response = json(body, request, env);
       ctx.waitUntil(
         cache.put(cacheKey, response.clone()).catch(() => {
           /* ignore — dev / quota / transient cache failures */
@@ -207,7 +219,7 @@ export default {
     if (url.pathname === '/image' && request.method === 'GET') {
       const target = url.searchParams.get('url');
       if (!target || !isAllowedOgFetchUrl(target)) {
-        return new Response('Bad Request', { status: 400, headers: corsHeaders(request) });
+        return new Response('Bad Request', { status: 400, headers: corsHeaders(request, env) });
       }
 
       const cacheKey = new Request(url.toString(), { method: 'GET' });
@@ -215,7 +227,7 @@ export default {
       const cached = await cache.match(cacheKey);
       if (cached) {
         const h = new Headers(cached.headers);
-        const cors = corsHeaders(request);
+        const cors = corsHeaders(request, env);
         cors.forEach((v, k) => h.set(k, v));
         return new Response(cached.body, { status: cached.status, headers: h });
       }
@@ -227,27 +239,27 @@ export default {
           headers: { 'User-Agent': 'BoomerangRSS/1.0 (image-proxy; +https://github.com/victusfate/boomerang)' },
         });
       } catch {
-        return new Response(null, { status: 502, headers: corsHeaders(request) });
+        return new Response(null, { status: 502, headers: corsHeaders(request, env) });
       }
 
       if (!upstream.ok) {
-        return new Response(null, { status: 502, headers: corsHeaders(request) });
+        return new Response(null, { status: 502, headers: corsHeaders(request, env) });
       }
 
       const mime = upstream.headers.get('Content-Type') ?? '';
       if (mime.includes('text/html')) {
-        return new Response(null, { status: 422, headers: corsHeaders(request) });
+        return new Response(null, { status: 422, headers: corsHeaders(request, env) });
       }
       const imgCl = parseInt(upstream.headers.get('Content-Length') ?? '0', 10);
       if (imgCl > MAX_IMAGE_BYTES) {
-        return new Response(null, { status: 413, headers: corsHeaders(request) });
+        return new Response(null, { status: 413, headers: corsHeaders(request, env) });
       }
       const imgBuf = await upstream.arrayBuffer();
       if (imgBuf.byteLength > MAX_IMAGE_BYTES) {
-        return new Response(null, { status: 413, headers: corsHeaders(request) });
+        return new Response(null, { status: 413, headers: corsHeaders(request, env) });
       }
 
-      const out = new Headers(corsHeaders(request));
+      const out = new Headers(corsHeaders(request, env));
       const ct = mime.startsWith('image/') ? mime : (mime || 'application/octet-stream');
       out.set('Content-Type', ct);
       out.set('Cache-Control', `public, max-age=${IMAGE_PROXY_CACHE_TTL_SEC}`);
@@ -260,6 +272,6 @@ export default {
       return res;
     }
 
-    return new Response('Not Found', { status: 404, headers: corsHeaders(request) });
+    return new Response('Not Found', { status: 404, headers: corsHeaders(request, env) });
   },
 } satisfies ExportedHandler<Env>;
