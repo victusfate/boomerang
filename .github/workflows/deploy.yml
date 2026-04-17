@@ -25,14 +25,33 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Build news feed
+      - name: Build news feed (or redirect to canonical domain)
         working-directory: news-feed
         env:
           GITHUB_PAGES: 'true'
           VITE_RSS_WORKER_URL: ${{ vars.VITE_RSS_WORKER_URL }}
+          CANONICAL_URL: ${{ vars.CANONICAL_URL }}
         run: |
-          npm ci
-          npm run build
+          if [ -n "$CANONICAL_URL" ]; then
+            mkdir -p dist
+            cat > dist/index.html <<HTML
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta http-equiv="refresh" content="0;url=$CANONICAL_URL">
+            <link rel="canonical" href="$CANONICAL_URL">
+            <title>Boomerang News</title>
+          </head>
+          <body>
+            <p>Moved to <a href="$CANONICAL_URL">$CANONICAL_URL</a>.</p>
+          </body>
+          </html>
+          HTML
+          else
+            npm ci
+            npm run build
+          fi
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
