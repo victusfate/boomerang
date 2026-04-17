@@ -5,9 +5,8 @@
   "description": "Monorepo root — run scripts in news-feed/ or use npm run dev below",
   "scripts": {
     "dev": "npm run dev --prefix news-feed",
-    "build": "npm run build --prefix news-feed",
+    "build": "npm ci --prefix news-feed && npm run build --prefix news-feed",
     "preview": "npm run preview --prefix news-feed",
-    "preview:gh-pages": "npm run preview:gh-pages --prefix news-feed",
     "worker": "npm run dev --prefix rss-worker",
     "install:all": "npm ci --prefix news-feed && npm ci --prefix rss-worker"
   }

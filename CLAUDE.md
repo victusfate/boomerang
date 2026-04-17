@@ -8,7 +8,7 @@
 | `news-feed/` | News PWA (React + Vite + Fireproof), deployed to GitHub Pages at `/boomerang` |
 | `rss-worker/` | Cloudflare Worker — RSS aggregation (`GET /bundle`), staggered upstream fetches |
 | `.github/workflows/deploy.yml` | Builds `news-feed/` only; uploads `news-feed/dist` |
-| `/` (repo root) | `npm run dev` / `build` / `preview` forward to `news-feed/`. **`npm run preview:gh-pages`** = GitHub Pages–style build + preview (`http://localhost:4173/boomerang`). **`make`** same (needs GNU Make). |
+| `/` (repo root) | `npm run dev` / `preview` forward to `news-feed/`. **`npm run build`** runs `npm ci` + build in `news-feed/` (same as Cloudflare Pages from repo root). In **`news-feed`**, **`npm run preview:gh-pages`** = GitHub Pages–style build + preview (`http://localhost:4173/boomerang`). **`make`** same (needs GNU Make). |
 
 ## PR workflow — always follow this order
 
@@ -24,7 +24,7 @@
    ```
    npm run build
    ```
-   (from repo root — forwards to `news-feed`) or `cd news-feed && npm run build`
+   (from repo root — `npm ci` + build in `news-feed`) or `cd news-feed && npm run build` to rebuild without `npm ci`
 4. **Commit with a clear message, push the branch**
    ```
    git push -u origin claude/<branch-name>
