@@ -232,12 +232,13 @@ export default function App() {
           </div>
         )}
 
-        {filteredArticles.map(article => (
+        {filteredArticles.map((article, index) => (
           <ArticleCard
             key={article.id}
             article={article}
             prefs={prefs}
             animateEnter={feedEnterIds.includes(article.id)}
+            priority={index === 0}
             onOpen={onOpen}
             onSave={onSave}
             onUpvote={onUpvote}

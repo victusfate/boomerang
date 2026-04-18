@@ -44,7 +44,7 @@ async function fetchOGImage(articlePageUrl: string): Promise<string | undefined>
   return resolveArticleImageUrl(d.imageUrl, articlePageUrl) ?? d.imageUrl;
 }
 
-function useLazyOGImage(articleUrl: string, existingImage?: string) {
+function useLazyOGImage(articleUrl: string, existingImage?: string, priority = false) {
   const [lazyImg, setLazyImg] = useState<string | undefined>(undefined);
   const [imgFailed, setImgFailed] = useState(false);
   const cardRef = useRef<HTMLElement>(null);
@@ -56,6 +56,13 @@ function useLazyOGImage(articleUrl: string, existingImage?: string) {
     if (!shouldFetch) return;
     const el = cardRef.current;
     if (!el) return;
+
+    if (priority) {
+      fetchOGImage(articleUrl).then(img => {
+        if (img) setLazyImg(img);
+      }).catch(() => {});
+      return;
+    }
 
     const observer = new IntersectionObserver(
       entries => {
@@ -70,7 +77,7 @@ function useLazyOGImage(articleUrl: string, existingImage?: string) {
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [articleUrl, shouldFetch]);
+  }, [articleUrl, shouldFetch, priority]);
 
   const raw = imgFailed ? lazyImg : (existingImage ?? lazyImg);
   const imageUrl = raw ? resolveArticleImageUrl(raw, articleUrl) : undefined;
@@ -94,6 +101,8 @@ interface Props {
   prefs: UserPrefs;
   /** Short enter animation when appended during progressive refresh */
   animateEnter?: boolean;
+  /** First visible card — eager image load + immediate og:image fetch */
+  priority?: boolean;
   onOpen: (article: Article) => void;
   onSave: (id: string) => void;
   onUpvote: (article: Article) => void;
@@ -105,6 +114,7 @@ export function ArticleCard({
   article,
   prefs,
   animateEnter = false,
+  priority = false,
   onOpen,
   onSave,
   onUpvote,
@@ -122,7 +132,7 @@ export function ArticleCard({
     article.imageUrl?.includes('img.youtube.com') === true
     || /youtube\.com|youtu\.be/i.test(navUrl);
 
-  const { cardRef, imageUrl, onImageError } = useLazyOGImage(navUrl, article.imageUrl);
+  const { cardRef, imageUrl, onImageError } = useLazyOGImage(navUrl, article.imageUrl, priority);
 
   // Mark as seen after DWELL_MS of ≥50% visibility
   useEffect(() => {
@@ -200,7 +210,8 @@ export function ArticleCard({
             src={imageUrl}
             alt=""
             className="card-image"
-            loading="lazy"
+            loading={priority ? 'eager' : 'lazy'}
+            fetchPriority={priority ? 'high' : undefined}
             onError={() => onImageError()}
           />
           {isVideo && (
