@@ -37,6 +37,7 @@
   { "id": "ghblog", "name": "GitHub Blog", "feedUrl": "https://github.blog/feed/", "category": "technology", "enabled": true, "priority": 2 },
   { "id": "cfblog", "name": "Cloudflare Blog", "feedUrl": "https://blog.cloudflare.com/rss/", "category": "technology", "enabled": true, "priority": 2 },
   { "id": "soblog", "name": "Stack Overflow Blog", "feedUrl": "https://stackoverflow.blog/feed/", "category": "technology", "enabled": true, "priority": 2 },
+  { "id": "404media", "name": "404 Media", "feedUrl": "https://www.404media.co/rss/", "category": "technology", "enabled": true, "priority": 1 },
 
   { "id": "yt-kurzgesagt", "name": "Kurzgesagt", "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UCsXVk37bltHxD1rDPwtNM8Q", "category": "science", "enabled": true, "priority": 2 },
   { "id": "yt-veritasium", "name": "Veritasium", "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UCHnyfMqiRRG1u-2MsSQLbXA", "category": "science", "enabled": true, "priority": 2 },
