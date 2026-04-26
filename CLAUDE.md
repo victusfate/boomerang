@@ -56,3 +56,126 @@
 - **Fireproof cache**: cold starts show the cached feed instantly, then refresh in background
 - **YouTube thumbnails**: extracted from watch URLs via `img.youtube.com/vi/{id}/hqdefault.jpg`; `media:thumbnail` also parsed for Atom feeds
 - **Lazy og:image**: cards without RSS images fetch `og:image` via CORS proxy when scrolled into view
+
+---
+
+# Claude Code Workflow — Plan → PRD → Plan → TDD
+
+## Session Start
+
+On your first response in a new session, check whether this project has
+a `./docs/` folder with feature artifacts (grill-me.md, prd.md, plan.md).
+
+- If yes, just acknowledge and continue normally.
+- If no, ask once: "Want me to scaffold the grill-me → PRD → plan → TDD
+  workflow for the next feature, or are we doing something else today?"
+
+Don't ask again in the same session. Don't ask if the user opens with a
+specific request — just handle the request.
+
+## Required Skills
+
+These four skills must be installed. If any are missing, run:
+
+```bash
+npx skills@latest add mattpocock/skills/grill-me
+npx skills@latest add mattpocock/skills/write-a-prd
+npx skills@latest add mattpocock/skills/prd-to-plan
+npx skills@latest add mattpocock/skills/tdd
+```
+
+## The Chain (Auto-Run Unless I Say Otherwise)
+
+When I share a plan, design, or feature idea, run this chain end-to-end
+without asking permission between steps:
+
+1. **grill-me** — Interview me one question at a time, with your
+   recommended answer for each, walking each branch of the design tree
+   until we reach shared understanding. Then summarize.
+
+2. **write-a-prd** — Skip problem capture if grill-me covered it.
+   Explore the codebase to verify assertions about current state. Sketch
+   deep modules with simple, testable interfaces. Output the full PRD
+   (problem, solution, numbered user stories, implementation decisions,
+   testing strategy, out-of-scope).
+
+3. **prd-to-plan** — Break the PRD into multi-phase tracer-bullet
+   vertical slices. Each phase cuts through ALL integration layers
+   end-to-end (schema/data → logic → UI → tests), NOT horizontal layers.
+   Briefly confirm granularity once before proceeding.
+
+4. **tdd** — One vertical slice at a time. RED (one test for one
+   behavior, confirm it fails) → GREEN (minimal code to pass) → REFACTOR
+   if needed. Continue through slices until the plan is complete or I
+   stop you.
+
+**Skip ahead** if I say "skip to <step>".
+**Stop** the chain if I say "stop", "no chain", or "just answer".
+
+## Artifacts — One Folder Per Feature
+
+All artifacts live in `./docs/<feature-slug>/` where `<feature-slug>` is
+kebab-case derived from the topic. State the slug you're using before
+writing the first file so I can correct it in one word.
+
+```
+./docs/<feature-slug>/
+  ├── grill-me.md   # Q&A summary and decisions made
+  ├── prd.md        # full PRD
+  ├── plan.md       # phased implementation plan (vertical slices)
+  └── tdd-log.md    # per-slice status: pending, red, green, refactor, done
+```
+
+If the working directory isn't a git repo, write the files anyway and
+skip the commit steps below.
+
+## Git Commits — One Per Step
+
+After each step writes its artifact, commit it before moving on. Use
+conventional-commit-style messages:
+
+- `docs(<slug>): grill-me Q&A`
+- `docs(<slug>): PRD`
+- `docs(<slug>): implementation plan`
+
+For TDD, commit per phase per slice so reverts are clean:
+
+- `test(<slug>): slice N red — <behavior>`
+- `feat(<slug>): slice N green — <behavior>`
+- `refactor(<slug>): slice N — <what changed>` (only if refactor happened)
+
+After each TDD commit, append the slice's status to `tdd-log.md` in the
+same commit.
+
+## Retry Semantics
+
+Each step's input is the prior step's artifact, so any stage is
+independently retryable:
+
+- **Bad TDD slice** → revert that slice's commits, re-run tdd from
+  `plan.md` slice N.
+- **Plan feels off** → re-run prd-to-plan from `prd.md`.
+- **PRD missed something** → re-run write-a-prd from `grill-me.md`, or
+  re-grill on the gap and update grill-me.md first.
+
+## What This Doesn't Apply To
+
+Don't run the chain for any of these — just do the work directly:
+
+- Bug fixes under ~10 lines
+- One-off scripts or throwaway prototypes
+- Config edits, dependency bumps, lint fixes
+- Doc-only changes
+- Anything where I explicitly say "just write it", "no tests", or
+  "quick fix"
+
+## Notes
+
+- Feature-slug rule: kebab-case, drop articles ("the", "a"), keep it
+  under ~30 chars. Example: "combat resolution system" →
+  `combat-resolution`.
+- If you're uncertain whether a request is "trivial" or warrants the
+  chain, ask once.
+- The chain can run long. If context starts feeling thin mid-chain,
+  flag it and suggest splitting into a fresh session at the next clean
+  boundary (between slices is ideal).
