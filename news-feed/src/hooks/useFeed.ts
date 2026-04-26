@@ -182,24 +182,11 @@ export function useFeed() {
       }
     };
 
-    /** Background refresh: prepend genuinely new stories; keep prior rows stable. */
-    const mergeFeedBackground = (ranked: Article[]) => {
-      if (allArticlesRef.current.length === 0) {
-        allArticlesRef.current = ranked;
-        setAllArticles(ranked);
-        return;
-      }
-      const currentIds = new Set(allArticlesRef.current.map(a => a.id));
-      const brandNew = ranked.filter(a => !currentIds.has(a.id));
-      const merged = [...brandNew, ...allArticlesRef.current];
-      allArticlesRef.current = merged;
-      setAllArticles(merged);
-    };
-
     const applyRankedBatch = (accumulated: Article[]) => {
       const ranked = rankFeed(accumulated, currentPrefs);
-      if (explicit) mergeIncrementalAppend(ranked);
-      else mergeFeedBackground(ranked);
+      // Same merge for explicit and background: preserve prior order for ids still present, append new
+      // (avoids background tier prepending and matches split-fetch anchor behavior).
+      mergeIncrementalAppend(ranked);
     };
 
     const onBatch = (accumulated: Article[]) => {
@@ -352,7 +339,7 @@ export function useFeed() {
     updatePrefs(next);
     fetchIdRef.current++;
     fetchingRef.current = false;
-    refresh(next, false); // background merge — prepend new articles
+    refresh(next, false); // background merge — append new articles (split fetch)
   }, [updatePrefs, refresh]);
 
   const handleRemoveCustomSource = useCallback((id: string) => {

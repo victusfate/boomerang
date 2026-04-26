@@ -1,6 +1,12 @@
 import type { Article, Topic, UserPrefs } from '../types';
 import { filterAds } from './adFilter';
 import { extractKeywords, isTopicEnabled } from './storage';
+import { inferFetchTier } from './fetchTier';
+
+export { inferFetchTier };
+
+/** Per PRD: background-tier (P2 + custom) scores lower so re-rank does not float them above P1. */
+const BACKGROUND_TIER_SCORE_MULTIPLIER = 0.2;
 
 // Exponential decay: half-life of 12 hours
 function recencyScore(publishedAt: Date): number {
@@ -71,7 +77,9 @@ export function scoreArticle(article: Article, prefs: UserPrefs, sourceArticleCo
     .reduce((sum, kw) => sum + (prefs.keywordWeights[kw] ?? 0), 0);
   const kwBonus = Math.tanh(kwRaw) * 0.5;
 
-  return r * srcW * topicScore * diversity + kwBonus;
+  let s = r * srcW * topicScore * diversity + kwBonus;
+  if (inferFetchTier(article) === 'background') s *= BACKGROUND_TIER_SCORE_MULTIPLIER;
+  return s;
 }
 
 export function rankFeed(articles: Article[], prefs: UserPrefs): Article[] {
