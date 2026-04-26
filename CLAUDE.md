@@ -86,6 +86,28 @@ npx skills@latest add mattpocock/skills/prd-to-plan
 npx skills@latest add mattpocock/skills/tdd
 ```
 
+## Minimum Viable Diff (Applies to All Code Changes)
+
+Prefer the smallest change that achieves the goal. This rule overrides
+any tendency to "improve things while you're in there."
+
+- **Make single, targeted edits.** Do not rewrite functions, files, or
+  modules when a few-line change works.
+- **Preserve existing structure, naming, and patterns** unless the user
+  explicitly asks for a rewrite, or the existing code actively blocks
+  the requested change.
+- **No opportunistic refactors.** If you spot an improvement that isn't
+  required by the current change, surface it as a separate suggestion
+  — don't bundle it into the diff.
+- **No style-preference rewrites.** Working code stays as-is even if
+  you'd write it differently.
+- **In TDD GREEN:** write the smallest code that makes the test pass,
+  not the most elegant.
+- **In TDD REFACTOR:** only refactor what the new test exposed. Out-of-
+  scope refactors go in a separate commit or a separate session.
+- **When in doubt, ask** before producing a diff larger than ~30 lines
+  for a feature that should be small.
+
 ## The Chain (Auto-Run Unless I Say Otherwise)
 
 When I share a plan, design, or feature idea, run this chain end-to-end
@@ -111,6 +133,8 @@ without asking permission between steps:
 4. **prd-to-plan** — Break the PRD into multi-phase tracer-bullet
    vertical slices. Each phase cuts through ALL integration layers
    end-to-end (schema/data → logic → UI → tests), NOT horizontal layers.
+   Slices should respect the minimum-viable-diff principle: prefer
+   slices that extend existing code over slices that replace it.
    Briefly confirm granularity once before proceeding.
 
 5. **tdd** — One vertical slice at a time. RED (one test for one
@@ -158,6 +182,10 @@ For TDD, commit per phase per slice so reverts are clean:
 After each TDD commit, append the slice's status to `tdd-log.md` in the
 same commit.
 
+Keep commit diffs scoped to the slice. If a "small change" balloons
+into something large, stop and surface that — don't quietly absorb the
+extra scope.
+
 ## Retry Semantics
 
 Each step's input is the prior step's artifact, so any stage is
@@ -173,7 +201,8 @@ independently retryable:
 
 ## What This Doesn't Apply To
 
-Don't run the chain for any of these — just do the work directly:
+Don't run the chain for any of these — just do the work directly
+(while still respecting the minimum-viable-diff rule):
 
 - Bug fixes under ~10 lines
 - One-off scripts or throwaway prototypes
