@@ -9,6 +9,8 @@ export interface Article {
   sourceId: string;
   topics: Topic[];
   score?: number;
+  /** Set when loading via split fetch: fast = priority-1 built-in; background = priority-2 + all custom OPML */
+  fetchTier?: 'fast' | 'background';
   /** Discussion thread URL, e.g. HN comments page from RSS <comments> field */
   discussionUrl?: string;
 }

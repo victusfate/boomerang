@@ -1,4 +1,5 @@
 import type { Article, CustomSource, NewsSource } from '../types';
+import { partitionSourcesForSplitFetch } from './feedPartition';
 import rssSourcesJson from '../../../shared/rss-sources.json';
 
 /**
@@ -14,6 +15,21 @@ const RSS_WORKER_URL =
 
 // Built-in sources: single source of truth in `shared/rss-sources.json` (priority 1 = first batch; 2 = background).
 export const DEFAULT_SOURCES: NewsSource[] = rssSourcesJson as NewsSource[];
+
+export { partitionSourcesForSplitFetch };
+
+function mapBundleArticles(
+  data: Array<Omit<Article, 'publishedAt' | 'score'> & { publishedAt: string }>,
+): Article[] {
+  return data.map(a => ({
+    ...a,
+    publishedAt: new Date(a.publishedAt),
+  }));
+}
+
+function tagFetchTier(articles: Article[], tier: 'fast' | 'background'): Article[] {
+  return articles.map(a => ({ ...a, fetchTier: tier }));
+}
 
 const MISSING_WORKER_MSG =
   'RSS is served only via the Cloudflare Worker. Set VITE_RSS_WORKER_URL (e.g. https://boomerang-rss.boomerang.workers.dev or http://127.0.0.1:8787 for wrangler dev) and rebuild.';
@@ -143,7 +159,8 @@ export async function fetchAllSources(
   if (!RSS_WORKER_URL) {
     throw new Error(MISSING_WORKER_MSG);
   }
-  return fetchAllSourcesViaWorker(sources, customSources, onBatch);
+  if (sources.length === 0 && customSources.length === 0) return [];
+  return fetchAllSourcesSplit(sources, customSources, onBatch);
 }
 
 async function fetchBundleJson(
@@ -176,19 +193,14 @@ async function fetchBundleJson(
   return res.json();
 }
 
-function mapBundleArticles(
-  data: Array<Omit<Article, 'publishedAt' | 'score'> & { publishedAt: string }>,
-): Article[] {
-  return data.map(a => ({
-    ...a,
-    publishedAt: new Date(a.publishedAt),
-  }));
-}
-
-async function fetchAllSourcesViaWorker(
+/**
+ * Fetches a subset of the catalog (one staggered pass: non-YouTube + YouTube) without tier tags.
+ * Used for fast (priority-1) and background (priority-2 + custom) in parallel.
+ */
+async function loadArticlesFromWorker(
   sources: NewsSource[],
   customSources: CustomSource[],
-  onBatch?: (articles: Article[]) => void,
+  onProgress?: (cumulative: Article[]) => void,
 ): Promise<Article[]> {
   if (sources.length === 0 && customSources.length === 0) return [];
 
@@ -210,7 +222,7 @@ async function fetchAllSourcesViaWorker(
       const data = await fetchBundleJson(ids, cs, sources);
       nonYtWire.push(...data.articles);
       const merged = mapBundleArticles([...nonYtWire, ...ytWire]);
-      onBatch?.(merged);
+      onProgress?.(merged);
       await new Promise<void>(r => queueMicrotask(r));
     }
   }
@@ -222,10 +234,62 @@ async function fetchAllSourcesViaWorker(
       const data = await fetchBundleJson(idChunk, [], sources);
       ytWire.push(...data.articles);
       const merged = mapBundleArticles([...nonYtWire, ...ytWire]);
-      onBatch?.(merged);
+      onProgress?.(merged);
       await new Promise<void>(r => queueMicrotask(r));
     }
   }
 
   return mapBundleArticles([...nonYtWire, ...ytWire]);
+}
+
+/**
+ * Splits by `priority` (1 = fast, 2 = background), custom OPML only on background, runs both
+ * fetches in parallel, tags `fetchTier` on every article, and calls `onBatch` with the merged
+ * pool whenever either side advances (progressive load).
+ */
+async function fetchAllSourcesSplit(
+  activeSources: NewsSource[],
+  customSources: CustomSource[],
+  onBatch?: (articles: Article[]) => void,
+): Promise<Article[]> {
+  const { fast, background } = partitionSourcesForSplitFetch(activeSources, customSources);
+  const fastS = fast.sources;
+  const bgS = background.sources;
+  const bgCustom = background.custom;
+
+  let fastAcc: Article[] = [];
+  let bgAcc: Article[] = [];
+  const emit = () => {
+    onBatch?.([...tagFetchTier(fastAcc, 'fast'), ...tagFetchTier(bgAcc, 'background')]);
+  };
+
+  const onlyFast = fastS.length > 0 && bgS.length === 0 && bgCustom.length === 0;
+  const onlyBg   = fastS.length === 0 && (bgS.length > 0 || bgCustom.length > 0);
+
+  if (onlyFast) {
+    const acc = await loadArticlesFromWorker(fastS, [], (a) => {
+      fastAcc = a;
+      emit();
+    });
+    return tagFetchTier(acc, 'fast');
+  }
+  if (onlyBg) {
+    const acc = await loadArticlesFromWorker(bgS, bgCustom, (a) => {
+      bgAcc = a;
+      emit();
+    });
+    return tagFetchTier(acc, 'background');
+  }
+
+  await Promise.all([
+    loadArticlesFromWorker(fastS, [], (acc) => {
+      fastAcc = acc;
+      emit();
+    }),
+    loadArticlesFromWorker(bgS, bgCustom, (acc) => {
+      bgAcc = acc;
+      emit();
+    }),
+  ]);
+  return [...tagFetchTier(fastAcc, 'fast'), ...tagFetchTier(bgAcc, 'background')];
 }
