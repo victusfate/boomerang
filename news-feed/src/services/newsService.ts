@@ -286,10 +286,12 @@ async function fetchAllSourcesSplit(
       fastAcc = acc;
       emit();
     }),
+    // Background failure is silenced: fast-tier articles already visible via onBatch
+    // stay on screen without an error banner. Fast failure still propagates.
     loadArticlesFromWorker(bgS, bgCustom, (acc) => {
       bgAcc = acc;
       emit();
-    }),
+    }).catch(() => {}),
   ]);
   return [...tagFetchTier(fastAcc, 'fast'), ...tagFetchTier(bgAcc, 'background')];
 }
