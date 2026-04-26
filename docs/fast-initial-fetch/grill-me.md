@@ -32,6 +32,10 @@ Rationale: Keeps the fast batch bounded even if a user imports many OPML sources
 
 (If you later want “user-added = fast,” revisit as Option A; not in scope for v1 per this doc.)
 
+## Q5 — Should `BACKGROUND_TIER_SCORE_MULTIPLIER` be tunable without a code deploy?
+
+**Decision:** Keep it as a **named code constant** (`algorithm.ts:9`). Moving it to JSON or a config file adds indirection for a value that changes rarely; a one-line PR is sufficient for tuning.
+
 ## Out of scope (for later)
 
 - Per-user “first batch = top N by weight”
