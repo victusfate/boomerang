@@ -1,7 +1,7 @@
 // Pure utility functions for prefs manipulation.
 // Persistence is handled by Fireproof in useFeed.ts.
 
-import type { Article, CustomSource, NewsSource, Topic, UserPrefs } from '../types';
+import type { Article, CustomSource, NewsSource, Topic, UserLabel, UserPrefs } from '../types';
 
 export const DEFAULT_PREFS: UserPrefs = {
   topicWeights:   {},
@@ -17,6 +17,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   disabledSourceIds: [],  // blacklist: empty = all enabled
   enabledTopics:  [],   // empty = all enabled
   customSources:  [],
+  userLabels:     [],
 };
 
 // ── Keyword extraction ────────────────────────────────────────────────────────
@@ -513,4 +514,22 @@ export function importBookmarkHTML(html: string): Article[] | null {
   } catch {
     return null;
   }
+}
+
+// ── User label CRUD ───────────────────────────────────────────────────────────
+
+export function addUserLabel(label: UserLabel, prefs: UserPrefs): UserPrefs {
+  if (prefs.userLabels.some(l => l.id === label.id)) return prefs;
+  return { ...prefs, userLabels: [...prefs.userLabels, label] };
+}
+
+export function deleteUserLabel(labelId: string, prefs: UserPrefs): UserPrefs {
+  return { ...prefs, userLabels: prefs.userLabels.filter(l => l.id !== labelId) };
+}
+
+export function renameUserLabel(labelId: string, name: string, prefs: UserPrefs): UserPrefs {
+  return {
+    ...prefs,
+    userLabels: prefs.userLabels.map(l => l.id === labelId ? { ...l, name } : l),
+  };
 }

@@ -2,7 +2,7 @@
 
 | Slice | Status | Notes |
 |-------|--------|-------|
-| 1 | pending | Data model + label CRUD |
+| 1 | done | Data model + label CRUD |
 | 2 | pending | Topic bar soft takeover |
 | 3 | pending | Classification service |
 | 4 | pending | Classification pass wired into feed load |
