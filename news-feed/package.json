@@ -34,6 +34,9 @@
   "overrides": {
     "vite": "8.0.8",
     "magic-string": "0.30.21",
+    "serialize-javascript": "7.0.5",
+    "dompurify": "^3.4.1",
+    "@clerk/shared": "^4.8.5",
     "workbox-build": {
       "glob": "13.0.6",
       "source-map": "0.7.6"
