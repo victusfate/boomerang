@@ -313,10 +313,10 @@ export function useFeed() {
         const existingLabels = currentPrefs.userLabels ?? [];
         if (isPromptApiAvailable() && existingLabels.length === 0 && !autoInitDoneRef.current) {
           autoInitDoneRef.current = true;
-          console.log('[AI Labels] Prompt API available, no labels yet — generating suggestions…');
+          console.log('[AI Labels] Prompt API available, no labels — generating suggestions…');
           setClassificationStatus('Generating label suggestions…');
           suggestLabels(currentPrefs, all).then(names => {
-            if (names.length === 0) { setClassificationStatus(''); return; }
+            if (names.length === 0) { setClassificationStatus('No suggestions returned'); return; }
             const newLabels: UserLabel[] = names.slice(0, 3).map(name => ({
               id: `lbl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
               name,
