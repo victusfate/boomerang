@@ -31,7 +31,7 @@ export default function App() {
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
-    labelHits, onAddLabel, onDeleteLabel, labelsShareUrl,
+    labelHits, classificationStatus, onAddLabel, onDeleteLabel, labelsShareUrl,
   } = useFeed();
 
   const [view, setView] = useState<FeedView>('feed');
@@ -223,6 +223,14 @@ export default function App() {
           onFilter={setActiveFilter}
         />
       )}
+
+      {classificationStatus && (
+        <div className="ai-status" aria-live="polite">
+          <span className="ai-status-dot" />
+          {classificationStatus}
+        </div>
+      )}
+
 
       {pullProgress > 0 && (
         <div className="pull-indicator">

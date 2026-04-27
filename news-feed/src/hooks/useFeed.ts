@@ -12,6 +12,7 @@ import {
   addUserLabel, deleteUserLabel, renameUserLabel,
 } from '../services/storage';
 import { isPromptApiAvailable, runClassificationPass } from '../services/labelClassifier';
+import { suggestLabels } from '../services/labelSuggester.ts';
 import type { Article, CustomSource, LabelHit, Topic, UserLabel, UserPrefs } from '../types';
 
 const PAGE_SIZE          = 5;
@@ -79,6 +80,9 @@ export function useFeed() {
   const labelHitsRef = useRef<LabelHit[]>([]);
   labelHitsRef.current = labelHits;
 
+  const [classificationStatus, setClassificationStatus] = useState('');
+  const autoInitDoneRef = useRef(false);
+
   // ── URL hash label import ─────────────────────────────────────────────────────
   // Runs once on mount — reads #labels=<base64> and merges into prefs silently.
   const urlImportDone = useRef(false);
@@ -115,19 +119,28 @@ export function useFeed() {
       typeof requestIdleCallback !== 'undefined'
         ? (cb) => requestIdleCallback(() => cb(), { timeout: 5000 })
         : (cb) => setTimeout(cb, 0);
+    let done = 0;
     for (const label of labels) {
       const classify = async () => {
-        const newHits = await runClassificationPass(
-          articlePoolRef.current, label, labelHitsRef.current,
-        );
-        if (newHits.length === 0) return;
-        setLabelHits(prev => {
-          const merged = [...prev, ...newHits];
-          labelHitsRef.current = merged;
-          database.put({ _id: CLASSIFICATIONS_ID, hits: merged } as ClassificationsDoc)
-            .catch(console.error);
-          return merged;
-        });
+        const articles = articlePoolRef.current;
+        console.log(`[AI Labels] classifying ${articles.length} articles → "${label.name}"`);
+        setClassificationStatus(`Classifying "${label.name}" (${articles.length} articles)…`);
+        const newHits = await runClassificationPass(articles, label, labelHitsRef.current);
+        done++;
+        console.log(`[AI Labels] "${label.name}": ${newHits.length} hits found (${done}/${labels.length} labels done)`);
+        if (newHits.length > 0) {
+          setLabelHits(prev => {
+            const merged = [...prev, ...newHits];
+            labelHitsRef.current = merged;
+            database.put({ _id: CLASSIFICATIONS_ID, hits: merged } as ClassificationsDoc)
+              .catch(console.error);
+            return merged;
+          });
+        }
+        if (done === labels.length) {
+          setClassificationStatus(`Done — ${labelHitsRef.current.length} hits across ${labels.length} label(s)`);
+          setTimeout(() => setClassificationStatus(''), 5000);
+        }
       };
       schedule(() => { void classify(); });
     }
@@ -297,7 +310,32 @@ export function useFeed() {
         applyRankedBatch(all);
         database.put({ _id: CACHE_ID, articles: dehydrate(all), fetchedAt: Date.now() })
           .catch(console.error);
-        schedulePassRef.current(currentPrefs.userLabels ?? []);
+        const existingLabels = currentPrefs.userLabels ?? [];
+        if (isPromptApiAvailable() && existingLabels.length === 0 && !autoInitDoneRef.current) {
+          autoInitDoneRef.current = true;
+          console.log('[AI Labels] Prompt API available, no labels yet — generating suggestions…');
+          setClassificationStatus('Generating label suggestions…');
+          suggestLabels(currentPrefs, all).then(names => {
+            if (names.length === 0) { setClassificationStatus(''); return; }
+            const newLabels: UserLabel[] = names.slice(0, 3).map(name => ({
+              id: `lbl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+              name,
+              color: '#6c63ff',
+            }));
+            console.log('[AI Labels] Auto-adding labels:', newLabels.map(l => l.name));
+            setPrefsState(prev => {
+              const next = newLabels.reduce((p, l) => addUserLabel(l, p), prev);
+              database.put({ _id: PREFS_ID, ...next } as PrefsDoc).catch(console.error);
+              return next;
+            });
+            schedulePassRef.current(newLabels);
+          }).catch(err => {
+            console.warn('[AI Labels] Suggestion failed:', err);
+            setClassificationStatus('');
+          });
+        } else {
+          schedulePassRef.current(existingLabels);
+        }
       }
     } catch (e) {
       if (fetchIdRef.current === myFetchId) {
@@ -564,6 +602,7 @@ export function useFeed() {
     onExportBookmarks:    handleExportBookmarks,
     onImportBookmarks:    handleImportBookmarks,
     labelHits,
+    classificationStatus,
     onAddLabel:    handleAddLabel,
     onDeleteLabel: handleDeleteLabel,
     onRenameLabel: handleRenameLabel,
