@@ -7,5 +7,5 @@
 | 3 | done | Classification service |
 | 4 | done | Classification pass wired into feed load |
 | 5 | done | Label badge on article card |
-| 6 | pending | Label suggestion service |
+| 6 | done | Label suggestion service |
 | 7 | pending | Fireproof cloud sync + QR link flow |

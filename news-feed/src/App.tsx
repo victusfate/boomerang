@@ -3,6 +3,7 @@ import { useFeed } from './hooks/useFeed';
 import { ArticleCard } from './components/ArticleCard';
 import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
+import { suggestLabels } from './services/labelSuggester';
 import type { ActiveFilter, FeedView } from './types';
 
 const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
@@ -30,7 +31,7 @@ export default function App() {
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
-    labelHits,
+    labelHits, onAddLabel, onDeleteLabel,
   } = useFeed();
 
   const [view, setView] = useState<FeedView>('feed');
@@ -306,6 +307,9 @@ export default function App() {
           onImportOPML={onImportOPML}
           onExportBookmarks={onExportBookmarks}
           onImportBookmarks={onImportBookmarks}
+          onAddLabel={onAddLabel}
+          onDeleteLabel={onDeleteLabel}
+          onSuggestLabels={(articles) => suggestLabels(prefs, articles.length ? articles : visibleArticles)}
         />
       )}
     </>
