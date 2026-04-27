@@ -11,20 +11,21 @@ import {
   exportBookmarkHTML, importBookmarkHTML,
   addUserLabel, deleteUserLabel, renameUserLabel,
 } from '../services/storage';
-import { isPromptApiAvailable, runClassificationPass } from '../services/labelClassifier';
-import { suggestLabels } from '../services/labelSuggester.ts';
-import type { Article, CustomSource, LabelHit, Topic, UserLabel, UserPrefs } from '../types';
+import { isPromptApiAvailable, runTaggingPass } from '../services/labelClassifier';
+import type { Article, ArticleTag, CustomSource, LabelHit, Topic, UserLabel, UserPrefs } from '../types';
 
 const PAGE_SIZE          = 5;
 const PREFS_ID           = 'user-prefs';
 const CACHE_ID           = 'feed-cache';
 const IMPORTED_SAVES_ID  = 'imported-saves';
 const CLASSIFICATIONS_ID = 'ai-classifications';
+const ARTICLE_TAGS_ID    = 'ai-article-tags';
 
 type StoredArticle = Omit<Article, 'publishedAt'> & { publishedAt: string };
 interface FeedCacheDoc        { _id: string; articles: StoredArticle[]; fetchedAt: number }
 interface ImportedSavesDoc    { _id: string; articles: StoredArticle[] }
 interface ClassificationsDoc  { _id: string; hits: LabelHit[] }
+interface ArticleTagsDoc      { _id: string; hits: ArticleTag[] }
 type PrefsDoc = UserPrefs & { _id: string };
 
 function hydrate(stored: StoredArticle[]): Article[] {
@@ -80,8 +81,11 @@ export function useFeed() {
   const labelHitsRef = useRef<LabelHit[]>([]);
   labelHitsRef.current = labelHits;
 
+  const [articleTags, setArticleTags] = useState<ArticleTag[]>([]);
+  const articleTagsRef = useRef<ArticleTag[]>([]);
+  articleTagsRef.current = articleTags;
+
   const [classificationStatus, setClassificationStatus] = useState('');
-  const autoInitDoneRef = useRef(false);
 
   // ── URL hash label import ─────────────────────────────────────────────────────
   // Runs once on mount — reads #labels=<base64> and merges into prefs silently.
@@ -112,42 +116,42 @@ export function useFeed() {
     database.put({ _id: PREFS_ID, ...next } as PrefsDoc).catch(console.error);
   }, [database]);
 
-  // ── Classification pass (Chrome 138+ Prompt API, no-op elsewhere) ────────────
-  const scheduleClassificationPass = useCallback((labels: UserLabel[]) => {
-    if (!isPromptApiAvailable() || labels.length === 0) return;
+  // ── Tagging pass (Chrome 138+ Prompt API, no-op elsewhere) ──────────────────
+  const scheduleTaggingPass = useCallback((articles: Article[]) => {
+    if (!isPromptApiAvailable()) return;
     const schedule: (cb: () => void) => void =
       typeof requestIdleCallback !== 'undefined'
         ? (cb) => requestIdleCallback(() => cb(), { timeout: 5000 })
         : (cb) => setTimeout(cb, 0);
-    let done = 0;
-    for (const label of labels) {
-      const classify = async () => {
-        const articles = articlePoolRef.current;
-        console.log(`[AI Labels] classifying ${articles.length} articles → "${label.name}"`);
-        setClassificationStatus(`Classifying "${label.name}" (${articles.length} articles)…`);
-        const newHits = await runClassificationPass(articles, label, labelHitsRef.current);
-        done++;
-        console.log(`[AI Labels] "${label.name}": ${newHits.length} hits found (${done}/${labels.length} labels done)`);
-        if (newHits.length > 0) {
-          setLabelHits(prev => {
-            const merged = [...prev, ...newHits];
-            labelHitsRef.current = merged;
-            database.put({ _id: CLASSIFICATIONS_ID, hits: merged } as ClassificationsDoc)
+
+    schedule(() => {
+      void (async () => {
+        const existing = articleTagsRef.current;
+        const toTag = articles.filter(a => !existing.some(t => t.articleId === a.id));
+        if (toTag.length === 0) { setClassificationStatus(''); return; }
+        console.log(`[AI Tags] tagging ${toTag.length} new articles…`);
+        setClassificationStatus(`Tagging ${toTag.length} articles…`);
+        let done = 0;
+        await runTaggingPass(articles, existing, (tag) => {
+          done++;
+          console.log(`[AI Tags] ${tag.articleId}: [${tag.tags.join(', ')}] (${done}/${toTag.length})`);
+          setClassificationStatus(`Tagging articles… ${done}/${toTag.length}`);
+          setArticleTags(prev => {
+            const updated = [...prev, tag];
+            articleTagsRef.current = updated;
+            database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc)
               .catch(console.error);
-            return merged;
+            return updated;
           });
-        }
-        if (done === labels.length) {
-          setClassificationStatus(`Done — ${labelHitsRef.current.length} hits across ${labels.length} label(s)`);
-          setTimeout(() => setClassificationStatus(''), 5000);
-        }
-      };
-      schedule(() => { void classify(); });
-    }
+        });
+        setClassificationStatus(`Tagged — ${done} articles processed`);
+        setTimeout(() => setClassificationStatus(''), 5000);
+      })();
+    });
   }, [database]);
 
-  const schedulePassRef = useRef(scheduleClassificationPass);
-  schedulePassRef.current = scheduleClassificationPass;
+  const schedulePassRef = useRef(scheduleTaggingPass);
+  schedulePassRef.current = scheduleTaggingPass;
 
   // ── Load prefs + cache from Fireproof on mount ────────────────────────────────
   useEffect(() => {
@@ -187,7 +191,11 @@ export function useFeed() {
       .then(doc => doc.hits ?? [])
       .catch(() => [] as LabelHit[]);
 
-    Promise.all([prefsPromise, cachePromise, importedSavesPromise, classificationsPromise]).then(([loadedPrefs, cached, imported, hits]) => {
+    const articleTagsPromise = database.get<ArticleTagsDoc>(ARTICLE_TAGS_ID)
+      .then(doc => doc.hits ?? [])
+      .catch(() => [] as ArticleTag[]);
+
+    Promise.all([prefsPromise, cachePromise, importedSavesPromise, classificationsPromise, articleTagsPromise]).then(([loadedPrefs, cached, imported, hits, tags]) => {
       if (imported.length) {
         importedSavesRef.current = imported;
         setImportedSaves(imported);
@@ -195,6 +203,10 @@ export function useFeed() {
       if (hits.length) {
         labelHitsRef.current = hits;
         setLabelHits(hits);
+      }
+      if (tags.length) {
+        articleTagsRef.current = tags;
+        setArticleTags(tags);
       }
       setPrefsReady(true);
 
@@ -310,32 +322,7 @@ export function useFeed() {
         applyRankedBatch(all);
         database.put({ _id: CACHE_ID, articles: dehydrate(all), fetchedAt: Date.now() })
           .catch(console.error);
-        const existingLabels = currentPrefs.userLabels ?? [];
-        if (isPromptApiAvailable() && existingLabels.length === 0 && !autoInitDoneRef.current) {
-          autoInitDoneRef.current = true;
-          console.log('[AI Labels] Prompt API available, no labels — generating suggestions…');
-          setClassificationStatus('Generating label suggestions…');
-          suggestLabels(currentPrefs, all).then(names => {
-            if (names.length === 0) { setClassificationStatus('No suggestions returned'); return; }
-            const newLabels: UserLabel[] = names.slice(0, 3).map(name => ({
-              id: `lbl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-              name,
-              color: '#6c63ff',
-            }));
-            console.log('[AI Labels] Auto-adding labels:', newLabels.map(l => l.name));
-            setPrefsState(prev => {
-              const next = newLabels.reduce((p, l) => addUserLabel(l, p), prev);
-              database.put({ _id: PREFS_ID, ...next } as PrefsDoc).catch(console.error);
-              return next;
-            });
-            schedulePassRef.current(newLabels);
-          }).catch(err => {
-            console.warn('[AI Labels] Suggestion failed:', err);
-            setClassificationStatus('');
-          });
-        } else {
-          schedulePassRef.current(existingLabels);
-        }
+        schedulePassRef.current(all);
       }
     } catch (e) {
       if (fetchIdRef.current === myFetchId) {
@@ -420,7 +407,6 @@ export function useFeed() {
   const handleAddLabel = useCallback((label: UserLabel) => {
     const next = addUserLabel(label, prefsRef.current);
     updatePrefs(next);
-    schedulePassRef.current([label]); // delta: classify only this new label
   }, [updatePrefs]);
 
   const handleDeleteLabel = useCallback((labelId: string) => {
@@ -573,6 +559,8 @@ export function useFeed() {
     ...importedSaves.filter(a => savedIds.has(a.id) && !poolIds.has(a.id)),
   ];
 
+  const articleTagsMap = new Map(articleTags.map(t => [t.articleId, t.tags]));
+
   return {
     visibleArticles: allArticles.slice(0, visibleCount),
     savedArticles,
@@ -602,6 +590,8 @@ export function useFeed() {
     onExportBookmarks:    handleExportBookmarks,
     onImportBookmarks:    handleImportBookmarks,
     labelHits,
+    articleTags,
+    articleTagsMap,
     classificationStatus,
     onAddLabel:    handleAddLabel,
     onDeleteLabel: handleDeleteLabel,

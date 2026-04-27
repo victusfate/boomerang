@@ -31,7 +31,7 @@ export default function App() {
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
-    labelHits, classificationStatus, onAddLabel, onDeleteLabel, labelsShareUrl,
+    articleTagsMap, classificationStatus, onAddLabel, onDeleteLabel, labelsShareUrl,
   } = useFeed();
 
   const [view, setView] = useState<FeedView>('feed');
@@ -124,28 +124,16 @@ export default function App() {
     }
   }, [totalLoaded, hasMore, view, onLoadMore]);
 
-  const articleLabelsMap = useMemo(() => {
-    const labelById = new Map((prefs.userLabels ?? []).map(l => [l.id, l.name]));
-    const map = new Map<string, string[]>();
-    for (const hit of labelHits) {
-      const name = labelById.get(hit.labelId);
-      if (!name) continue;
-      const names = map.get(hit.articleId) ?? [];
-      names.push(name);
-      map.set(hit.articleId, names);
-    }
-    return map;
-  }, [labelHits, prefs.userLabels]);
 
   const filteredArticles = useMemo(() => {
     let list = view === 'saved' ? savedArticles : visibleArticles;
     if (activeFilter?.kind === 'topic') list = list.filter(a => a.topics.includes(activeFilter.value));
     if (activeFilter?.kind === 'label') {
-      const hitIds = new Set(labelHits.filter(h => h.labelId === activeFilter.value).map(h => h.articleId));
-      list = list.filter(a => hitIds.has(a.id));
+      const labelName = (prefs.userLabels ?? []).find(l => l.id === activeFilter.value)?.name?.toLowerCase() ?? '';
+      list = list.filter(a => (articleTagsMap.get(a.id) ?? []).some(t => t.includes(labelName) || labelName.includes(t)));
     }
     return list;
-  }, [visibleArticles, savedArticles, view, activeFilter, labelHits]);
+  }, [visibleArticles, savedArticles, view, activeFilter, articleTagsMap, prefs.userLabels]);
 
   // When a topic filter is active and the visible slice has no matches yet,
   // automatically load more so the user isn't stuck on a false empty state.
@@ -267,7 +255,7 @@ export default function App() {
             prefs={prefs}
             animateEnter={feedEnterIds.includes(article.id)}
             priority={index === 0}
-            articleLabelNames={articleLabelsMap.get(article.id) ?? []}
+            articleLabelNames={articleTagsMap.get(article.id) ?? []}
             onOpen={onOpen}
             onSave={onSave}
             onUpvote={onUpvote}

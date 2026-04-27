@@ -10,6 +10,12 @@ export interface LabelHit {
   classifiedAt: number;
 }
 
+export interface ArticleTag {
+  articleId: string;
+  tags: string[];
+  taggedAt: number;
+}
+
 export type ActiveFilter =
   | { kind: 'topic'; value: Topic }
   | { kind: 'label'; value: string }
