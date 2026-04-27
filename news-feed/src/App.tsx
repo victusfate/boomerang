@@ -4,6 +4,7 @@ import { ArticleCard } from './components/ArticleCard';
 import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
 import { suggestLabels } from './services/labelSuggester';
+import { isPromptApiAvailable } from './services/labelClassifier';
 import type { ActiveFilter, FeedView } from './types';
 
 const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
@@ -212,7 +213,7 @@ export default function App() {
         />
       )}
 
-      {classificationStatus && (
+      {isPromptApiAvailable() && classificationStatus && (
         <div className="ai-status" aria-live="polite">
           <span className="ai-status-dot" />
           {classificationStatus}

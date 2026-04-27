@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
 import { useFireproof } from 'use-fireproof';
 import { fetchAllSources, DEFAULT_SOURCES } from '../services/newsService';
 import { rankFeed } from '../services/algorithm';
@@ -135,17 +135,19 @@ export function useFeed() {
         await runTaggingPass(articles, existing, (tag) => {
           done++;
           console.log(`[AI Tags] ${tag.articleId}: [${tag.tags.join(', ')}] (${done}/${toTag.length})`);
+          // Urgent: status line; deferred: big growing tag list + Fireproof write (so 1,2,3… can paint).
           setClassificationStatus(`Tagging articles… ${done}/${toTag.length}`);
-          setArticleTags(prev => {
-            const updated = [...prev, tag];
-            articleTagsRef.current = updated;
-            database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc)
-              .catch(console.error);
-            return updated;
+          startTransition(() => {
+            setArticleTags(prev => {
+              const updated = [...prev, tag];
+              articleTagsRef.current = updated;
+              database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc)
+                .catch(console.error);
+              return updated;
+            });
           });
         });
         setClassificationStatus(`Tagged — ${done} articles processed`);
-        setTimeout(() => setClassificationStatus(''), 5000);
       })();
     });
   }, [database]);

@@ -60,6 +60,10 @@ export async function runTaggingPass(
     const tags = await tagArticle(article, [...corpus], session);
     tags.forEach(t => corpus.add(t));
     onTagged({ articleId: article.id, tags, taggedAt: Date.now() });
+    // Yield a frame so React can paint progress (1/N, 2/N, …) between slow LLM calls.
+    if (typeof requestAnimationFrame !== 'undefined') {
+      await new Promise<void>(r => requestAnimationFrame(() => r()));
+    }
   }
 }
 
