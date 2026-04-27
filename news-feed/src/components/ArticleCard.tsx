@@ -103,6 +103,8 @@ interface Props {
   animateEnter?: boolean;
   /** First visible card — eager image load + immediate og:image fetch */
   priority?: boolean;
+  /** AI-classified label names that apply to this article */
+  articleLabelNames?: string[];
   onOpen: (article: Article) => void;
   onSave: (id: string) => void;
   onUpvote: (article: Article) => void;
@@ -115,6 +117,7 @@ export function ArticleCard({
   prefs,
   animateEnter = false,
   priority = false,
+  articleLabelNames = [],
   onOpen,
   onSave,
   onUpvote,
@@ -230,6 +233,14 @@ export function ArticleCard({
             {topicMeta?.label ?? primaryTopic}
           </span>
         </div>
+
+        {articleLabelNames.length > 0 && (
+          <div className="label-badges">
+            {articleLabelNames.map(name => (
+              <span key={name} className="label-badge">{name}</span>
+            ))}
+          </div>
+        )}
 
         <a
           href={navUrl}

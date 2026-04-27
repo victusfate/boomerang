@@ -9,17 +9,23 @@ import {
   upvote, downvote, applyDecay, resetLearnedWeights, clearViewedCache,
   addCustomSource, removeCustomSource, exportOPML, importOPML,
   exportBookmarkHTML, importBookmarkHTML,
+  addUserLabel, deleteUserLabel, renameUserLabel,
 } from '../services/storage';
-import type { Article, CustomSource, Topic, UserPrefs } from '../types';
+import { isPromptApiAvailable, runTaggingPass } from '../services/labelClassifier';
+import type { Article, ArticleTag, CustomSource, LabelHit, Topic, UserLabel, UserPrefs } from '../types';
 
 const PAGE_SIZE          = 5;
 const PREFS_ID           = 'user-prefs';
 const CACHE_ID           = 'feed-cache';
 const IMPORTED_SAVES_ID  = 'imported-saves';
+const CLASSIFICATIONS_ID = 'ai-classifications';
+const ARTICLE_TAGS_ID    = 'ai-article-tags';
 
 type StoredArticle = Omit<Article, 'publishedAt'> & { publishedAt: string };
-interface FeedCacheDoc    { _id: string; articles: StoredArticle[]; fetchedAt: number }
-interface ImportedSavesDoc { _id: string; articles: StoredArticle[] }
+interface FeedCacheDoc        { _id: string; articles: StoredArticle[]; fetchedAt: number }
+interface ImportedSavesDoc    { _id: string; articles: StoredArticle[] }
+interface ClassificationsDoc  { _id: string; hits: LabelHit[] }
+interface ArticleTagsDoc      { _id: string; hits: ArticleTag[] }
 type PrefsDoc = UserPrefs & { _id: string };
 
 function hydrate(stored: StoredArticle[]): Article[] {
@@ -71,11 +77,81 @@ export function useFeed() {
   const importedSavesRef = useRef<Article[]>([]);
   importedSavesRef.current = importedSaves;
 
+  const [labelHits, setLabelHits] = useState<LabelHit[]>([]);
+  const labelHitsRef = useRef<LabelHit[]>([]);
+  labelHitsRef.current = labelHits;
+
+  const [articleTags, setArticleTags] = useState<ArticleTag[]>([]);
+  const articleTagsRef = useRef<ArticleTag[]>([]);
+  articleTagsRef.current = articleTags;
+
+  const [classificationStatus, setClassificationStatus] = useState('');
+
+  // ── URL hash label import ─────────────────────────────────────────────────────
+  // Runs once on mount — reads #labels=<base64> and merges into prefs silently.
+  const urlImportDone = useRef(false);
+  const processUrlHashLabels = useCallback((prefs: UserPrefs) => {
+    if (urlImportDone.current || typeof location === 'undefined') return prefs;
+    urlImportDone.current = true;
+    const hash = location.hash;
+    if (!hash.startsWith('#labels=')) return prefs;
+    try {
+      const encoded = hash.slice('#labels='.length);
+      const json = atob(encoded.replace(/-/g, '+').replace(/_/g, '/'));
+      const imported = JSON.parse(json) as UserLabel[];
+      if (!Array.isArray(imported)) return prefs;
+      const existing = new Set(prefs.userLabels.map(l => l.id));
+      const newLabels = imported.filter(l => !existing.has(l.id) && l.id && l.name && l.color);
+      if (newLabels.length === 0) return prefs;
+      history.replaceState(null, '', location.pathname + location.search);
+      return { ...prefs, userLabels: [...prefs.userLabels, ...newLabels] };
+    } catch {
+      return prefs;
+    }
+  }, []);
+
   // ── Persist prefs ────────────────────────────────────────────────────────────
   const updatePrefs = useCallback((next: UserPrefs) => {
     setPrefsState(next);
     database.put({ _id: PREFS_ID, ...next } as PrefsDoc).catch(console.error);
   }, [database]);
+
+  // ── Tagging pass (Chrome 138+ Prompt API, no-op elsewhere) ──────────────────
+  const scheduleTaggingPass = useCallback((articles: Article[]) => {
+    if (!isPromptApiAvailable()) return;
+    const schedule: (cb: () => void) => void =
+      typeof requestIdleCallback !== 'undefined'
+        ? (cb) => requestIdleCallback(() => cb(), { timeout: 5000 })
+        : (cb) => setTimeout(cb, 0);
+
+    schedule(() => {
+      void (async () => {
+        const existing = articleTagsRef.current;
+        const toTag = articles.filter(a => !existing.some(t => t.articleId === a.id));
+        if (toTag.length === 0) { setClassificationStatus(''); return; }
+        console.log(`[AI Tags] tagging ${toTag.length} new articles…`);
+        setClassificationStatus(`Tagging ${toTag.length} articles…`);
+        let done = 0;
+        await runTaggingPass(articles, existing, (tag) => {
+          done++;
+          console.log(`[AI Tags] ${tag.articleId}: [${tag.tags.join(', ')}] (${done}/${toTag.length})`);
+          setClassificationStatus(`Tagging articles… ${done}/${toTag.length}`);
+          setArticleTags(prev => {
+            const updated = [...prev, tag];
+            articleTagsRef.current = updated;
+            database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc)
+              .catch(console.error);
+            return updated;
+          });
+        });
+        setClassificationStatus(`Tagged — ${done} articles processed`);
+        setTimeout(() => setClassificationStatus(''), 5000);
+      })();
+    });
+  }, [database]);
+
+  const schedulePassRef = useRef(scheduleTaggingPass);
+  schedulePassRef.current = scheduleTaggingPass;
 
   // ── Load prefs + cache from Fireproof on mount ────────────────────────────────
   useEffect(() => {
@@ -91,9 +167,10 @@ export function useFeed() {
             enabledSources: [],
           };
         }
-        const decayed = applyDecay(merged);
+        const withUrlLabels = processUrlHashLabels(merged);
+        const decayed = applyDecay(withUrlLabels);
         setPrefsState(decayed);
-        if (decayed !== merged) {
+        if (decayed !== withUrlLabels || withUrlLabels !== merged) {
           database.put({ _id: PREFS_ID, ...decayed } as PrefsDoc).catch(console.error);
         }
         return decayed;
@@ -110,10 +187,26 @@ export function useFeed() {
       .then(doc => doc.articles?.length ? hydrate(doc.articles) : [])
       .catch(() => [] as Article[]);
 
-    Promise.all([prefsPromise, cachePromise, importedSavesPromise]).then(([loadedPrefs, cached, imported]) => {
+    const classificationsPromise = database.get<ClassificationsDoc>(CLASSIFICATIONS_ID)
+      .then(doc => doc.hits ?? [])
+      .catch(() => [] as LabelHit[]);
+
+    const articleTagsPromise = database.get<ArticleTagsDoc>(ARTICLE_TAGS_ID)
+      .then(doc => doc.hits ?? [])
+      .catch(() => [] as ArticleTag[]);
+
+    Promise.all([prefsPromise, cachePromise, importedSavesPromise, classificationsPromise, articleTagsPromise]).then(([loadedPrefs, cached, imported, hits, tags]) => {
       if (imported.length) {
         importedSavesRef.current = imported;
         setImportedSaves(imported);
+      }
+      if (hits.length) {
+        labelHitsRef.current = hits;
+        setLabelHits(hits);
+      }
+      if (tags.length) {
+        articleTagsRef.current = tags;
+        setArticleTags(tags);
       }
       setPrefsReady(true);
 
@@ -229,6 +322,7 @@ export function useFeed() {
         applyRankedBatch(all);
         database.put({ _id: CACHE_ID, articles: dehydrate(all), fetchedAt: Date.now() })
           .catch(console.error);
+        schedulePassRef.current(all);
       }
     } catch (e) {
       if (fetchIdRef.current === myFetchId) {
@@ -308,6 +402,26 @@ export function useFeed() {
 
   const handleToggleTopic = useCallback((topic: Topic) => {
     updatePrefs(toggleTopic(topic, prefsRef.current));
+  }, [updatePrefs]);
+
+  const handleAddLabel = useCallback((label: UserLabel) => {
+    const next = addUserLabel(label, prefsRef.current);
+    updatePrefs(next);
+  }, [updatePrefs]);
+
+  const handleDeleteLabel = useCallback((labelId: string) => {
+    updatePrefs(deleteUserLabel(labelId, prefsRef.current));
+    setLabelHits(prev => {
+      const filtered = prev.filter(h => h.labelId !== labelId);
+      labelHitsRef.current = filtered;
+      database.put({ _id: CLASSIFICATIONS_ID, hits: filtered } as ClassificationsDoc)
+        .catch(console.error);
+      return filtered;
+    });
+  }, [database, updatePrefs]);
+
+  const handleRenameLabel = useCallback((labelId: string, name: string) => {
+    updatePrefs(renameUserLabel(labelId, name, prefsRef.current));
   }, [updatePrefs]);
 
   const handleResetPrefs = useCallback(() => {
@@ -430,6 +544,13 @@ export function useFeed() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefsReady]); // one-shot: only runs once when prefs become ready
 
+  function buildLabelsShareUrl(labels: UserLabel[]): string {
+    if (labels.length === 0 || typeof location === 'undefined') return '';
+    const json = JSON.stringify(labels);
+    const b64 = btoa(json).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    return `${location.origin}${location.pathname}#labels=${b64}`;
+  }
+
   const savedIds  = new Set(prefs.savedIds);
   const poolIds   = new Set(articlePool.map(a => a.id));
   const savedArticles = [
@@ -437,6 +558,8 @@ export function useFeed() {
     // Imported bookmark articles not already in the RSS pool
     ...importedSaves.filter(a => savedIds.has(a.id) && !poolIds.has(a.id)),
   ];
+
+  const articleTagsMap = new Map(articleTags.map(t => [t.articleId, t.tags]));
 
   return {
     visibleArticles: allArticles.slice(0, visibleCount),
@@ -466,6 +589,14 @@ export function useFeed() {
     onImportOPML:         handleImportOPML,
     onExportBookmarks:    handleExportBookmarks,
     onImportBookmarks:    handleImportBookmarks,
+    labelHits,
+    articleTags,
+    articleTagsMap,
+    classificationStatus,
+    onAddLabel:    handleAddLabel,
+    onDeleteLabel: handleDeleteLabel,
+    onRenameLabel: handleRenameLabel,
+    labelsShareUrl: buildLabelsShareUrl(prefs.userLabels ?? []),
     feedEnterIds,
   };
 }

@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import QRCode from 'qrcode';
 import { DEFAULT_SOURCES } from '../services/newsService';
 import { isSourceEnabled, isTopicEnabled } from '../services/storage';
-import type { CustomSource, Topic, UserPrefs } from '../types';
+import { isPromptApiAvailable } from '../services/labelClassifier';
+import type { Article, CustomSource, Topic, UserLabel, UserPrefs } from '../types';
 import { TOPIC_META } from './TopicFilter';
 
 const ALL_TOPICS = (Object.keys(TOPIC_META) as Topic[]).filter(t => t !== 'general');
@@ -21,12 +23,17 @@ interface Props {
   onImportOPML: (xml: string) => boolean;
   onExportBookmarks: () => void;
   onImportBookmarks: (html: string) => boolean;
+  onAddLabel: (label: UserLabel) => void;
+  onDeleteLabel: (labelId: string) => void;
+  onSuggestLabels: (articles: Article[]) => Promise<string[]>;
+  labelsShareUrl: string;
 }
 
 export function Settings({
   prefs, onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onClose,
   onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
   onExportBookmarks, onImportBookmarks,
+  onAddLabel, onDeleteLabel, onSuggestLabels, labelsShareUrl,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
@@ -40,6 +47,16 @@ export function Settings({
   // Import status: separate for OPML and bookmarks
   const [importStatus, setImportStatus]   = useState<'idle' | 'ok' | 'error'>('idle');
   const [bmImportStatus, setBmImportStatus] = useState<'idle' | 'ok' | 'error'>('idle');
+
+  // AI Labels
+  const [newLabelName, setNewLabelName]   = useState('');
+  const [newLabelColor, setNewLabelColor] = useState('#6c63ff');
+  const [suggestions, setSuggestions]     = useState<string[]>([]);
+  const [suggesting, setSuggesting]       = useState(false);
+
+  // Sync QR code
+  const [qrDataUrl, setQrDataUrl]   = useState('');
+  const [copied, setCopied]         = useState(false);
 
   useEffect(() => {
     previousFocusRef.current = document.activeElement;
@@ -76,6 +93,54 @@ export function Settings({
     onAddCustomSource({ id, name, feedUrl });
     setNewName('');
     setNewUrl('');
+  };
+
+  useEffect(() => {
+    if (!labelsShareUrl) { setQrDataUrl(''); return; }
+    QRCode.toDataURL(labelsShareUrl, { width: 200, margin: 2 })
+      .then(setQrDataUrl)
+      .catch(() => setQrDataUrl(''));
+  }, [labelsShareUrl]);
+
+  const handleCopyShareUrl = useCallback(async () => {
+    if (!labelsShareUrl) return;
+    try {
+      await navigator.clipboard.writeText(labelsShareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback: select the text
+    }
+  }, [labelsShareUrl]);
+
+  const handleAddLabel = (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newLabelName.trim();
+    if (!name) return;
+    const id = `lbl-${Date.now().toString(36)}`;
+    onAddLabel({ id, name, color: newLabelColor });
+    setNewLabelName('');
+    setNewLabelColor('#6c63ff');
+  };
+
+  const handleSuggest = async () => {
+    setSuggesting(true);
+    try {
+      const results = await onSuggestLabels([]);
+      setSuggestions(results);
+    } finally {
+      setSuggesting(false);
+    }
+  };
+
+  const handleAcceptSuggestion = (name: string) => {
+    const id = `lbl-${Date.now().toString(36)}`;
+    onAddLabel({ id, name, color: '#6c63ff' });
+    setSuggestions(prev => prev.filter(s => s !== name));
+  };
+
+  const handleDismissSuggestion = (name: string) => {
+    setSuggestions(prev => prev.filter(s => s !== name));
   };
 
   const handleOPMLFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -279,6 +344,119 @@ export function Settings({
           </div>
           {bmImportStatus === 'ok'    && <p className="import-status ok">Imported — bookmarks added to your Saved list.</p>}
           {bmImportStatus === 'error' && <p className="import-status error">Could not read that file — make sure it is a browser bookmarks HTML export.</p>}
+        </section>
+
+        {/* ── AI Labels ──────────────────────────────────────────────── */}
+        <section className="settings-section">
+          <h3>AI Labels</h3>
+          <p className="settings-hint">
+            Create topic labels to tag your feed. On Chrome 138+, on-device AI classifies articles automatically.
+          </p>
+
+          {(prefs.userLabels ?? []).length > 0 && (
+            <div className="label-list">
+              {(prefs.userLabels ?? []).map(lbl => (
+                <div key={lbl.id} className="label-list-item">
+                  <span className="label-list-dot" style={{ background: lbl.color }} />
+                  <span className="label-list-name">{lbl.name}</span>
+                  <button
+                    className="btn-remove-label"
+                    onClick={() => onDeleteLabel(lbl.id)}
+                    aria-label={`Delete label ${lbl.name}`}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <form className="add-label-form" onSubmit={handleAddLabel}>
+            <input
+              type="text"
+              className="custom-source-input add-label-input"
+              placeholder="New label name"
+              value={newLabelName}
+              onChange={e => setNewLabelName(e.target.value)}
+              required
+            />
+            <input
+              type="color"
+              className="add-label-color"
+              value={newLabelColor}
+              onChange={e => setNewLabelColor(e.target.value)}
+              title="Label colour"
+            />
+            <button type="submit" className="btn-add-source">Add</button>
+          </form>
+
+          {isPromptApiAvailable() && (
+            <>
+              <button
+                type="button"
+                className="btn-add-source"
+                style={{ marginTop: '10px' }}
+                onClick={handleSuggest}
+                disabled={suggesting}
+              >
+                {suggesting ? 'Thinking…' : 'Suggest labels with AI'}
+              </button>
+
+              {suggestions.length > 0 && (
+                <div className="suggestion-chips">
+                  {suggestions.map(name => (
+                    <div key={name} className="suggestion-chip">
+                      <span className="suggestion-chip-name">{name}</span>
+                      <button
+                        className="btn-accept-suggestion"
+                        onClick={() => handleAcceptSuggestion(name)}
+                      >
+                        + Add
+                      </button>
+                      <button
+                        className="btn-dismiss-suggestion"
+                        onClick={() => handleDismissSuggestion(name)}
+                        aria-label={`Dismiss ${name}`}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </section>
+
+        {/* ── Sync across devices ──────────────────────────────────────── */}
+        <section className="settings-section">
+          <h3>Sync across devices</h3>
+          {labelsShareUrl ? (
+            <>
+              <p className="settings-hint">
+                Share your labels with another device. Open the link on the other device — labels will import automatically.
+              </p>
+              {qrDataUrl && (
+                <div className="sync-qr-wrap">
+                  <img src={qrDataUrl} alt="QR code for label sync" className="sync-qr" />
+                </div>
+              )}
+              <div className="sync-url-row">
+                <input
+                  type="text"
+                  className="custom-source-input sync-url-input"
+                  readOnly
+                  value={labelsShareUrl}
+                  onFocus={e => (e.target as HTMLInputElement).select()}
+                />
+                <button type="button" className="btn-add-source" onClick={handleCopyShareUrl}>
+                  {copied ? 'Copied!' : 'Copy link'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="settings-hint">Add at least one label to generate a sync link.</p>
+          )}
         </section>
 
         {/* ── Preferences ────────────────────────────────────────────── */}

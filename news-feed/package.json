@@ -14,11 +14,13 @@
     "preview:gh-pages": "npm run build:gh-pages && cross-env GITHUB_PAGES=true vite preview"
   },
   "dependencies": {
+    "qrcode": "^1.5.4",
     "react": "19.2.5",
     "react-dom": "19.2.5",
-    "use-fireproof": "0.24.19"
+    "use-fireproof": "^0.24.0"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
@@ -26,12 +28,15 @@
     "sharp": "^0.33.5",
     "typescript": "^5.6.3",
     "vite": "8.0.8",
-    "vite-plugin-pwa": "^1.2.0",
+    "vite-plugin-pwa": "^0.19.8",
     "workbox-window": "^7.4.0"
   },
   "overrides": {
     "vite": "8.0.8",
     "magic-string": "0.30.21",
+    "serialize-javascript": "7.0.5",
+    "dompurify": "^3.4.1",
+    "@clerk/shared": "^4.8.5",
     "workbox-build": {
       "glob": "13.0.6",
       "source-map": "0.7.6"
