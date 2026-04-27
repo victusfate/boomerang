@@ -9,17 +9,21 @@ import {
   upvote, downvote, applyDecay, resetLearnedWeights, clearViewedCache,
   addCustomSource, removeCustomSource, exportOPML, importOPML,
   exportBookmarkHTML, importBookmarkHTML,
+  addUserLabel, deleteUserLabel, renameUserLabel,
 } from '../services/storage';
-import type { Article, CustomSource, Topic, UserPrefs } from '../types';
+import { isPromptApiAvailable, runClassificationPass } from '../services/labelClassifier';
+import type { Article, CustomSource, LabelHit, Topic, UserLabel, UserPrefs } from '../types';
 
 const PAGE_SIZE          = 5;
 const PREFS_ID           = 'user-prefs';
 const CACHE_ID           = 'feed-cache';
 const IMPORTED_SAVES_ID  = 'imported-saves';
+const CLASSIFICATIONS_ID = 'ai-classifications';
 
 type StoredArticle = Omit<Article, 'publishedAt'> & { publishedAt: string };
-interface FeedCacheDoc    { _id: string; articles: StoredArticle[]; fetchedAt: number }
-interface ImportedSavesDoc { _id: string; articles: StoredArticle[] }
+interface FeedCacheDoc        { _id: string; articles: StoredArticle[]; fetchedAt: number }
+interface ImportedSavesDoc    { _id: string; articles: StoredArticle[] }
+interface ClassificationsDoc  { _id: string; hits: LabelHit[] }
 type PrefsDoc = UserPrefs & { _id: string };
 
 function hydrate(stored: StoredArticle[]): Article[] {
@@ -71,11 +75,43 @@ export function useFeed() {
   const importedSavesRef = useRef<Article[]>([]);
   importedSavesRef.current = importedSaves;
 
+  const [labelHits, setLabelHits] = useState<LabelHit[]>([]);
+  const labelHitsRef = useRef<LabelHit[]>([]);
+  labelHitsRef.current = labelHits;
+
   // ── Persist prefs ────────────────────────────────────────────────────────────
   const updatePrefs = useCallback((next: UserPrefs) => {
     setPrefsState(next);
     database.put({ _id: PREFS_ID, ...next } as PrefsDoc).catch(console.error);
   }, [database]);
+
+  // ── Classification pass (Chrome 138+ Prompt API, no-op elsewhere) ────────────
+  const scheduleClassificationPass = useCallback((labels: UserLabel[]) => {
+    if (!isPromptApiAvailable() || labels.length === 0) return;
+    const schedule: (cb: () => void) => void =
+      typeof requestIdleCallback !== 'undefined'
+        ? (cb) => requestIdleCallback(() => cb(), { timeout: 5000 })
+        : (cb) => setTimeout(cb, 0);
+    for (const label of labels) {
+      const classify = async () => {
+        const newHits = await runClassificationPass(
+          articlePoolRef.current, label, labelHitsRef.current,
+        );
+        if (newHits.length === 0) return;
+        setLabelHits(prev => {
+          const merged = [...prev, ...newHits];
+          labelHitsRef.current = merged;
+          database.put({ _id: CLASSIFICATIONS_ID, hits: merged } as ClassificationsDoc)
+            .catch(console.error);
+          return merged;
+        });
+      };
+      schedule(() => { void classify(); });
+    }
+  }, [database]);
+
+  const schedulePassRef = useRef(scheduleClassificationPass);
+  schedulePassRef.current = scheduleClassificationPass;
 
   // ── Load prefs + cache from Fireproof on mount ────────────────────────────────
   useEffect(() => {
@@ -110,10 +146,18 @@ export function useFeed() {
       .then(doc => doc.articles?.length ? hydrate(doc.articles) : [])
       .catch(() => [] as Article[]);
 
-    Promise.all([prefsPromise, cachePromise, importedSavesPromise]).then(([loadedPrefs, cached, imported]) => {
+    const classificationsPromise = database.get<ClassificationsDoc>(CLASSIFICATIONS_ID)
+      .then(doc => doc.hits ?? [])
+      .catch(() => [] as LabelHit[]);
+
+    Promise.all([prefsPromise, cachePromise, importedSavesPromise, classificationsPromise]).then(([loadedPrefs, cached, imported, hits]) => {
       if (imported.length) {
         importedSavesRef.current = imported;
         setImportedSaves(imported);
+      }
+      if (hits.length) {
+        labelHitsRef.current = hits;
+        setLabelHits(hits);
       }
       setPrefsReady(true);
 
@@ -229,6 +273,7 @@ export function useFeed() {
         applyRankedBatch(all);
         database.put({ _id: CACHE_ID, articles: dehydrate(all), fetchedAt: Date.now() })
           .catch(console.error);
+        schedulePassRef.current(currentPrefs.userLabels ?? []);
       }
     } catch (e) {
       if (fetchIdRef.current === myFetchId) {
@@ -308,6 +353,27 @@ export function useFeed() {
 
   const handleToggleTopic = useCallback((topic: Topic) => {
     updatePrefs(toggleTopic(topic, prefsRef.current));
+  }, [updatePrefs]);
+
+  const handleAddLabel = useCallback((label: UserLabel) => {
+    const next = addUserLabel(label, prefsRef.current);
+    updatePrefs(next);
+    schedulePassRef.current([label]); // delta: classify only this new label
+  }, [updatePrefs]);
+
+  const handleDeleteLabel = useCallback((labelId: string) => {
+    updatePrefs(deleteUserLabel(labelId, prefsRef.current));
+    setLabelHits(prev => {
+      const filtered = prev.filter(h => h.labelId !== labelId);
+      labelHitsRef.current = filtered;
+      database.put({ _id: CLASSIFICATIONS_ID, hits: filtered } as ClassificationsDoc)
+        .catch(console.error);
+      return filtered;
+    });
+  }, [database, updatePrefs]);
+
+  const handleRenameLabel = useCallback((labelId: string, name: string) => {
+    updatePrefs(renameUserLabel(labelId, name, prefsRef.current));
   }, [updatePrefs]);
 
   const handleResetPrefs = useCallback(() => {
@@ -466,6 +532,10 @@ export function useFeed() {
     onImportOPML:         handleImportOPML,
     onExportBookmarks:    handleExportBookmarks,
     onImportBookmarks:    handleImportBookmarks,
+    labelHits,
+    onAddLabel:    handleAddLabel,
+    onDeleteLabel: handleDeleteLabel,
+    onRenameLabel: handleRenameLabel,
     feedEnterIds,
   };
 }

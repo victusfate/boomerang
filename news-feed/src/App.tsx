@@ -30,6 +30,7 @@ export default function App() {
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
+    labelHits,
   } = useFeed();
 
   const [view, setView] = useState<FeedView>('feed');
@@ -125,9 +126,12 @@ export default function App() {
   const filteredArticles = useMemo(() => {
     let list = view === 'saved' ? savedArticles : visibleArticles;
     if (activeFilter?.kind === 'topic') list = list.filter(a => a.topics.includes(activeFilter.value));
-    // label filter applied in slice 4 when labelHits are available
+    if (activeFilter?.kind === 'label') {
+      const hitIds = new Set(labelHits.filter(h => h.labelId === activeFilter.value).map(h => h.articleId));
+      list = list.filter(a => hitIds.has(a.id));
+    }
     return list;
-  }, [visibleArticles, savedArticles, view, activeFilter]);
+  }, [visibleArticles, savedArticles, view, activeFilter, labelHits]);
 
   // When a topic filter is active and the visible slice has no matches yet,
   // automatically load more so the user isn't stuck on a false empty state.
