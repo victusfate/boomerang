@@ -3,7 +3,7 @@ import { useFeed } from './hooks/useFeed';
 import { ArticleCard } from './components/ArticleCard';
 import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
-import type { Topic, FeedView } from './types';
+import type { ActiveFilter, FeedView } from './types';
 
 const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
 
@@ -33,7 +33,7 @@ export default function App() {
   } = useFeed();
 
   const [view, setView] = useState<FeedView>('feed');
-  const [topicFilter, setTopicFilter] = useState<Topic | null>(null);
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [pullProgress, setPullProgress] = useState(0); // 0–1
 
@@ -124,17 +124,18 @@ export default function App() {
 
   const filteredArticles = useMemo(() => {
     let list = view === 'saved' ? savedArticles : visibleArticles;
-    if (topicFilter) list = list.filter(a => a.topics.includes(topicFilter));
+    if (activeFilter?.kind === 'topic') list = list.filter(a => a.topics.includes(activeFilter.value));
+    // label filter applied in slice 4 when labelHits are available
     return list;
-  }, [visibleArticles, savedArticles, view, topicFilter]);
+  }, [visibleArticles, savedArticles, view, activeFilter]);
 
   // When a topic filter is active and the visible slice has no matches yet,
   // automatically load more so the user isn't stuck on a false empty state.
   useEffect(() => {
-    if (!topicFilter || view !== 'feed') return;
+    if (activeFilter?.kind !== 'topic' || view !== 'feed') return;
     if (fetching || loading || !hasMore) return;
     if (filteredArticles.length === 0) onLoadMore();
-  }, [topicFilter, view, fetching, loading, hasMore, filteredArticles.length, onLoadMore]);
+  }, [activeFilter, view, fetching, loading, hasMore, filteredArticles.length, onLoadMore]);
 
   function formatLastRefresh() {
     if (!lastRefresh) return '';
@@ -199,8 +200,9 @@ export default function App() {
       {view === 'feed' && (
         <TopicFilter
           prefs={prefs}
-          activeFilter={topicFilter}
-          onFilter={setTopicFilter}
+          userLabels={prefs.userLabels ?? []}
+          activeFilter={activeFilter}
+          onFilter={setActiveFilter}
         />
       )}
 
@@ -251,7 +253,7 @@ export default function App() {
         {view === 'feed' && <div ref={sentinelRef} className="sentinel" aria-hidden="true" />}
 
         {/* All caught up */}
-        {!loading && !fetching && !hasMore && visibleArticles.length > 0 && view === 'feed' && !topicFilter && (
+        {!loading && !fetching && !hasMore && visibleArticles.length > 0 && view === 'feed' && !activeFilter && (
           <div className="feed-end">
             <span className="feed-end-icon">✓</span>
             <p>All caught up</p>
@@ -265,7 +267,7 @@ export default function App() {
               prefs.savedIds.length > 0
                 ? <p>Loading saved articles…</p>
                 : <p>No saved articles yet. Tap ☆ to bookmark.</p>
-            ) : topicFilter && hasMore ? null : (
+            ) : activeFilter && hasMore ? null : (
               <p>No articles match this filter.</p>
             )}
           </div>

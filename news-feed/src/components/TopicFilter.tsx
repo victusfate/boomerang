@@ -1,50 +1,96 @@
-import type { Topic, UserPrefs } from '../types';
+import { useState } from 'react';
+import type { Topic, UserPrefs, UserLabel, ActiveFilter } from '../types';
+import { TOPIC_META, SHOWN_TOPICS, buildFilterState } from './topicFilterUtils';
 
-export const TOPIC_META: Record<Topic, { label: string; color: string }> = {
-  technology:   { label: 'Tech',          color: '#4a90d9' },
-  science:      { label: 'Science',       color: '#50c878' },
-  world:        { label: 'World',         color: '#e05c5c' },
-  business:     { label: 'Business',      color: '#e8a020' },
-  health:       { label: 'Health',        color: '#ff8c42' },
-  environment:  { label: 'Environment',   color: '#4caf78' },
-  sports:       { label: 'Sports',        color: '#42a5c7' },
-  entertainment:{ label: 'Entertainment', color: '#b57bee' },
-  general:      { label: 'General',       color: '#888888' },
-};
-
-const ALL_TOPICS = Object.keys(TOPIC_META) as Topic[];
+export { TOPIC_META };
 
 interface Props {
   prefs: UserPrefs;
-  activeFilter: Topic | null;
-  onFilter: (topic: Topic | null) => void;
+  userLabels: UserLabel[];
+  activeFilter: ActiveFilter;
+  onFilter: (f: ActiveFilter) => void;
 }
 
-export function TopicFilter({ prefs, activeFilter, onFilter }: Props) {
-  return (
-    <div className="topic-filter" role="toolbar" aria-label="Filter by topic">
+export function TopicFilter({ prefs, userLabels, activeFilter, onFilter }: Props) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const { showMoreButton } = buildFilterState(userLabels);
+
+  function handleTopicClick(topic: Topic) {
+    const next: ActiveFilter =
+      activeFilter?.kind === 'topic' && activeFilter.value === topic
+        ? null
+        : { kind: 'topic', value: topic };
+    onFilter(next);
+  }
+
+  function handleLabelClick(labelId: string) {
+    const next: ActiveFilter =
+      activeFilter?.kind === 'label' && activeFilter.value === labelId
+        ? null
+        : { kind: 'label', value: labelId };
+    onFilter(next);
+  }
+
+  const topicPills = SHOWN_TOPICS.map(topic => {
+    const meta = TOPIC_META[topic];
+    const w = prefs.topicWeights[topic] ?? 1.0;
+    const boosted = w > 1.2;
+    const isActive = activeFilter?.kind === 'topic' && activeFilter.value === topic;
+    return (
       <button
-        className={`topic-pill ${activeFilter === null ? 'active' : ''}`}
-        onClick={() => onFilter(null)}
+        key={topic}
+        className={`topic-pill ${isActive ? 'active' : ''}`}
+        style={isActive ? { '--pill-color': meta.color } as React.CSSProperties : undefined}
+        onClick={() => handleTopicClick(topic)}
       >
-        All
+        {boosted && <span className="pill-dot" style={{ background: meta.color }} />}
+        {meta.label}
       </button>
-      {ALL_TOPICS.filter(t => t !== 'general').map(topic => {
-        const meta = TOPIC_META[topic];
-        const w = prefs.topicWeights[topic] ?? 1.0;
-        const boosted = w > 1.2;
-        return (
+    );
+  });
+
+  return (
+    <div className="topic-filter-wrap">
+      <div className="topic-filter" role="toolbar" aria-label="Filter by topic">
+        <button
+          className={`topic-pill ${activeFilter === null ? 'active' : ''}`}
+          onClick={() => onFilter(null)}
+        >
+          All
+        </button>
+
+        {userLabels.map(lbl => {
+          const isActive = activeFilter?.kind === 'label' && activeFilter.value === lbl.id;
+          return (
+            <button
+              key={lbl.id}
+              className={`topic-pill ${isActive ? 'active' : ''}`}
+              style={isActive ? { '--pill-color': lbl.color } as React.CSSProperties : undefined}
+              onClick={() => handleLabelClick(lbl.id)}
+            >
+              {lbl.name}
+            </button>
+          );
+        })}
+
+        {showMoreButton ? (
           <button
-            key={topic}
-            className={`topic-pill ${activeFilter === topic ? 'active' : ''}`}
-            style={activeFilter === topic ? { '--pill-color': meta.color } as React.CSSProperties : undefined}
-            onClick={() => onFilter(activeFilter === topic ? null : topic)}
+            className={`topic-pill topic-pill-more${moreOpen ? ' active' : ''}`}
+            onClick={() => setMoreOpen(o => !o)}
+            aria-expanded={moreOpen}
           >
-            {boosted && <span className="pill-dot" style={{ background: meta.color }} />}
-            {meta.label}
+            Topics {moreOpen ? '▲' : '▼'}
           </button>
-        );
-      })}
+        ) : (
+          topicPills
+        )}
+      </div>
+
+      {showMoreButton && moreOpen && (
+        <div className="topic-overflow-panel" role="toolbar" aria-label="Filter by built-in topic">
+          {topicPills}
+        </div>
+      )}
     </div>
   );
 }
