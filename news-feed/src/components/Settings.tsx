@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import QRCode from 'qrcode';
 import { DEFAULT_SOURCES } from '../services/newsService';
 import { isSourceEnabled, isTopicEnabled } from '../services/storage';
 import { isPromptApiAvailable } from '../services/labelClassifier';
@@ -25,13 +26,14 @@ interface Props {
   onAddLabel: (label: UserLabel) => void;
   onDeleteLabel: (labelId: string) => void;
   onSuggestLabels: (articles: Article[]) => Promise<string[]>;
+  labelsShareUrl: string;
 }
 
 export function Settings({
   prefs, onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onClose,
   onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
   onExportBookmarks, onImportBookmarks,
-  onAddLabel, onDeleteLabel, onSuggestLabels,
+  onAddLabel, onDeleteLabel, onSuggestLabels, labelsShareUrl,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
@@ -51,6 +53,10 @@ export function Settings({
   const [newLabelColor, setNewLabelColor] = useState('#6c63ff');
   const [suggestions, setSuggestions]     = useState<string[]>([]);
   const [suggesting, setSuggesting]       = useState(false);
+
+  // Sync QR code
+  const [qrDataUrl, setQrDataUrl]   = useState('');
+  const [copied, setCopied]         = useState(false);
 
   useEffect(() => {
     previousFocusRef.current = document.activeElement;
@@ -88,6 +94,24 @@ export function Settings({
     setNewName('');
     setNewUrl('');
   };
+
+  useEffect(() => {
+    if (!labelsShareUrl) { setQrDataUrl(''); return; }
+    QRCode.toDataURL(labelsShareUrl, { width: 200, margin: 2 })
+      .then(setQrDataUrl)
+      .catch(() => setQrDataUrl(''));
+  }, [labelsShareUrl]);
+
+  const handleCopyShareUrl = useCallback(async () => {
+    if (!labelsShareUrl) return;
+    try {
+      await navigator.clipboard.writeText(labelsShareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback: select the text
+    }
+  }, [labelsShareUrl]);
 
   const handleAddLabel = (e: React.FormEvent) => {
     e.preventDefault();
@@ -401,6 +425,37 @@ export function Settings({
                 </div>
               )}
             </>
+          )}
+        </section>
+
+        {/* ── Sync across devices ──────────────────────────────────────── */}
+        <section className="settings-section">
+          <h3>Sync across devices</h3>
+          {labelsShareUrl ? (
+            <>
+              <p className="settings-hint">
+                Share your labels with another device. Open the link on the other device — labels will import automatically.
+              </p>
+              {qrDataUrl && (
+                <div className="sync-qr-wrap">
+                  <img src={qrDataUrl} alt="QR code for label sync" className="sync-qr" />
+                </div>
+              )}
+              <div className="sync-url-row">
+                <input
+                  type="text"
+                  className="custom-source-input sync-url-input"
+                  readOnly
+                  value={labelsShareUrl}
+                  onFocus={e => (e.target as HTMLInputElement).select()}
+                />
+                <button type="button" className="btn-add-source" onClick={handleCopyShareUrl}>
+                  {copied ? 'Copied!' : 'Copy link'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="settings-hint">Add at least one label to generate a sync link.</p>
           )}
         </section>
 

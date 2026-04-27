@@ -31,7 +31,7 @@ export default function App() {
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
-    labelHits, onAddLabel, onDeleteLabel,
+    labelHits, onAddLabel, onDeleteLabel, labelsShareUrl,
   } = useFeed();
 
   const [view, setView] = useState<FeedView>('feed');
@@ -310,6 +310,7 @@ export default function App() {
           onAddLabel={onAddLabel}
           onDeleteLabel={onDeleteLabel}
           onSuggestLabels={(articles) => suggestLabels(prefs, articles.length ? articles : visibleArticles)}
+          labelsShareUrl={labelsShareUrl}
         />
       )}
     </>

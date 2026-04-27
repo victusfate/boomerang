@@ -79,6 +79,29 @@ export function useFeed() {
   const labelHitsRef = useRef<LabelHit[]>([]);
   labelHitsRef.current = labelHits;
 
+  // ── URL hash label import ─────────────────────────────────────────────────────
+  // Runs once on mount — reads #labels=<base64> and merges into prefs silently.
+  const urlImportDone = useRef(false);
+  const processUrlHashLabels = useCallback((prefs: UserPrefs) => {
+    if (urlImportDone.current || typeof location === 'undefined') return prefs;
+    urlImportDone.current = true;
+    const hash = location.hash;
+    if (!hash.startsWith('#labels=')) return prefs;
+    try {
+      const encoded = hash.slice('#labels='.length);
+      const json = atob(encoded.replace(/-/g, '+').replace(/_/g, '/'));
+      const imported = JSON.parse(json) as UserLabel[];
+      if (!Array.isArray(imported)) return prefs;
+      const existing = new Set(prefs.userLabels.map(l => l.id));
+      const newLabels = imported.filter(l => !existing.has(l.id) && l.id && l.name && l.color);
+      if (newLabels.length === 0) return prefs;
+      history.replaceState(null, '', location.pathname + location.search);
+      return { ...prefs, userLabels: [...prefs.userLabels, ...newLabels] };
+    } catch {
+      return prefs;
+    }
+  }, []);
+
   // ── Persist prefs ────────────────────────────────────────────────────────────
   const updatePrefs = useCallback((next: UserPrefs) => {
     setPrefsState(next);
@@ -127,9 +150,10 @@ export function useFeed() {
             enabledSources: [],
           };
         }
-        const decayed = applyDecay(merged);
+        const withUrlLabels = processUrlHashLabels(merged);
+        const decayed = applyDecay(withUrlLabels);
         setPrefsState(decayed);
-        if (decayed !== merged) {
+        if (decayed !== withUrlLabels || withUrlLabels !== merged) {
           database.put({ _id: PREFS_ID, ...decayed } as PrefsDoc).catch(console.error);
         }
         return decayed;
@@ -496,6 +520,13 @@ export function useFeed() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefsReady]); // one-shot: only runs once when prefs become ready
 
+  function buildLabelsShareUrl(labels: UserLabel[]): string {
+    if (labels.length === 0 || typeof location === 'undefined') return '';
+    const json = JSON.stringify(labels);
+    const b64 = btoa(json).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    return `${location.origin}${location.pathname}#labels=${b64}`;
+  }
+
   const savedIds  = new Set(prefs.savedIds);
   const poolIds   = new Set(articlePool.map(a => a.id));
   const savedArticles = [
@@ -536,6 +567,7 @@ export function useFeed() {
     onAddLabel:    handleAddLabel,
     onDeleteLabel: handleDeleteLabel,
     onRenameLabel: handleRenameLabel,
+    labelsShareUrl: buildLabelsShareUrl(prefs.userLabels ?? []),
     feedEnterIds,
   };
 }

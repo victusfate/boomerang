@@ -8,4 +8,4 @@
 | 4 | done | Classification pass wired into feed load |
 | 5 | done | Label badge on article card |
 | 6 | done | Label suggestion service |
-| 7 | pending | Fireproof cloud sync + QR link flow |
+| 7 | done | URL-based label share + QR code (labels encoded in URL hash) |

@@ -1119,3 +1119,27 @@ html, body {
   transition: color 0.15s;
 }
 .btn-dismiss-suggestion:hover { color: #f07178; }
+
+/* ── Sync QR ───────────────────────────────────────────────────────────────── */
+.sync-qr-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 12px 0;
+}
+.sync-qr {
+  border-radius: 8px;
+  border: 4px solid #fff;
+  width: 180px;
+  height: 180px;
+}
+.sync-url-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.sync-url-input {
+  flex: 1;
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
