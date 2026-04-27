@@ -189,6 +189,24 @@ html, body {
   border-bottom: 1px solid var(--border);
 }
 
+.label-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.label-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  letter-spacing: 0.02em;
+}
+
 /* ── Feed ────────────────────────────────────────────────────── */
 .feed {
   flex: 1;

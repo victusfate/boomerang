@@ -123,6 +123,19 @@ export default function App() {
     }
   }, [totalLoaded, hasMore, view, onLoadMore]);
 
+  const articleLabelsMap = useMemo(() => {
+    const labelById = new Map((prefs.userLabels ?? []).map(l => [l.id, l.name]));
+    const map = new Map<string, string[]>();
+    for (const hit of labelHits) {
+      const name = labelById.get(hit.labelId);
+      if (!name) continue;
+      const names = map.get(hit.articleId) ?? [];
+      names.push(name);
+      map.set(hit.articleId, names);
+    }
+    return map;
+  }, [labelHits, prefs.userLabels]);
+
   const filteredArticles = useMemo(() => {
     let list = view === 'saved' ? savedArticles : visibleArticles;
     if (activeFilter?.kind === 'topic') list = list.filter(a => a.topics.includes(activeFilter.value));
@@ -245,6 +258,7 @@ export default function App() {
             prefs={prefs}
             animateEnter={feedEnterIds.includes(article.id)}
             priority={index === 0}
+            articleLabelNames={articleLabelsMap.get(article.id) ?? []}
             onOpen={onOpen}
             onSave={onSave}
             onUpvote={onUpvote}
