@@ -26,14 +26,14 @@ interface Props {
   onAddLabel: (label: UserLabel) => void;
   onDeleteLabel: (labelId: string) => void;
   onSuggestLabels: (articles: Article[]) => Promise<string[]>;
-  labelsShareUrl: string;
+  syncShareUrl: string;
 }
 
 export function Settings({
   prefs, onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onClose,
   onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
   onExportBookmarks, onImportBookmarks,
-  onAddLabel, onDeleteLabel, onSuggestLabels, labelsShareUrl,
+  onAddLabel, onDeleteLabel, onSuggestLabels, syncShareUrl,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
@@ -96,22 +96,22 @@ export function Settings({
   };
 
   useEffect(() => {
-    if (!labelsShareUrl) { setQrDataUrl(''); return; }
-    QRCode.toDataURL(labelsShareUrl, { width: 200, margin: 2 })
+    if (!syncShareUrl) { setQrDataUrl(''); return; }
+    QRCode.toDataURL(syncShareUrl, { width: 200, margin: 2 })
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(''));
-  }, [labelsShareUrl]);
+  }, [syncShareUrl]);
 
   const handleCopyShareUrl = useCallback(async () => {
-    if (!labelsShareUrl) return;
+    if (!syncShareUrl) return;
     try {
-      await navigator.clipboard.writeText(labelsShareUrl);
+      await navigator.clipboard.writeText(syncShareUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // fallback: select the text
     }
-  }, [labelsShareUrl]);
+  }, [syncShareUrl]);
 
   const handleAddLabel = (e: React.FormEvent) => {
     e.preventDefault();
@@ -431,32 +431,26 @@ export function Settings({
         {/* ── Sync across devices ──────────────────────────────────────── */}
         <section className="settings-section">
           <h3>Sync across devices</h3>
-          {labelsShareUrl ? (
-            <>
-              <p className="settings-hint">
-                Share your labels with another device. Open the link on the other device — labels will import automatically.
-              </p>
-              {qrDataUrl && (
-                <div className="sync-qr-wrap">
-                  <img src={qrDataUrl} alt="QR code for label sync" className="sync-qr" />
-                </div>
-              )}
-              <div className="sync-url-row">
-                <input
-                  type="text"
-                  className="custom-source-input sync-url-input"
-                  readOnly
-                  value={labelsShareUrl}
-                  onFocus={e => (e.target as HTMLInputElement).select()}
-                />
-                <button type="button" className="btn-add-source" onClick={handleCopyShareUrl}>
-                  {copied ? 'Copied!' : 'Copy link'}
-                </button>
-              </div>
-            </>
-          ) : (
-            <p className="settings-hint">Add at least one label to generate a sync link.</p>
+          <p className="settings-hint">
+            One-way sync link: open it on another device to merge preferences, saves, labels, and AI tags into that device.
+          </p>
+          {qrDataUrl && (
+            <div className="sync-qr-wrap">
+              <img src={qrDataUrl} alt="QR code for device sync" className="sync-qr" />
+            </div>
           )}
+          <div className="sync-url-row">
+            <input
+              type="text"
+              className="custom-source-input sync-url-input"
+              readOnly
+              value={syncShareUrl}
+              onFocus={e => (e.target as HTMLInputElement).select()}
+            />
+            <button type="button" className="btn-add-source" onClick={handleCopyShareUrl}>
+              {copied ? 'Copied!' : 'Copy link'}
+            </button>
+          </div>
         </section>
 
         {/* ── Preferences ────────────────────────────────────────────── */}

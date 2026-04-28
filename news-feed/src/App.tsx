@@ -32,7 +32,7 @@ export default function App() {
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
-    articleTagsMap, classificationStatus, aiTaggingStarted, onStartAiTagging, onAddLabel, onDeleteLabel, labelsShareUrl,
+    articleTagsMap, classificationStatus, aiTaggingStarted, onStartAiTagging, onAddLabel, onDeleteLabel, syncShareUrl,
   } = useFeed();
 
   const [view, setView] = useState<FeedView>('feed');
@@ -317,7 +317,7 @@ export default function App() {
           onAddLabel={onAddLabel}
           onDeleteLabel={onDeleteLabel}
           onSuggestLabels={(articles) => suggestLabels(prefs, articles.length ? articles : visibleArticles)}
-          labelsShareUrl={labelsShareUrl}
+          syncShareUrl={syncShareUrl}
         />
       )}
     </>

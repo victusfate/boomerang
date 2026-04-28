@@ -27,12 +27,119 @@ interface ImportedSavesDoc    { _id: string; articles: StoredArticle[] }
 interface ClassificationsDoc  { _id: string; hits: LabelHit[] }
 interface ArticleTagsDoc      { _id: string; hits: ArticleTag[] }
 type PrefsDoc = UserPrefs & { _id: string };
+interface SyncPayloadV1 {
+  v: 1;
+  prefs: UserPrefs;
+  savedArticles: StoredArticle[];
+  articleTags: ArticleTag[];
+  labelHits: LabelHit[];
+}
 
 function hydrate(stored: StoredArticle[]): Article[] {
   return stored.map(a => ({ ...a, publishedAt: new Date(a.publishedAt) }));
 }
 function dehydrate(articles: Article[]): StoredArticle[] {
   return articles.map(a => ({ ...a, publishedAt: a.publishedAt.toISOString() }));
+}
+
+function toBase64Url(json: string): string {
+  const bytes = new TextEncoder().encode(json);
+  let binary = '';
+  bytes.forEach(b => { binary += String.fromCharCode(b); });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function fromBase64Url(encoded: string): string {
+  const b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = b64.padEnd(Math.ceil(b64.length / 4) * 4, '=');
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function uniqueStrings(...groups: (string[] | undefined)[]): string[] {
+  return [...new Set(groups.flatMap(g => g ?? []))];
+}
+
+function mergeById<T extends { id: string }>(left: T[], right: T[]): T[] {
+  return Array.from(new Map([...left, ...right].map(item => [item.id, item])).values());
+}
+
+function mergePrefs(left: UserPrefs, right: Partial<UserPrefs>): UserPrefs {
+  return {
+    ...left,
+    topicWeights:   { ...left.topicWeights, ...(right.topicWeights ?? {}) },
+    sourceWeights:  { ...left.sourceWeights, ...(right.sourceWeights ?? {}) },
+    keywordWeights: { ...left.keywordWeights, ...(right.keywordWeights ?? {}) },
+    readIds:        uniqueStrings(left.readIds, right.readIds),
+    savedIds:       uniqueStrings(left.savedIds, right.savedIds),
+    seenIds:        uniqueStrings(left.seenIds, right.seenIds),
+    upvotedIds:     uniqueStrings(left.upvotedIds, right.upvotedIds),
+    downvotedIds:   uniqueStrings(left.downvotedIds, right.downvotedIds),
+    lastDecayAt:    Math.max(left.lastDecayAt, right.lastDecayAt ?? 0),
+    enabledSources: uniqueStrings(left.enabledSources, right.enabledSources),
+    disabledSourceIds: uniqueStrings(left.disabledSourceIds, right.disabledSourceIds),
+    enabledTopics:
+      left.enabledTopics.length === 0 || (right.enabledTopics?.length ?? 0) === 0
+        ? []
+        : uniqueStrings(left.enabledTopics, right.enabledTopics) as Topic[],
+    customSources: mergeById(left.customSources, right.customSources ?? []),
+    userLabels: mergeById(left.userLabels, right.userLabels ?? []),
+  };
+}
+
+function mergeArticlesById(left: Article[], right: Article[]): Article[] {
+  return Array.from(new Map([...left, ...right].map(a => [a.id, a])).values());
+}
+
+function mergeArticleTags(left: ArticleTag[], right: ArticleTag[]): ArticleTag[] {
+  const byId = new Map(left.map(t => [t.articleId, t]));
+  for (const tag of right) {
+    const prev = byId.get(tag.articleId);
+    if (!prev || tag.taggedAt >= prev.taggedAt) byId.set(tag.articleId, tag);
+  }
+  return Array.from(byId.values());
+}
+
+function mergeLabelHits(left: LabelHit[], right: LabelHit[]): LabelHit[] {
+  const byKey = new Map(left.map(h => [`${h.labelId}:${h.articleId}`, h]));
+  for (const hit of right) {
+    const key = `${hit.labelId}:${hit.articleId}`;
+    const prev = byKey.get(key);
+    if (!prev || hit.classifiedAt >= prev.classifiedAt) byKey.set(key, hit);
+  }
+  return Array.from(byKey.values());
+}
+
+function parseSyncHash(): Partial<SyncPayloadV1> | null {
+  if (typeof location === 'undefined') return null;
+  const hash = location.hash;
+  try {
+    if (hash.startsWith('#sync=')) {
+      const parsed = JSON.parse(fromBase64Url(hash.slice('#sync='.length))) as Partial<SyncPayloadV1>;
+      return parsed?.v === 1 ? parsed : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function buildSyncShareUrl(
+  prefs: UserPrefs,
+  savedArticles: Article[],
+  articleTags: ArticleTag[],
+  labelHits: LabelHit[],
+): string {
+  if (typeof location === 'undefined') return '';
+  const payload: SyncPayloadV1 = {
+    v: 1,
+    prefs,
+    savedArticles: dehydrate(savedArticles),
+    articleTags,
+    labelHits,
+  };
+  return `${location.origin}${location.pathname}#sync=${toBase64Url(JSON.stringify(payload))}`;
 }
 
 
@@ -89,27 +196,15 @@ export function useFeed() {
   const [aiTaggingStarted, setAiTaggingStarted] = useState(false);
   const aiModelPollTimerRef = useRef<number | null>(null);
 
-  // ── URL hash label import ─────────────────────────────────────────────────────
-  // Runs once on mount — reads #labels=<base64> and merges into prefs silently.
+  // ── URL hash sync import ──────────────────────────────────────────────────────
+  // Runs once on mount — reads #sync=<base64> and merges into Fireproof docs silently.
   const urlImportDone = useRef(false);
-  const processUrlHashLabels = useCallback((prefs: UserPrefs) => {
-    if (urlImportDone.current || typeof location === 'undefined') return prefs;
+  const consumeSyncHash = useCallback(() => {
+    if (urlImportDone.current || typeof location === 'undefined') return null;
     urlImportDone.current = true;
-    const hash = location.hash;
-    if (!hash.startsWith('#labels=')) return prefs;
-    try {
-      const encoded = hash.slice('#labels='.length);
-      const json = atob(encoded.replace(/-/g, '+').replace(/_/g, '/'));
-      const imported = JSON.parse(json) as UserLabel[];
-      if (!Array.isArray(imported)) return prefs;
-      const existing = new Set(prefs.userLabels.map(l => l.id));
-      const newLabels = imported.filter(l => !existing.has(l.id) && l.id && l.name && l.color);
-      if (newLabels.length === 0) return prefs;
-      history.replaceState(null, '', location.pathname + location.search);
-      return { ...prefs, userLabels: [...prefs.userLabels, ...newLabels] };
-    } catch {
-      return prefs;
-    }
+    const payload = parseSyncHash();
+    if (payload) history.replaceState(null, '', location.pathname + location.search);
+    return payload;
   }, []);
 
   // ── Persist prefs ────────────────────────────────────────────────────────────
@@ -274,10 +369,9 @@ export function useFeed() {
             enabledSources: [],
           };
         }
-        const withUrlLabels = processUrlHashLabels(merged);
-        const decayed = applyDecay(withUrlLabels);
+        const decayed = applyDecay(merged);
         setPrefsState(decayed);
-        if (decayed !== withUrlLabels || withUrlLabels !== merged) {
+        if (decayed !== merged) {
           database.put({ _id: PREFS_ID, ...decayed } as PrefsDoc).catch(console.error);
         }
         return decayed;
@@ -303,17 +397,39 @@ export function useFeed() {
       .catch(() => [] as ArticleTag[]);
 
     Promise.all([prefsPromise, cachePromise, importedSavesPromise, classificationsPromise, articleTagsPromise]).then(([loadedPrefs, cached, imported, hits, tags]) => {
-      if (imported.length) {
-        importedSavesRef.current = imported;
-        setImportedSaves(imported);
+      const syncPayload = consumeSyncHash();
+      const syncedPrefs = syncPayload?.prefs
+        ? mergePrefs(loadedPrefs, syncPayload.prefs)
+        : loadedPrefs;
+      const syncedImported = syncPayload?.savedArticles?.length
+        ? mergeArticlesById(imported, hydrate(syncPayload.savedArticles))
+        : imported;
+      const syncedHits = syncPayload?.labelHits?.length
+        ? mergeLabelHits(hits, syncPayload.labelHits)
+        : hits;
+      const syncedTags = syncPayload?.articleTags?.length
+        ? mergeArticleTags(tags, syncPayload.articleTags)
+        : tags;
+
+      if (syncPayload) {
+        database.put({ _id: PREFS_ID, ...syncedPrefs } as PrefsDoc).catch(console.error);
+        database.put({ _id: IMPORTED_SAVES_ID, articles: dehydrate(syncedImported) } as ImportedSavesDoc).catch(console.error);
+        database.put({ _id: CLASSIFICATIONS_ID, hits: syncedHits } as ClassificationsDoc).catch(console.error);
+        database.put({ _id: ARTICLE_TAGS_ID, hits: syncedTags } as ArticleTagsDoc).catch(console.error);
       }
-      if (hits.length) {
-        labelHitsRef.current = hits;
-        setLabelHits(hits);
+
+      setPrefsState(syncedPrefs);
+      if (syncedImported.length) {
+        importedSavesRef.current = syncedImported;
+        setImportedSaves(syncedImported);
       }
-      if (tags.length) {
-        articleTagsRef.current = tags;
-        setArticleTags(tags);
+      if (syncedHits.length) {
+        labelHitsRef.current = syncedHits;
+        setLabelHits(syncedHits);
+      }
+      if (syncedTags.length) {
+        articleTagsRef.current = syncedTags;
+        setArticleTags(syncedTags);
       }
       setPrefsReady(true);
 
@@ -321,7 +437,7 @@ export function useFeed() {
         articlePoolRef.current = cached.articles;
         setArticlePool(cached.articles);
 
-        const ranked = rankFeed(cached.articles, loadedPrefs);
+        const ranked = rankFeed(cached.articles, syncedPrefs);
         allArticlesRef.current = ranked;
         setAllArticles(ranked);
         if (ranked.length) setLoading(false);
@@ -658,13 +774,6 @@ export function useFeed() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefsReady]); // one-shot: only runs once when prefs become ready
 
-  function buildLabelsShareUrl(labels: UserLabel[]): string {
-    if (labels.length === 0 || typeof location === 'undefined') return '';
-    const json = JSON.stringify(labels);
-    const b64 = btoa(json).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-    return `${location.origin}${location.pathname}#labels=${b64}`;
-  }
-
   const savedIds  = new Set(prefs.savedIds);
   const poolIds   = new Set(articlePool.map(a => a.id));
   const savedArticles = [
@@ -712,7 +821,7 @@ export function useFeed() {
     onAddLabel:    handleAddLabel,
     onDeleteLabel: handleDeleteLabel,
     onRenameLabel: handleRenameLabel,
-    labelsShareUrl: buildLabelsShareUrl(prefs.userLabels ?? []),
+    syncShareUrl: buildSyncShareUrl(prefs, savedArticles, articleTags, labelHits),
     feedEnterIds,
   };
 }
