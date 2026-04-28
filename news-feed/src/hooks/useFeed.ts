@@ -223,6 +223,12 @@ export function useFeed() {
 
         // Mark cache as valid so we skip the auto-fetch on startup
         setLastRefresh(new Date(cached.fetchedAt));
+
+        // Without this, `refresh()` never runs on cold start when cache exists — AI tagging
+        // (and the status bar) only appeared after a manual refresh. Re-run the same pass as post-fetch.
+        queueMicrotask(() => {
+          schedulePassRef.current(cached.articles);
+        });
       }
     });
   }, [database]); // eslint-disable-line react-hooks/exhaustive-deps
