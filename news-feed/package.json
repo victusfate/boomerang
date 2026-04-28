@@ -7,7 +7,7 @@
     "icons": "node scripts/generate-icons.mjs",
     "prebuild": "node scripts/generate-icons.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types src/services/feedPartition.node.test.ts",
+    "test": "node --test --experimental-strip-types src/services/feedPartition.node.test.ts src/services/labelClassifier.node.test.ts src/services/storage.node.test.ts src/services/labelSuggester.node.test.ts src/components/TopicFilter.node.test.ts",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "build:gh-pages": "node scripts/generate-icons.mjs && npm run typecheck && cross-env GITHUB_PAGES=true vite build",
@@ -28,7 +28,7 @@
     "sharp": "^0.33.5",
     "typescript": "^5.6.3",
     "vite": "8.0.8",
-    "vite-plugin-pwa": "^0.19.8",
+    "vite-plugin-pwa": "^1.2.0",
     "workbox-window": "^7.4.0"
   },
   "overrides": {

@@ -11,7 +11,7 @@ import {
   exportBookmarkHTML, importBookmarkHTML,
   addUserLabel, deleteUserLabel, renameUserLabel,
 } from '../services/storage';
-import { isPromptApiAvailable, runTaggingPass } from '../services/labelClassifier';
+import { getPromptApiAvailability, isPromptApiAvailable, runTaggingPass } from '../services/labelClassifier';
 import type { Article, ArticleTag, CustomSource, LabelHit, Topic, UserLabel, UserPrefs } from '../types';
 
 const PAGE_SIZE          = 5;
@@ -86,6 +86,8 @@ export function useFeed() {
   articleTagsRef.current = articleTags;
 
   const [classificationStatus, setClassificationStatus] = useState('');
+  const [aiTaggingStarted, setAiTaggingStarted] = useState(false);
+  const aiModelPollTimerRef = useRef<number | null>(null);
 
   // ── URL hash label import ─────────────────────────────────────────────────────
   // Runs once on mount — reads #labels=<base64> and merges into prefs silently.
@@ -116,9 +118,42 @@ export function useFeed() {
     database.put({ _id: PREFS_ID, ...next } as PrefsDoc).catch(console.error);
   }, [database]);
 
+  const stopAiModelPolling = useCallback(() => {
+    if (aiModelPollTimerRef.current) {
+      window.clearInterval(aiModelPollTimerRef.current);
+      aiModelPollTimerRef.current = null;
+    }
+  }, []);
+
+  const startAiModelPolling = useCallback(() => {
+    if (aiModelPollTimerRef.current) return;
+    const poll = async () => {
+      const availability = await getPromptApiAvailability();
+      if (availability === 'available') {
+        stopAiModelPolling();
+        setClassificationStatus('Chrome AI model ready — starting tagging…');
+        if (articlePoolRef.current.length > 0) {
+          schedulePassRef.current(articlePoolRef.current);
+        }
+      } else if (availability === 'downloading') {
+        setClassificationStatus('Chrome AI model downloading…');
+      } else if (availability === 'downloadable') {
+        setClassificationStatus('Chrome AI model needs download — use Chrome AI setup');
+      } else if (availability === 'unavailable') {
+        stopAiModelPolling();
+        setClassificationStatus('Chrome AI unavailable (unavailable) — check browser/model support');
+      }
+    };
+    void poll();
+    aiModelPollTimerRef.current = window.setInterval(() => { void poll(); }, 5000);
+  }, [stopAiModelPolling]);
+
   // ── Tagging pass (Chrome 138+ Prompt API, no-op elsewhere) ──────────────────
   const scheduleTaggingPass = useCallback((articles: Article[]) => {
-    if (!isPromptApiAvailable()) return;
+    if (!isPromptApiAvailable()) {
+      console.info('[AI Tags] schedule skipped — LanguageModel not available');
+      return;
+    }
     const schedule: (cb: () => void) => void =
       typeof requestIdleCallback !== 'undefined'
         ? (cb) => requestIdleCallback(() => cb(), { timeout: 5000 })
@@ -126,34 +161,104 @@ export function useFeed() {
 
     schedule(() => {
       void (async () => {
+        const idleT0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        console.info('[AI Tags] idle run start', { inputArticles: articles.length });
+
         const existing = articleTagsRef.current;
         const toTag = articles.filter(a => !existing.some(t => t.articleId === a.id));
-        if (toTag.length === 0) { setClassificationStatus(''); return; }
-        console.log(`[AI Tags] tagging ${toTag.length} new articles…`);
-        setClassificationStatus(`Tagging ${toTag.length} articles…`);
-        let done = 0;
-        await runTaggingPass(articles, existing, (tag) => {
-          done++;
-          console.log(`[AI Tags] ${tag.articleId}: [${tag.tags.join(', ')}] (${done}/${toTag.length})`);
-          // Urgent: status line; deferred: big growing tag list + Fireproof write (so 1,2,3… can paint).
-          setClassificationStatus(`Tagging articles… ${done}/${toTag.length}`);
-          startTransition(() => {
-            setArticleTags(prev => {
-              const updated = [...prev, tag];
-              articleTagsRef.current = updated;
-              database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc)
-                .catch(console.error);
-              return updated;
-            });
+        if (toTag.length === 0) {
+          console.info('[AI Tags] skip — nothing new to tag', {
+            inputArticles: articles.length,
+            storedTagRows: existing.length,
           });
+          setClassificationStatus('');
+          return;
+        }
+        setClassificationStatus(`Preparing on-device model… (${toTag.length} articles)`);
+        let done = 0;
+        try {
+          await runTaggingPass(articles, existing, (tag) => {
+            done++;
+            // Per-article logs + timings live in labelClassifier.runTaggingPass
+            setClassificationStatus(`Tagging articles… ${done}/${toTag.length}`);
+            startTransition(() => {
+              setArticleTags(prev => {
+                const updated = [...prev, tag];
+                articleTagsRef.current = updated;
+                database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc)
+                  .catch(console.error);
+                return updated;
+              });
+            });
+          }, {
+            onModelStatus: (status) => {
+              const copy = {
+                checking: 'Checking Chrome AI model…',
+                available: 'Starting Chrome AI model…',
+                'starting-download': 'Starting Chrome AI model download…',
+                downloadable: 'Chrome AI model needs download — use Chrome AI setup',
+                downloading: 'Chrome AI model downloading…',
+              } satisfies Record<typeof status, string>;
+              setClassificationStatus(copy[status]);
+              if (status === 'downloadable' || status === 'downloading' || status === 'starting-download') {
+                startAiModelPolling();
+              }
+            },
+            onModelDownloadProgress: (loaded) => {
+              setClassificationStatus(`Chrome AI model downloading… ${Math.round(loaded * 100)}%`);
+            },
+            onSessionReady: () => {
+              setAiTaggingStarted(true);
+              setClassificationStatus(`Tagging articles… 0/${toTag.length}`);
+            },
+            onArticleStart: (i, total) => {
+              setClassificationStatus(`Tagging article ${i}/${total}…`);
+            },
+            onUnavailable: (availability, reason) => {
+              setClassificationStatus(
+                reason === 'mobile-user-agent'
+                  ? 'Chrome AI unavailable — disable mobile emulation'
+                  : `Chrome AI unavailable (${availability ?? 'unknown'}) — check browser/model support`,
+              );
+            },
+          });
+        } catch (e) {
+          console.error('[AI Tags] pass threw', e);
+          const msg = e instanceof Error ? e.message : String(e);
+          if (
+            msg.includes('service is not running')
+            || (typeof DOMException !== 'undefined' && e instanceof DOMException && e.name === 'NotAllowedError')
+          ) {
+            console.info(
+              '[AI Tags] On-device AI may be stopped or still downloading. Check chrome://on-device-internals, flags in https://developer.chrome.com/docs/ai/get-started — first create() may need a recent user gesture.',
+            );
+          }
+          setClassificationStatus('');
+          return;
+        }
+        const idleMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - idleT0);
+        console.info('[AI Tags] idle run finished', {
+          tagged: done,
+          expected: toTag.length,
+          wallMsFromIdleStart: idleMs,
         });
-        setClassificationStatus(`Tagged — ${done} articles processed`);
+        if (done > 0) {
+          setClassificationStatus(`Tagged — ${done} articles processed`);
+        }
       })();
     });
-  }, [database]);
+  }, [database, startAiModelPolling]);
 
   const schedulePassRef = useRef(scheduleTaggingPass);
   schedulePassRef.current = scheduleTaggingPass;
+
+  const handleStartAiTagging = useCallback(() => {
+    if (articlePoolRef.current.length === 0) {
+      setClassificationStatus('Load articles before starting Chrome AI tagging');
+      return;
+    }
+    schedulePassRef.current(articlePoolRef.current);
+  }, []);
 
   // ── Load prefs + cache from Fireproof on mount ────────────────────────────────
   useEffect(() => {
@@ -235,6 +340,7 @@ export function useFeed() {
 
   useEffect(() => () => {
     if (feedEnterClearTimerRef.current) clearTimeout(feedEnterClearTimerRef.current);
+    stopAiModelPolling();
   }, []);
 
   // ── Network refresh ───────────────────────────────────────────────────────────
@@ -601,6 +707,8 @@ export function useFeed() {
     articleTags,
     articleTagsMap,
     classificationStatus,
+    aiTaggingStarted,
+    onStartAiTagging: handleStartAiTagging,
     onAddLabel:    handleAddLabel,
     onDeleteLabel: handleDeleteLabel,
     onRenameLabel: handleRenameLabel,

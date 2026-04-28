@@ -32,13 +32,14 @@ export default function App() {
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
-    articleTagsMap, classificationStatus, onAddLabel, onDeleteLabel, labelsShareUrl,
+    articleTagsMap, classificationStatus, aiTaggingStarted, onStartAiTagging, onAddLabel, onDeleteLabel, labelsShareUrl,
   } = useFeed();
 
   const [view, setView] = useState<FeedView>('feed');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [pullProgress, setPullProgress] = useState(0); // 0–1
+  const canUseBrowserAi = isPromptApiAvailable();
 
   // Keep a stable ref so the touch handlers always call the latest onRefresh
   const onRefreshRef = useRef(onRefresh);
@@ -213,13 +214,22 @@ export default function App() {
         />
       )}
 
-      {isPromptApiAvailable() && classificationStatus && (
-        <div className="ai-status" aria-live="polite">
-          <span className="ai-status-dot" />
-          {classificationStatus}
-        </div>
-      )}
-
+      <div className="ai-status" aria-live="polite">
+        <span className={`ai-status-dot ${classificationStatus ? '' : 'idle'}`} />
+        {classificationStatus || 'Chrome AI tagging'}
+        <a
+          href="https://developer.chrome.com/docs/ai/get-started"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Chrome AI setup
+        </a>
+        {canUseBrowserAi && !aiTaggingStarted && (
+          <button type="button" onClick={onStartAiTagging}>
+            Enhance news with browser AI
+          </button>
+        )}
+      </div>
 
       {pullProgress > 0 && (
         <div className="pull-indicator">

@@ -190,6 +190,20 @@ html, body {
   background: color-mix(in srgb, var(--accent) 8%, var(--bg));
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
 }
+.ai-status a {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+}
+.ai-status button {
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+}
 .ai-status-dot {
   width: 6px;
   height: 6px;
@@ -197,6 +211,10 @@ html, body {
   background: var(--accent);
   flex-shrink: 0;
   animation: pulse 1.2s ease-in-out infinite;
+}
+.ai-status-dot.idle {
+  opacity: 0.45;
+  animation: none;
 }
 @keyframes pulse {
   0%, 100% { opacity: 1; }
