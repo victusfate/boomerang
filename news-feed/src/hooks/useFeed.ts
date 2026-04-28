@@ -12,6 +12,18 @@ import {
   addUserLabel, deleteUserLabel, renameUserLabel,
 } from '../services/storage';
 import { getPromptApiAvailability, isPromptApiAvailable, runTaggingPass } from '../services/labelClassifier';
+import {
+  buildSyncShareUrl,
+  dehydrate,
+  hydrate,
+  mergeArticleTags,
+  mergeArticlesById,
+  mergeLabelHits,
+  mergePrefs,
+  parseSyncHash,
+  SYNC_LOG,
+  type StoredArticle,
+} from '../services/syncShare';
 import type { Article, ArticleTag, CustomSource, LabelHit, Topic, UserLabel, UserPrefs } from '../types';
 
 const PAGE_SIZE          = 5;
@@ -20,127 +32,11 @@ const CACHE_ID           = 'feed-cache';
 const IMPORTED_SAVES_ID  = 'imported-saves';
 const CLASSIFICATIONS_ID = 'ai-classifications';
 const ARTICLE_TAGS_ID    = 'ai-article-tags';
-
-type StoredArticle = Omit<Article, 'publishedAt'> & { publishedAt: string };
 interface FeedCacheDoc        { _id: string; articles: StoredArticle[]; fetchedAt: number }
 interface ImportedSavesDoc    { _id: string; articles: StoredArticle[] }
 interface ClassificationsDoc  { _id: string; hits: LabelHit[] }
 interface ArticleTagsDoc      { _id: string; hits: ArticleTag[] }
 type PrefsDoc = UserPrefs & { _id: string };
-interface SyncPayloadV1 {
-  v: 1;
-  prefs: UserPrefs;
-  savedArticles: StoredArticle[];
-  articleTags: ArticleTag[];
-  labelHits: LabelHit[];
-}
-
-function hydrate(stored: StoredArticle[]): Article[] {
-  return stored.map(a => ({ ...a, publishedAt: new Date(a.publishedAt) }));
-}
-function dehydrate(articles: Article[]): StoredArticle[] {
-  return articles.map(a => ({ ...a, publishedAt: a.publishedAt.toISOString() }));
-}
-
-function toBase64Url(json: string): string {
-  const bytes = new TextEncoder().encode(json);
-  let binary = '';
-  bytes.forEach(b => { binary += String.fromCharCode(b); });
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-function fromBase64Url(encoded: string): string {
-  const b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = b64.padEnd(Math.ceil(b64.length / 4) * 4, '=');
-  const binary = atob(padded);
-  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
-function uniqueStrings(...groups: (string[] | undefined)[]): string[] {
-  return [...new Set(groups.flatMap(g => g ?? []))];
-}
-
-function mergeById<T extends { id: string }>(left: T[], right: T[]): T[] {
-  return Array.from(new Map([...left, ...right].map(item => [item.id, item])).values());
-}
-
-function mergePrefs(left: UserPrefs, right: Partial<UserPrefs>): UserPrefs {
-  return {
-    ...left,
-    topicWeights:   { ...left.topicWeights, ...(right.topicWeights ?? {}) },
-    sourceWeights:  { ...left.sourceWeights, ...(right.sourceWeights ?? {}) },
-    keywordWeights: { ...left.keywordWeights, ...(right.keywordWeights ?? {}) },
-    readIds:        uniqueStrings(left.readIds, right.readIds),
-    savedIds:       uniqueStrings(left.savedIds, right.savedIds),
-    seenIds:        uniqueStrings(left.seenIds, right.seenIds),
-    upvotedIds:     uniqueStrings(left.upvotedIds, right.upvotedIds),
-    downvotedIds:   uniqueStrings(left.downvotedIds, right.downvotedIds),
-    lastDecayAt:    Math.max(left.lastDecayAt, right.lastDecayAt ?? 0),
-    enabledSources: uniqueStrings(left.enabledSources, right.enabledSources),
-    disabledSourceIds: uniqueStrings(left.disabledSourceIds, right.disabledSourceIds),
-    enabledTopics:
-      left.enabledTopics.length === 0 || (right.enabledTopics?.length ?? 0) === 0
-        ? []
-        : uniqueStrings(left.enabledTopics, right.enabledTopics) as Topic[],
-    customSources: mergeById(left.customSources, right.customSources ?? []),
-    userLabels: mergeById(left.userLabels, right.userLabels ?? []),
-  };
-}
-
-function mergeArticlesById(left: Article[], right: Article[]): Article[] {
-  return Array.from(new Map([...left, ...right].map(a => [a.id, a])).values());
-}
-
-function mergeArticleTags(left: ArticleTag[], right: ArticleTag[]): ArticleTag[] {
-  const byId = new Map(left.map(t => [t.articleId, t]));
-  for (const tag of right) {
-    const prev = byId.get(tag.articleId);
-    if (!prev || tag.taggedAt >= prev.taggedAt) byId.set(tag.articleId, tag);
-  }
-  return Array.from(byId.values());
-}
-
-function mergeLabelHits(left: LabelHit[], right: LabelHit[]): LabelHit[] {
-  const byKey = new Map(left.map(h => [`${h.labelId}:${h.articleId}`, h]));
-  for (const hit of right) {
-    const key = `${hit.labelId}:${hit.articleId}`;
-    const prev = byKey.get(key);
-    if (!prev || hit.classifiedAt >= prev.classifiedAt) byKey.set(key, hit);
-  }
-  return Array.from(byKey.values());
-}
-
-function parseSyncHash(): Partial<SyncPayloadV1> | null {
-  if (typeof location === 'undefined') return null;
-  const hash = location.hash;
-  try {
-    if (hash.startsWith('#sync=')) {
-      const parsed = JSON.parse(fromBase64Url(hash.slice('#sync='.length))) as Partial<SyncPayloadV1>;
-      return parsed?.v === 1 ? parsed : null;
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-function buildSyncShareUrl(
-  prefs: UserPrefs,
-  savedArticles: Article[],
-  articleTags: ArticleTag[],
-  labelHits: LabelHit[],
-): string {
-  if (typeof location === 'undefined') return '';
-  const payload: SyncPayloadV1 = {
-    v: 1,
-    prefs,
-    savedArticles: dehydrate(savedArticles),
-    articleTags,
-    labelHits,
-  };
-  return `${location.origin}${location.pathname}#sync=${toBase64Url(JSON.stringify(payload))}`;
-}
 
 
 export function useFeed() {
@@ -398,6 +294,14 @@ export function useFeed() {
 
     Promise.all([prefsPromise, cachePromise, importedSavesPromise, classificationsPromise, articleTagsPromise]).then(([loadedPrefs, cached, imported, hits, tags]) => {
       const syncPayload = consumeSyncHash();
+      console.info(SYNC_LOG, 'startup local docs loaded', {
+        hasSyncPayload: Boolean(syncPayload),
+        importedSaves: imported.length,
+        labelHits: hits.length,
+        articleTags: tags.length,
+        savedIds: loadedPrefs.savedIds.length,
+        userLabels: loadedPrefs.userLabels.length,
+      });
       const syncedPrefs = syncPayload?.prefs
         ? mergePrefs(loadedPrefs, syncPayload.prefs)
         : loadedPrefs;
@@ -412,10 +316,30 @@ export function useFeed() {
         : tags;
 
       if (syncPayload) {
-        database.put({ _id: PREFS_ID, ...syncedPrefs } as PrefsDoc).catch(console.error);
-        database.put({ _id: IMPORTED_SAVES_ID, articles: dehydrate(syncedImported) } as ImportedSavesDoc).catch(console.error);
-        database.put({ _id: CLASSIFICATIONS_ID, hits: syncedHits } as ClassificationsDoc).catch(console.error);
-        database.put({ _id: ARTICLE_TAGS_ID, hits: syncedTags } as ArticleTagsDoc).catch(console.error);
+        console.info(SYNC_LOG, 'merged sync payload', {
+          importedSavesBefore: imported.length,
+          importedSavesAfter: syncedImported.length,
+          labelHitsBefore: hits.length,
+          labelHitsAfter: syncedHits.length,
+          articleTagsBefore: tags.length,
+          articleTagsAfter: syncedTags.length,
+          savedIdsBefore: loadedPrefs.savedIds.length,
+          savedIdsAfter: syncedPrefs.savedIds.length,
+          userLabelsBefore: loadedPrefs.userLabels.length,
+          userLabelsAfter: syncedPrefs.userLabels.length,
+        });
+        database.put({ _id: PREFS_ID, ...syncedPrefs } as PrefsDoc)
+          .then(() => console.info(SYNC_LOG, 'wrote user-prefs'))
+          .catch(e => console.error(SYNC_LOG, 'failed writing user-prefs', e));
+        database.put({ _id: IMPORTED_SAVES_ID, articles: dehydrate(syncedImported) } as ImportedSavesDoc)
+          .then(() => console.info(SYNC_LOG, 'wrote imported-saves', { count: syncedImported.length }))
+          .catch(e => console.error(SYNC_LOG, 'failed writing imported-saves', e));
+        database.put({ _id: CLASSIFICATIONS_ID, hits: syncedHits } as ClassificationsDoc)
+          .then(() => console.info(SYNC_LOG, 'wrote ai-classifications', { count: syncedHits.length }))
+          .catch(e => console.error(SYNC_LOG, 'failed writing ai-classifications', e));
+        database.put({ _id: ARTICLE_TAGS_ID, hits: syncedTags } as ArticleTagsDoc)
+          .then(() => console.info(SYNC_LOG, 'wrote ai-article-tags', { count: syncedTags.length }))
+          .catch(e => console.error(SYNC_LOG, 'failed writing ai-article-tags', e));
       }
 
       setPrefsState(syncedPrefs);
