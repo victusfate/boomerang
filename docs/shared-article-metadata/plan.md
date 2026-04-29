@@ -156,14 +156,20 @@ timestamp tracking.
 `news-feed/src/hooks/useMetaWorker.ts`
 
 **Behaviour:**
-- After `runTaggingPass` completes in `useFeed`, collect newly-tagged
-  `{ articleId, tags }` pairs
-- Call `submitTags(newlyTagged)` from `useMetaWorker`
-- Hook batches into max-50-article chunks, sends each as one WS message
+- `useMetaWorker` exposes a `feedTaggedArticle(articleId, tags)` function
+- `useFeed` calls `feedTaggedArticle` for each article as Chrome AI tags it
+  (streaming, not waiting for pass completion)
+- `useMetaWorker` maintains an internal pending buffer; flushes to `submitTags`
+  (one WS message) when **either** fires:
+  1. Buffer reaches 50 articles (count limit), or
+  2. 20 seconds elapse since last flush (time window)
+- Flush timer is started when the first article enters the buffer and stopped
+  (with a final flush) when `runTaggingPass` ends or the tab closes
 - No UI change — entirely background
 
-**Tests:** tagging 60 articles produces 2 WS messages (50 + 10); tags are
-normalised before send.
+**Tests:** 60 articles fed one-by-one produces 2 WS messages (50 + 10);
+20s timer fires mid-pass and flushes partial buffer; no messages sent when
+pass is idle.
 
 ---
 

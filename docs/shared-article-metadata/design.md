@@ -88,11 +88,19 @@ User's own tags (in Fireproof via sync-worker) remain the source of truth
 for personal label filters. Two sources, one merged view, no conflicts.
 
 **Q12: When does a client submit tags to the meta-worker?**
-Automatically, after Chrome AI finishes tagging a batch. Tags are
-**batched into a single `submitTags` message** containing all newly-tagged
-articles from that pass (max 50 articles per message). At 4 articles/sec a
-full 200-article tagging pass = 4 messages, well within the 20 msg/min
-connection rate limit. Silent background contribution — no user action required.
+Automatically, **while** Chrome AI is actively processing articles. Tags are
+flushed using a count-or-timer strategy: whichever fires first —
+50 articles accumulated OR 20 seconds elapsed. The flush timer is active only
+during an in-progress tagging pass; it stops when the pass ends (or the tab
+closes mid-pass). Any remaining buffered articles are flushed immediately when
+the pass completes.
+
+- Fast hardware (desktop, ~4 articles/sec): 50 articles fills in ~12.5s →
+  mostly count-triggered; at most 3 flushes/min.
+- Slow hardware (laptop, ~0.5 articles/sec): ~10 articles per 20s window →
+  timer-triggered; well under the 20 msg/min limit.
+- Tab closed mid-pass: at most 20s of tagged articles are lost — not queued or
+  retried; no user action required.
 
 **Q13: DO hibernation?**
 Uses the Cloudflare DO hibernation API. DO suspends when the last WebSocket
@@ -108,8 +116,9 @@ Three layers:
 4. KV write debounce: 5s debounce per articleId; rapid same-article submissions
    collapse into one KV write
 
-At 4 articles/sec Chrome AI throughput: a 200-article pass = 4 batch messages
-= well within the 20 msg/min limit.
+At 4 articles/sec Chrome AI throughput: 50-article count limit fires in ~12.5s,
+producing at most 3 flushes/min — well within the 20 msg/min limit. On slow
+hardware the 20s timer governs, capping at 3 msg/min regardless.
 
 A noisy client cannot generate unbounded KV writes. An article that has
 reached N=3 contributors generates zero additional writes regardless of
