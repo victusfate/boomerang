@@ -12,8 +12,8 @@ help:
 	@echo "  make run                   Same as preview-pages"
 	@echo "  make dev                   Vite dev — http://localhost:5173/  (set news-feed/.env for Worker)"
 	@echo "  make worker                Wrangler dev — http://127.0.0.1:8787"
-	@echo "  make install               npm ci in news-feed, rss-worker, and sync-worker"
-	@echo "  make test                  Run tests in all three packages"
+	@echo "  make install               npm ci in news-feed, rss-worker, sync-worker, and meta-worker"
+	@echo "  make test                  Run tests in all four packages"
 
 # Uses news-feed/package.json preview:gh-pages (cross-env for Windows/macOS/Linux)
 preview-pages:
@@ -31,8 +31,10 @@ install:
 	cd news-feed && npm ci
 	cd rss-worker && npm ci
 	cd sync-worker && npm ci
+	cd meta-worker && npm ci
 
 test:
 	cd news-feed && npm test
 	cd rss-worker && npm test
 	cd sync-worker && npm test
+	cd meta-worker && npm test

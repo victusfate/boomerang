@@ -2,7 +2,7 @@
 
 | Slice | Description | Status |
 |-------|-------------|--------|
-| S1 | meta-worker scaffold: wrangler.jsonc, KV binding, CORS, GET /health | pending |
+| S1 | meta-worker scaffold: wrangler.jsonc, KV binding, CORS, GET /health | done |
 | S2 | DO WebSocket: connect, subscribe, ping/pong, graceful close + hibernation | pending |
 | S3 | submitTags (batch): DO accepts, normalises, rate-limits, writes KV | pending |
 | S4 | Tags broadcast: DO pushes `tags` messages to subscribed clients only | pending |
@@ -16,4 +16,5 @@
 ---
 
 ## S1 — meta-worker scaffold
-- **Status**: pending
+- **Status**: done
+- 3 tests pass: GET /health → 200, OPTIONS → 204, unknown → 404
