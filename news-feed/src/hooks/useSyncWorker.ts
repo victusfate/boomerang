@@ -9,9 +9,9 @@ import {
 
 const POLL_INTERVAL_MS = 30_000;
 const PUSH_DEBOUNCE_MS = 2_000;
-const DEFAULT_SYNC_WORKER_URL = 'https://boomerang-sync.boomerang.workers.dev';
+const DEFAULT_BOOMERANG_SYNC_URL = 'https://boomerang-sync.boomerang.workers.dev';
 const envSyncWorker = import.meta.env.VITE_SYNC_WORKER_URL?.replace(/\/$/, '') ?? '';
-const WORKER_URL = envSyncWorker || (import.meta.env.PROD ? DEFAULT_SYNC_WORKER_URL : undefined);
+const WORKER_URL = envSyncWorker || (import.meta.env.PROD ? DEFAULT_BOOMERANG_SYNC_URL : undefined);
 
 export type SyncStatus = 'idle' | 'active' | 'syncing' | 'error';
 
