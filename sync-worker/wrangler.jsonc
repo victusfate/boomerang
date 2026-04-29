@@ -8,7 +8,7 @@
   "r2_buckets": [
     {
       "binding": "SYNC_BLOCKS",
-      "bucket_name": "boomerang-sync"
+      "bucket_name": "boomerang"
     }
   ]
 }
