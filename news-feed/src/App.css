@@ -1161,6 +1161,30 @@ html, body {
 }
 .btn-dismiss-suggestion:hover { color: #f07178; }
 
+/* ── Sync status ───────────────────────────────────────────────────────────── */
+.sync-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+  color: var(--sub);
+}
+.sync-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.sync-dot--active  { background: #4caf50; }
+.sync-dot--syncing { background: #ff9800; animation: pulse 1s ease-in-out infinite; }
+.sync-dot--error   { background: #f44336; }
+.sync-dot--idle    { background: var(--sub); }
+.sync-error {
+  color: #f44336;
+  font-size: 0.8rem;
+  margin-top: 6px;
+}
+
 /* ── Sync QR ───────────────────────────────────────────────────────────────── */
 .sync-qr-wrap {
   display: flex;

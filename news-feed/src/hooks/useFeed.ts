@@ -13,7 +13,6 @@ import {
 } from '../services/storage';
 import { getPromptApiAvailability, isPromptApiAvailable, runTaggingPass } from '../services/labelClassifier';
 import {
-  buildSyncShareUrl,
   dehydrate,
   hydrate,
   mergeArticleTags,
@@ -745,7 +744,6 @@ export function useFeed() {
     onAddLabel:    handleAddLabel,
     onDeleteLabel: handleDeleteLabel,
     onRenameLabel: handleRenameLabel,
-    syncShareUrl: buildSyncShareUrl(prefs, savedArticles, articleTags, labelHits),
     feedEnterIds,
   };
 }

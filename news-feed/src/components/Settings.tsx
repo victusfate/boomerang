@@ -8,6 +8,11 @@ import { TOPIC_META } from './TopicFilter';
 
 const ALL_TOPICS = (Object.keys(TOPIC_META) as Topic[]).filter(t => t !== 'general');
 
+function formatSyncedAt(d: Date): string {
+  const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+  return mins < 1 ? 'just now' : `${mins}m ago`;
+}
+
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 interface Props {
@@ -26,14 +31,23 @@ interface Props {
   onAddLabel: (label: UserLabel) => void;
   onDeleteLabel: (labelId: string) => void;
   onSuggestLabels: (articles: Article[]) => Promise<string[]>;
-  syncShareUrl: string;
+  // Live sync
+  syncActive: boolean;
+  syncStatus: 'idle' | 'active' | 'syncing' | 'error';
+  syncedAt: Date | null;
+  syncError: string | null;
+  syncUrl: string | null;
+  onGenerateLink: () => Promise<void>;
+  onRevoke: () => Promise<void>;
 }
 
 export function Settings({
   prefs, onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onClose,
   onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
   onExportBookmarks, onImportBookmarks,
-  onAddLabel, onDeleteLabel, onSuggestLabels, syncShareUrl,
+  onAddLabel, onDeleteLabel, onSuggestLabels,
+  syncActive, syncStatus, syncedAt, syncError, syncUrl,
+  onGenerateLink, onRevoke,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
@@ -54,9 +68,9 @@ export function Settings({
   const [suggestions, setSuggestions]     = useState<string[]>([]);
   const [suggesting, setSuggesting]       = useState(false);
 
-  // Sync QR code
-  const [qrDataUrl, setQrDataUrl]   = useState('');
-  const [copied, setCopied]         = useState(false);
+  // Sync QR code (for live sync URL)
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [copied, setCopied]       = useState(false);
 
   useEffect(() => {
     previousFocusRef.current = document.activeElement;
@@ -96,22 +110,22 @@ export function Settings({
   };
 
   useEffect(() => {
-    if (!syncShareUrl) { setQrDataUrl(''); return; }
-    QRCode.toDataURL(syncShareUrl, { width: 200, margin: 2 })
+    if (!syncUrl) { setQrDataUrl(''); return; }
+    QRCode.toDataURL(syncUrl, { width: 200, margin: 2 })
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(''));
-  }, [syncShareUrl]);
+  }, [syncUrl]);
 
   const handleCopyShareUrl = useCallback(async () => {
-    if (!syncShareUrl) return;
+    if (!syncUrl) return;
     try {
-      await navigator.clipboard.writeText(syncShareUrl);
+      await navigator.clipboard.writeText(syncUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // fallback: select the text
     }
-  }, [syncShareUrl]);
+  }, [syncUrl]);
 
   const handleAddLabel = (e: React.FormEvent) => {
     e.preventDefault();
@@ -431,26 +445,61 @@ export function Settings({
         {/* ── Sync across devices ──────────────────────────────────────── */}
         <section className="settings-section">
           <h3>Sync across devices</h3>
-          <p className="settings-hint">
-            One-way sync link: open it on another device to merge preferences, saves, labels, and AI tags into that device.
-          </p>
-          {qrDataUrl && (
-            <div className="sync-qr-wrap">
-              <img src={qrDataUrl} alt="QR code for device sync" className="sync-qr" />
-            </div>
+          {!syncActive ? (
+            <>
+              <p className="settings-hint">
+                Generate a link and open it on another device. Both devices will stay in sync — no account needed.
+              </p>
+              <button
+                type="button"
+                className="btn-add-source"
+                onClick={() => void onGenerateLink()}
+                disabled={syncStatus === 'syncing'}
+              >
+                {syncStatus === 'syncing' ? 'Generating…' : 'Generate sync link'}
+              </button>
+              {syncError && <p className="sync-error">{syncError}</p>}
+            </>
+          ) : (
+            <>
+              <div className="sync-status-row">
+                <span className={`sync-dot sync-dot--${syncStatus}`} />
+                <span className="sync-status-label">
+                  {syncStatus === 'syncing' && 'Syncing…'}
+                  {syncStatus === 'active' && syncedAt && `Synced ${formatSyncedAt(syncedAt)}`}
+                  {syncStatus === 'active' && !syncedAt && 'Active'}
+                  {syncStatus === 'error' && `Error: ${syncError}`}
+                </span>
+              </div>
+              {qrDataUrl && (
+                <div className="sync-qr-wrap">
+                  <img src={qrDataUrl} alt="QR code for device sync" className="sync-qr" />
+                </div>
+              )}
+              {syncUrl && (
+                <div className="sync-url-row">
+                  <input
+                    type="text"
+                    className="custom-source-input sync-url-input"
+                    readOnly
+                    value={syncUrl}
+                    onFocus={e => (e.target as HTMLInputElement).select()}
+                  />
+                  <button type="button" className="btn-add-source" onClick={handleCopyShareUrl}>
+                    {copied ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                className="btn-reset-prefs"
+                style={{ marginTop: '8px' }}
+                onClick={() => void onRevoke()}
+              >
+                Revoke sync
+              </button>
+            </>
           )}
-          <div className="sync-url-row">
-            <input
-              type="text"
-              className="custom-source-input sync-url-input"
-              readOnly
-              value={syncShareUrl}
-              onFocus={e => (e.target as HTMLInputElement).select()}
-            />
-            <button type="button" className="btn-add-source" onClick={handleCopyShareUrl}>
-              {copied ? 'Copied!' : 'Copy link'}
-            </button>
-          </div>
         </section>
 
         {/* ── Preferences ────────────────────────────────────────────── */}

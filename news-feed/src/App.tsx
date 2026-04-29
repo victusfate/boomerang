@@ -1,5 +1,6 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useFeed } from './hooks/useFeed';
+import { useSyncWorker } from './hooks/useSyncWorker';
 import { ArticleCard } from './components/ArticleCard';
 import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
@@ -32,8 +33,21 @@ export default function App() {
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
-    articleTagsMap, classificationStatus, aiTaggingStarted, onStartAiTagging, onAddLabel, onDeleteLabel, syncShareUrl,
+    articleTagsMap, classificationStatus, aiTaggingStarted, onStartAiTagging, onAddLabel, onDeleteLabel,
+    labelHits, articleTags,
   } = useFeed();
+
+  const handleSyncMerge = useCallback((_merged: {
+    prefs: import('./types').UserPrefs;
+    articleTags: import('./types').ArticleTag[];
+    labelHits: import('./types').LabelHit[];
+    savedArticles: import('./types').Article[];
+  }) => {
+    // Merge wiring into Fireproof handled as follow-up; hook is wired for when worker is deployed.
+  }, []);
+
+  const { syncActive, syncStatus, syncedAt, syncError, syncUrl, generateLink, revoke } =
+    useSyncWorker(prefs, articleTags, labelHits, savedArticles, handleSyncMerge);
 
   const [view, setView] = useState<FeedView>('feed');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>(null);
@@ -317,7 +331,13 @@ export default function App() {
           onAddLabel={onAddLabel}
           onDeleteLabel={onDeleteLabel}
           onSuggestLabels={(articles) => suggestLabels(prefs, articles.length ? articles : visibleArticles)}
-          syncShareUrl={syncShareUrl}
+          syncActive={syncActive}
+          syncStatus={syncStatus}
+          syncedAt={syncedAt}
+          syncError={syncError}
+          syncUrl={syncUrl}
+          onGenerateLink={generateLink}
+          onRevoke={revoke}
         />
       )}
     </>
