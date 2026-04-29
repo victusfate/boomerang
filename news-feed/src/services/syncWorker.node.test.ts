@@ -1,48 +1,29 @@
 import assert from 'node:assert/strict';
 import { test, describe } from 'node:test';
-import { buildSyncUrl, parseSyncFragment, buildPayload, mergePayload } from './syncWorker';
-import type { UserPrefs } from '../types';
-import { DEFAULT_PREFS } from './storage';
+import { buildSyncFragment, parseSyncFragment, buildPayload, mergePayload } from './syncWorker.ts';
+import type { UserPrefs } from '../types.ts';
+import { DEFAULT_PREFS } from './storage.ts';
 
 const WORKER_URL = 'https://boomerang-sync.example.workers.dev';
-
-function withFragment(fragment: string, fn: () => void) {
-  const orig = (globalThis as any).location;
-  Object.defineProperty(globalThis, 'location', {
-    value: { hash: fragment, origin: 'https://example.com', pathname: '/boomerang/' },
-    configurable: true,
-  });
-  try { fn(); } finally {
-    Object.defineProperty(globalThis, 'location', { value: orig, configurable: true });
-  }
-}
 
 describe('buildSyncUrl / parseSyncFragment round-trip', () => {
   test('encodes and decodes roomId, token, and workerUrl', () => {
     const roomId = 'a'.repeat(64);
     const token  = 'tok123';
-    const url    = buildSyncUrl(WORKER_URL, roomId, token);
-    const hash   = '#' + url.split('#')[1];
-
-    withFragment(hash, () => {
-      const parsed = parseSyncFragment();
-      assert.ok(parsed !== null);
-      assert.equal(parsed!.roomId, roomId);
-      assert.equal(parsed!.token, token);
-      assert.equal(parsed!.workerUrl, WORKER_URL);
-    });
+    const hash   = buildSyncFragment(roomId, token, WORKER_URL);
+    const parsed = parseSyncFragment(hash);
+    assert.ok(parsed !== null);
+    assert.equal(parsed!.roomId, roomId);
+    assert.equal(parsed!.token, token);
+    assert.equal(parsed!.workerUrl, WORKER_URL);
   });
 
   test('returns null when fragment is absent', () => {
-    withFragment('', () => {
-      assert.equal(parseSyncFragment(), null);
-    });
+    assert.equal(parseSyncFragment(''), null);
   });
 
   test('returns null for unrelated fragment', () => {
-    withFragment('#sync=somelegacyhash', () => {
-      assert.equal(parseSyncFragment(), null);
-    });
+    assert.equal(parseSyncFragment('#sync=somelegacyhash'), null);
   });
 });
 

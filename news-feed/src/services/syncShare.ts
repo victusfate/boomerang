@@ -1,5 +1,5 @@
-import { DEFAULT_PREFS } from './storage';
-import type { Article, ArticleTag, LabelHit, Topic, UserPrefs } from '../types';
+import { DEFAULT_PREFS } from './storage.ts';
+import type { Article, ArticleTag, LabelHit, Topic, UserPrefs } from '../types.ts';
 
 export const SYNC_LOG = '[Sync]';
 

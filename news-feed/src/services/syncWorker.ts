@@ -1,5 +1,5 @@
-import type { Article, ArticleTag, LabelHit, UserPrefs } from '../types';
-import { mergePrefs, mergeArticleTags, mergeLabelHits, mergeArticlesById, dehydrate, hydrate, type SyncPayloadV1 } from './syncShare';
+import type { Article, ArticleTag, LabelHit, UserPrefs } from '../types.ts';
+import { mergePrefs, mergeArticleTags, mergeLabelHits, mergeArticlesById, dehydrate, hydrate, type SyncPayloadV1 } from './syncShare.ts';
 
 export const SYNC_STORAGE_KEY = 'BOOMERANG_SYNC';
 const FRAGMENT_PREFIX = '#sync-room=';
@@ -12,14 +12,16 @@ export interface SyncRoom {
 
 // ── URL helpers ────────────────────────────────────────────────────────────────
 
-export function buildSyncUrl(workerUrl: string, roomId: string, token: string): string {
-  if (typeof location === 'undefined') return '';
-  return `${location.origin}${location.pathname}${FRAGMENT_PREFIX}${roomId}:${token}:${encodeURIComponent(workerUrl)}`;
+export function buildSyncFragment(roomId: string, token: string, workerUrl: string): string {
+  return `${FRAGMENT_PREFIX}${roomId}:${token}:${encodeURIComponent(workerUrl)}`;
 }
 
-export function parseSyncFragment(): SyncRoom | null {
-  if (typeof location === 'undefined') return null;
-  const hash = location.hash;
+export function buildSyncUrl(workerUrl: string, roomId: string, token: string): string {
+  const base = typeof location !== 'undefined' ? `${location.origin}${location.pathname}` : '';
+  return `${base}${buildSyncFragment(roomId, token, workerUrl)}`;
+}
+
+export function parseSyncFragment(hash = typeof location !== 'undefined' ? location.hash : ''): SyncRoom | null {
   if (!hash.startsWith(FRAGMENT_PREFIX)) return null;
   const parts = hash.slice(FRAGMENT_PREFIX.length).split(':');
   if (parts.length < 3) return null;
