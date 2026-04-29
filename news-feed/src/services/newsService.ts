@@ -8,6 +8,7 @@ import rssSourcesJson from '../../../shared/rss-sources.json';
  * Without this fallback, a missing env yields an empty string and no `/bundle` requests are made.
  */
 const DEFAULT_RSS_WORKER_URL = 'https://boomerang-rss.boomerang.workers.dev';
+const DEFAULT_BOOMERANG_SYNC_URL = 'https://boomerang-sync.boomerang.workers.dev';
 
 const envWorker = import.meta.env.VITE_RSS_WORKER_URL?.replace(/\/$/, '') ?? '';
 const RSS_WORKER_URL =
