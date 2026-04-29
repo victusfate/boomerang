@@ -5,6 +5,6 @@ alwaysApply: true
 
 # AGENTS.md is authoritative
 
-For every task in this repository, follow the full guidelines in [`AGENTS.md`](../../AGENTS.md) at the project root: repository layout, PR workflow, tech stack, key feed behaviours, session start and `./docs/<feature-slug>/` artifacts, minimum viable diff, the feature chain (grill-me → ubiquitous-language → PRD → plan → TDD) when you share a plan or feature idea, exceptions for small fixes, and per-step commits for doc/TDD work.
+For every task in this repository, follow the full guidelines in [`AGENTS.md`](../../AGENTS.md) at the project root: repository layout, PR workflow, tech stack, key feed behaviours, session start and `./docs/<feature-slug>/` artifacts (`design.md`, `prd.md`, `plan.md`, `tdd-log.md`), minimum viable diff, the feature chain (design Q&A and vocabulary → PRD → vertical-slice plan → TDD) when you share a plan or feature idea, exceptions for small fixes, and per-step commits for doc/TDD work.
 
 If anything elsewhere conflicts with `AGENTS.md`, prefer `AGENTS.md`.

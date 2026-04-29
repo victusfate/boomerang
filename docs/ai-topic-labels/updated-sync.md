@@ -90,4 +90,4 @@ Each slice should be end-to-end: **dependency + env → `useFeed` wiring → min
 
 ---
 
-*Next step for Claude Code: run grill-me only if product needs to lock connector and pairing UX; otherwise start at S1 spike following [AGENTS.md](../../AGENTS.md) branch workflow.*
+*Next step for Claude Code: run the **design** phase (`docs/.../design.md`) only if product needs to lock connector and pairing UX; otherwise start at S1 spike following [AGENTS.md](../../AGENTS.md) branch workflow.*
