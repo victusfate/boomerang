@@ -56,7 +56,7 @@ shared, public, real-time article metadata layer:
   - `POST /meta/tags` — HTTP fallback tag submission (non-WebSocket clients)
 - DO message protocol: `subscribe`, `catchUp`, `submitTags` (client→DO);
   `tags`, `catchUp` (DO→client) — see design.md Q8
-- Rate limits: N=3 contributors/article, 20 msg/min/connection, 50 articles/batch, 5s KV debounce
+- Rate limits: N=3 contributors/article, 20 msg/min/connection, 200 articles/batch, 5s KV debounce
 
 ### rss-worker (modified)
 - Add `ARTICLE_META` KV binding to `wrangler.jsonc`

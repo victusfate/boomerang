@@ -67,7 +67,7 @@ disconnect, reconnect, welcome again).
 
 **Behaviour:**
 - DO receives `{ type: "submitTags", articles: [{ articleId, tags }] }`
-- Validates: batch max 50; per-connection 20 msg/min (tracked in DO memory)
+- Validates: batch max 200; per-connection 20 msg/min (tracked in DO memory)
 - Per article: lowercase+trim+dedup tags; skip if contributors >= 3
 - KV write debounced 5s per articleId (collapses rapid submissions)
 - KV value: `{ articleId, tags: string[], updatedAt: number, contributors: number }`
@@ -161,13 +161,13 @@ timestamp tracking.
   (streaming, not waiting for pass completion)
 - `useMetaWorker` maintains an internal pending buffer; flushes to `submitTags`
   (one WS message) when **either** fires:
-  1. Buffer reaches 50 articles (count limit), or
+  1. Buffer reaches 200 articles (count limit), or
   2. 20 seconds elapse since last flush (time window)
 - Flush timer is started when the first article enters the buffer and stopped
   (with a final flush) when `runTaggingPass` ends or the tab closes
 - No UI change — entirely background
 
-**Tests:** 60 articles fed one-by-one produces 2 WS messages (50 + 10);
+**Tests:** 210 articles fed one-by-one produces 2 WS messages (200 + 10);
 20s timer fires mid-pass and flushes partial buffer; no messages sent when
 pass is idle.
 

@@ -90,15 +90,15 @@ for personal label filters. Two sources, one merged view, no conflicts.
 **Q12: When does a client submit tags to the meta-worker?**
 Automatically, **while** Chrome AI is actively processing articles. Tags are
 flushed using a count-or-timer strategy: whichever fires first —
-50 articles accumulated OR 20 seconds elapsed. The flush timer is active only
+200 articles accumulated OR 20 seconds elapsed. The flush timer is active only
 during an in-progress tagging pass; it stops when the pass ends (or the tab
 closes mid-pass). Any remaining buffered articles are flushed immediately when
 the pass completes.
 
-- Fast hardware (desktop, ~4 articles/sec): 50 articles fills in ~12.5s →
-  mostly count-triggered; at most 3 flushes/min.
-- Slow hardware (laptop, ~0.5 articles/sec): ~10 articles per 20s window →
-  timer-triggered; well under the 20 msg/min limit.
+- Fast hardware (desktop, ~4 articles/sec): timer fires at 20s with ~80 articles → timer-governed; 3 msg/min.
+- Very fast hardware (~40 articles/sec): 200 fills in 5s → count-triggered; 12 msg/min.
+- Slow hardware (laptop, ~0.5 articles/sec): ~10 articles per 20s window → timer-governed; 3 msg/min.
+- Rate limit only reached at ~66 articles/sec (200 × 20/min) — beyond any current hardware.
 - Tab closed mid-pass: at most 20s of tagged articles are lost — not queued or
   retried; no user action required.
 
@@ -112,13 +112,13 @@ Cloudflare pattern for WebSocket DOs.
 Three layers:
 1. Per-article contributor cap: N=3 (hard ceiling on KV writes per article, ever)
 2. Per-connection message rate: max 20 messages/minute; DO closes connection if exceeded
-3. Per-message batch cap: max 50 articles per `submitTags` message
+3. Per-message batch cap: max 200 articles per `submitTags` message
 4. KV write debounce: 5s debounce per articleId; rapid same-article submissions
    collapse into one KV write
 
-At 4 articles/sec Chrome AI throughput: 50-article count limit fires in ~12.5s,
-producing at most 3 flushes/min — well within the 20 msg/min limit. On slow
-hardware the 20s timer governs, capping at 3 msg/min regardless.
+The 20s timer is the primary governor for all realistic hardware. The 200-article
+count cap is a safety ceiling for hypothetical future hardware; it only fires
+before the timer when throughput exceeds ~10 articles/sec.
 
 A noisy client cannot generate unbounded KV writes. An article that has
 reached N=3 contributors generates zero additional writes regardless of
