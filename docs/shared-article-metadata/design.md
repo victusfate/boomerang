@@ -57,7 +57,7 @@ Client → DO:
 ```jsonc
 { "type": "subscribe",  "articleIds": ["a3f8...", "b2c1..."] }   // on connect
 { "type": "catchUp",    "since": 1234567890123 }                 // on reconnect
-{ "type": "submitTags", "articles": [                            // batch, max 50
+{ "type": "submitTags", "articles": [                            // batch, max 200
     { "articleId": "a3f8...", "tags": ["ai", "climate"] },
     { "articleId": "b2c1...", "tags": ["tech"] }
   ]
