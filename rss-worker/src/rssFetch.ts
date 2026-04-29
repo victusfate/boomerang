@@ -62,7 +62,7 @@ export async function fetchFeedsStaggered(sources: NewsSource[]): Promise<Bundle
     const settled = await Promise.allSettled(
       batch.map(async source => {
         const xml = await fetchXmlWithRetry(source.feedUrl);
-        return parseFeed(xml, source);
+        return await parseFeed(xml, source);
       }),
     );
 

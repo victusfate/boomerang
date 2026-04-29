@@ -39,12 +39,11 @@ function detectTopics(text: string): Topic[] {
   return matched.length > 0 ? matched.slice(0, 3) : ['general'];
 }
 
-function hashId(str: string): string {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = Math.imul(31, h) + str.charCodeAt(i) | 0;
-  }
-  return Math.abs(h).toString(36);
+async function hashId(str: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf).slice(0, 8))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 function stripHTML(html: string): string {
@@ -219,7 +218,7 @@ function asArray<T>(x: T | T[] | undefined): T[] {
   return Array.isArray(x) ? x : [x];
 }
 
-export function parseFeed(xml: string, source: NewsSource): ArticleWire[] {
+export async function parseFeed(xml: string, source: NewsSource): Promise<ArticleWire[]> {
   let doc: unknown;
   try {
     doc = parser.parse(xml);
@@ -267,7 +266,7 @@ export function parseFeed(xml: string, source: NewsSource): ArticleWire[] {
           : undefined;
 
       out.push({
-        id: hashId(url),
+        id: await hashId(url),
         title,
         url,
         description,
@@ -307,7 +306,7 @@ export function parseFeed(xml: string, source: NewsSource): ArticleWire[] {
       const topics = detectTopics(title + ' ' + description);
 
       out.push({
-        id: hashId(url),
+        id: await hashId(url),
         title,
         url,
         description,
