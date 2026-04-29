@@ -1,3 +1,26 @@
+export interface UserLabel {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export interface LabelHit {
+  articleId: string;
+  labelId: string;
+  classifiedAt: number;
+}
+
+export interface ArticleTag {
+  articleId: string;
+  tags: string[];
+  taggedAt: number;
+}
+
+export type ActiveFilter =
+  | { kind: 'topic'; value: Topic }
+  | { kind: 'label'; value: string }
+  | null;
+
 export interface Article {
   id: string;
   title: string;
@@ -56,6 +79,8 @@ export interface UserPrefs {
   disabledSourceIds: string[];        // blacklist: empty = all enabled
   enabledTopics:  Topic[];
   customSources:  CustomSource[];
+  userLabels:     UserLabel[];
+  hideAiBar:      boolean;
 }
 
 export type FeedView = 'feed' | 'saved' | 'settings';

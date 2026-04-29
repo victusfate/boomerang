@@ -7,18 +7,20 @@
     "icons": "node scripts/generate-icons.mjs",
     "prebuild": "node scripts/generate-icons.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types src/services/feedPartition.node.test.ts",
+    "test": "node --test --experimental-strip-types src/services/feedPartition.node.test.ts src/services/labelClassifier.node.test.ts src/services/storage.node.test.ts src/services/labelSuggester.node.test.ts src/components/TopicFilter.node.test.ts src/services/syncWorker.node.test.ts",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "build:gh-pages": "node scripts/generate-icons.mjs && npm run typecheck && cross-env GITHUB_PAGES=true vite build",
     "preview:gh-pages": "npm run build:gh-pages && cross-env GITHUB_PAGES=true vite preview"
   },
   "dependencies": {
+    "qrcode": "^1.5.4",
     "react": "19.2.5",
     "react-dom": "19.2.5",
-    "use-fireproof": "0.24.19"
+    "use-fireproof": "^0.24.0"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
@@ -32,6 +34,9 @@
   "overrides": {
     "vite": "8.0.8",
     "magic-string": "0.30.21",
+    "serialize-javascript": "7.0.5",
+    "dompurify": "^3.4.1",
+    "@clerk/shared": "^4.8.5",
     "workbox-build": {
       "glob": "13.0.6",
       "source-map": "0.7.6"

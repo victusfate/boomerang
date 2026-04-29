@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
 import { useFireproof } from 'use-fireproof';
 import { fetchAllSources, DEFAULT_SOURCES } from '../services/newsService';
 import { rankFeed } from '../services/algorithm';
@@ -9,25 +9,33 @@ import {
   upvote, downvote, applyDecay, resetLearnedWeights, clearViewedCache,
   addCustomSource, removeCustomSource, exportOPML, importOPML,
   exportBookmarkHTML, importBookmarkHTML,
+  addUserLabel, deleteUserLabel, renameUserLabel,
 } from '../services/storage';
-import type { Article, CustomSource, Topic, UserPrefs } from '../types';
+import { getPromptApiAvailability, isPromptApiAvailable, runTaggingPass } from '../services/labelClassifier';
+import {
+  dehydrate,
+  hydrate,
+  mergeArticleTags,
+  mergeArticlesById,
+  mergeLabelHits,
+  mergePrefs,
+  parseSyncHash,
+  SYNC_LOG,
+  type StoredArticle,
+} from '../services/syncShare';
+import type { Article, ArticleTag, CustomSource, LabelHit, Topic, UserLabel, UserPrefs } from '../types';
 
 const PAGE_SIZE          = 5;
 const PREFS_ID           = 'user-prefs';
 const CACHE_ID           = 'feed-cache';
 const IMPORTED_SAVES_ID  = 'imported-saves';
-
-type StoredArticle = Omit<Article, 'publishedAt'> & { publishedAt: string };
-interface FeedCacheDoc    { _id: string; articles: StoredArticle[]; fetchedAt: number }
-interface ImportedSavesDoc { _id: string; articles: StoredArticle[] }
+const CLASSIFICATIONS_ID = 'ai-classifications';
+const ARTICLE_TAGS_ID    = 'ai-article-tags';
+interface FeedCacheDoc        { _id: string; articles: StoredArticle[]; fetchedAt: number }
+interface ImportedSavesDoc    { _id: string; articles: StoredArticle[] }
+interface ClassificationsDoc  { _id: string; hits: LabelHit[] }
+interface ArticleTagsDoc      { _id: string; hits: ArticleTag[] }
 type PrefsDoc = UserPrefs & { _id: string };
-
-function hydrate(stored: StoredArticle[]): Article[] {
-  return stored.map(a => ({ ...a, publishedAt: new Date(a.publishedAt) }));
-}
-function dehydrate(articles: Article[]): StoredArticle[] {
-  return articles.map(a => ({ ...a, publishedAt: a.publishedAt.toISOString() }));
-}
 
 
 export function useFeed() {
@@ -71,11 +79,176 @@ export function useFeed() {
   const importedSavesRef = useRef<Article[]>([]);
   importedSavesRef.current = importedSaves;
 
+  const [labelHits, setLabelHits] = useState<LabelHit[]>([]);
+  const labelHitsRef = useRef<LabelHit[]>([]);
+  labelHitsRef.current = labelHits;
+
+  const [articleTags, setArticleTags] = useState<ArticleTag[]>([]);
+  const articleTagsRef = useRef<ArticleTag[]>([]);
+  articleTagsRef.current = articleTags;
+
+  const [classificationStatus, setClassificationStatus] = useState('');
+  const [aiTaggingStarted, setAiTaggingStarted] = useState(false);
+  const aiModelPollTimerRef = useRef<number | null>(null);
+
+  // ── URL hash sync import ──────────────────────────────────────────────────────
+  // Runs once on mount — reads #sync=<base64> and merges into Fireproof docs silently.
+  const urlImportDone = useRef(false);
+  const consumeSyncHash = useCallback(() => {
+    if (urlImportDone.current || typeof location === 'undefined') return null;
+    urlImportDone.current = true;
+    const payload = parseSyncHash();
+    if (payload) history.replaceState(null, '', location.pathname + location.search);
+    return payload;
+  }, []);
+
   // ── Persist prefs ────────────────────────────────────────────────────────────
   const updatePrefs = useCallback((next: UserPrefs) => {
     setPrefsState(next);
     database.put({ _id: PREFS_ID, ...next } as PrefsDoc).catch(console.error);
   }, [database]);
+
+  const stopAiModelPolling = useCallback(() => {
+    if (aiModelPollTimerRef.current) {
+      window.clearInterval(aiModelPollTimerRef.current);
+      aiModelPollTimerRef.current = null;
+    }
+  }, []);
+
+  const startAiModelPolling = useCallback(() => {
+    if (aiModelPollTimerRef.current) return;
+    const poll = async () => {
+      const availability = await getPromptApiAvailability();
+      if (availability === 'available') {
+        stopAiModelPolling();
+        setClassificationStatus('Chrome AI model ready — starting tagging…');
+        if (articlePoolRef.current.length > 0) {
+          schedulePassRef.current(articlePoolRef.current);
+        }
+      } else if (availability === 'downloading') {
+        setClassificationStatus('Chrome AI model downloading…');
+      } else if (availability === 'downloadable') {
+        setClassificationStatus('Chrome AI model needs download — use Chrome AI setup');
+      } else if (availability === 'unavailable') {
+        stopAiModelPolling();
+        setClassificationStatus('Chrome AI unavailable (unavailable) — check browser/model support');
+      }
+    };
+    void poll();
+    aiModelPollTimerRef.current = window.setInterval(() => { void poll(); }, 5000);
+  }, [stopAiModelPolling]);
+
+  // ── Tagging pass (Chrome 138+ Prompt API, no-op elsewhere) ──────────────────
+  const scheduleTaggingPass = useCallback((articles: Article[]) => {
+    if (!isPromptApiAvailable()) {
+      console.info('[AI Tags] schedule skipped — LanguageModel not available');
+      return;
+    }
+    const schedule: (cb: () => void) => void =
+      typeof requestIdleCallback !== 'undefined'
+        ? (cb) => requestIdleCallback(() => cb(), { timeout: 5000 })
+        : (cb) => setTimeout(cb, 0);
+
+    schedule(() => {
+      void (async () => {
+        const idleT0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        console.info('[AI Tags] idle run start', { inputArticles: articles.length });
+
+        const existing = articleTagsRef.current;
+        const toTag = articles.filter(a => !existing.some(t => t.articleId === a.id));
+        if (toTag.length === 0) {
+          console.info('[AI Tags] skip — nothing new to tag', {
+            inputArticles: articles.length,
+            storedTagRows: existing.length,
+          });
+          setClassificationStatus('');
+          return;
+        }
+        setClassificationStatus(`Preparing on-device model… (${toTag.length} articles)`);
+        let done = 0;
+        try {
+          await runTaggingPass(articles, existing, (tag) => {
+            done++;
+            // Per-article logs + timings live in labelClassifier.runTaggingPass
+            setClassificationStatus(`Tagging articles… ${done}/${toTag.length}`);
+            startTransition(() => {
+              setArticleTags(prev => {
+                const updated = [...prev, tag];
+                articleTagsRef.current = updated;
+                database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc)
+                  .catch(console.error);
+                return updated;
+              });
+            });
+          }, {
+            onModelStatus: (status) => {
+              const copy = {
+                checking: 'Checking Chrome AI model…',
+                available: 'Starting Chrome AI model…',
+                'starting-download': 'Starting Chrome AI model download…',
+                downloadable: 'Chrome AI model needs download — use Chrome AI setup',
+                downloading: 'Chrome AI model downloading…',
+              } satisfies Record<typeof status, string>;
+              setClassificationStatus(copy[status]);
+              if (status === 'downloadable' || status === 'downloading' || status === 'starting-download') {
+                startAiModelPolling();
+              }
+            },
+            onModelDownloadProgress: (loaded) => {
+              setClassificationStatus(`Chrome AI model downloading… ${Math.round(loaded * 100)}%`);
+            },
+            onSessionReady: () => {
+              setAiTaggingStarted(true);
+              setClassificationStatus(`Tagging articles… 0/${toTag.length}`);
+            },
+            onArticleStart: (i, total) => {
+              setClassificationStatus(`Tagging article ${i}/${total}…`);
+            },
+            onUnavailable: (availability, reason) => {
+              setClassificationStatus(
+                reason === 'mobile-user-agent'
+                  ? 'Chrome AI unavailable — disable mobile emulation'
+                  : `Chrome AI unavailable (${availability ?? 'unknown'}) — check browser/model support`,
+              );
+            },
+          });
+        } catch (e) {
+          console.error('[AI Tags] pass threw', e);
+          const msg = e instanceof Error ? e.message : String(e);
+          if (
+            msg.includes('service is not running')
+            || (typeof DOMException !== 'undefined' && e instanceof DOMException && e.name === 'NotAllowedError')
+          ) {
+            console.info(
+              '[AI Tags] On-device AI may be stopped or still downloading. Check chrome://on-device-internals, flags in https://developer.chrome.com/docs/ai/get-started — first create() may need a recent user gesture.',
+            );
+          }
+          setClassificationStatus('');
+          return;
+        }
+        const idleMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - idleT0);
+        console.info('[AI Tags] idle run finished', {
+          tagged: done,
+          expected: toTag.length,
+          wallMsFromIdleStart: idleMs,
+        });
+        if (done > 0) {
+          setClassificationStatus(`Tagged — ${done} articles processed`);
+        }
+      })();
+    });
+  }, [database, startAiModelPolling]);
+
+  const schedulePassRef = useRef(scheduleTaggingPass);
+  schedulePassRef.current = scheduleTaggingPass;
+
+  const handleStartAiTagging = useCallback(() => {
+    if (articlePoolRef.current.length === 0) {
+      setClassificationStatus('Load articles before starting Chrome AI tagging');
+      return;
+    }
+    schedulePassRef.current(articlePoolRef.current);
+  }, []);
 
   // ── Load prefs + cache from Fireproof on mount ────────────────────────────────
   useEffect(() => {
@@ -110,10 +283,76 @@ export function useFeed() {
       .then(doc => doc.articles?.length ? hydrate(doc.articles) : [])
       .catch(() => [] as Article[]);
 
-    Promise.all([prefsPromise, cachePromise, importedSavesPromise]).then(([loadedPrefs, cached, imported]) => {
-      if (imported.length) {
-        importedSavesRef.current = imported;
-        setImportedSaves(imported);
+    const classificationsPromise = database.get<ClassificationsDoc>(CLASSIFICATIONS_ID)
+      .then(doc => doc.hits ?? [])
+      .catch(() => [] as LabelHit[]);
+
+    const articleTagsPromise = database.get<ArticleTagsDoc>(ARTICLE_TAGS_ID)
+      .then(doc => doc.hits ?? [])
+      .catch(() => [] as ArticleTag[]);
+
+    Promise.all([prefsPromise, cachePromise, importedSavesPromise, classificationsPromise, articleTagsPromise]).then(([loadedPrefs, cached, imported, hits, tags]) => {
+      const syncPayload = consumeSyncHash();
+      console.info(SYNC_LOG, 'startup local docs loaded', {
+        hasSyncPayload: Boolean(syncPayload),
+        importedSaves: imported.length,
+        labelHits: hits.length,
+        articleTags: tags.length,
+        savedIds: loadedPrefs.savedIds.length,
+        userLabels: loadedPrefs.userLabels.length,
+      });
+      const syncedPrefs = syncPayload?.prefs
+        ? mergePrefs(loadedPrefs, syncPayload.prefs)
+        : loadedPrefs;
+      const syncedImported = syncPayload?.savedArticles?.length
+        ? mergeArticlesById(imported, hydrate(syncPayload.savedArticles))
+        : imported;
+      const syncedHits = syncPayload?.labelHits?.length
+        ? mergeLabelHits(hits, syncPayload.labelHits)
+        : hits;
+      const syncedTags = syncPayload?.articleTags?.length
+        ? mergeArticleTags(tags, syncPayload.articleTags)
+        : tags;
+
+      if (syncPayload) {
+        console.info(SYNC_LOG, 'merged sync payload', {
+          importedSavesBefore: imported.length,
+          importedSavesAfter: syncedImported.length,
+          labelHitsBefore: hits.length,
+          labelHitsAfter: syncedHits.length,
+          articleTagsBefore: tags.length,
+          articleTagsAfter: syncedTags.length,
+          savedIdsBefore: loadedPrefs.savedIds.length,
+          savedIdsAfter: syncedPrefs.savedIds.length,
+          userLabelsBefore: loadedPrefs.userLabels.length,
+          userLabelsAfter: syncedPrefs.userLabels.length,
+        });
+        database.put({ _id: PREFS_ID, ...syncedPrefs } as PrefsDoc)
+          .then(() => console.info(SYNC_LOG, 'wrote user-prefs'))
+          .catch(e => console.error(SYNC_LOG, 'failed writing user-prefs', e));
+        database.put({ _id: IMPORTED_SAVES_ID, articles: dehydrate(syncedImported) } as ImportedSavesDoc)
+          .then(() => console.info(SYNC_LOG, 'wrote imported-saves', { count: syncedImported.length }))
+          .catch(e => console.error(SYNC_LOG, 'failed writing imported-saves', e));
+        database.put({ _id: CLASSIFICATIONS_ID, hits: syncedHits } as ClassificationsDoc)
+          .then(() => console.info(SYNC_LOG, 'wrote ai-classifications', { count: syncedHits.length }))
+          .catch(e => console.error(SYNC_LOG, 'failed writing ai-classifications', e));
+        database.put({ _id: ARTICLE_TAGS_ID, hits: syncedTags } as ArticleTagsDoc)
+          .then(() => console.info(SYNC_LOG, 'wrote ai-article-tags', { count: syncedTags.length }))
+          .catch(e => console.error(SYNC_LOG, 'failed writing ai-article-tags', e));
+      }
+
+      setPrefsState(syncedPrefs);
+      if (syncedImported.length) {
+        importedSavesRef.current = syncedImported;
+        setImportedSaves(syncedImported);
+      }
+      if (syncedHits.length) {
+        labelHitsRef.current = syncedHits;
+        setLabelHits(syncedHits);
+      }
+      if (syncedTags.length) {
+        articleTagsRef.current = syncedTags;
+        setArticleTags(syncedTags);
       }
       setPrefsReady(true);
 
@@ -121,19 +360,26 @@ export function useFeed() {
         articlePoolRef.current = cached.articles;
         setArticlePool(cached.articles);
 
-        const ranked = rankFeed(cached.articles, loadedPrefs);
+        const ranked = rankFeed(cached.articles, syncedPrefs);
         allArticlesRef.current = ranked;
         setAllArticles(ranked);
         if (ranked.length) setLoading(false);
 
         // Mark cache as valid so we skip the auto-fetch on startup
         setLastRefresh(new Date(cached.fetchedAt));
+
+        // Without this, `refresh()` never runs on cold start when cache exists — AI tagging
+        // (and the status bar) only appeared after a manual refresh. Re-run the same pass as post-fetch.
+        queueMicrotask(() => {
+          schedulePassRef.current(cached.articles);
+        });
       }
     });
   }, [database]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => {
     if (feedEnterClearTimerRef.current) clearTimeout(feedEnterClearTimerRef.current);
+    stopAiModelPolling();
   }, []);
 
   // ── Network refresh ───────────────────────────────────────────────────────────
@@ -229,6 +475,7 @@ export function useFeed() {
         applyRankedBatch(all);
         database.put({ _id: CACHE_ID, articles: dehydrate(all), fetchedAt: Date.now() })
           .catch(console.error);
+        schedulePassRef.current(all);
       }
     } catch (e) {
       if (fetchIdRef.current === myFetchId) {
@@ -308,6 +555,30 @@ export function useFeed() {
 
   const handleToggleTopic = useCallback((topic: Topic) => {
     updatePrefs(toggleTopic(topic, prefsRef.current));
+  }, [updatePrefs]);
+
+  const handleAddLabel = useCallback((label: UserLabel) => {
+    const next = addUserLabel(label, prefsRef.current);
+    updatePrefs(next);
+  }, [updatePrefs]);
+
+  const handleDeleteLabel = useCallback((labelId: string) => {
+    updatePrefs(deleteUserLabel(labelId, prefsRef.current));
+    setLabelHits(prev => {
+      const filtered = prev.filter(h => h.labelId !== labelId);
+      labelHitsRef.current = filtered;
+      database.put({ _id: CLASSIFICATIONS_ID, hits: filtered } as ClassificationsDoc)
+        .catch(console.error);
+      return filtered;
+    });
+  }, [database, updatePrefs]);
+
+  const handleRenameLabel = useCallback((labelId: string, name: string) => {
+    updatePrefs(renameUserLabel(labelId, name, prefsRef.current));
+  }, [updatePrefs]);
+
+  const handleToggleAiBar = useCallback(() => {
+    updatePrefs({ ...prefsRef.current, hideAiBar: !prefsRef.current.hideAiBar });
   }, [updatePrefs]);
 
   const handleResetPrefs = useCallback(() => {
@@ -438,6 +709,8 @@ export function useFeed() {
     ...importedSaves.filter(a => savedIds.has(a.id) && !poolIds.has(a.id)),
   ];
 
+  const articleTagsMap = new Map(articleTags.map(t => [t.articleId, t.tags]));
+
   return {
     visibleArticles: allArticles.slice(0, visibleCount),
     savedArticles,
@@ -457,6 +730,7 @@ export function useFeed() {
     onLoadMore:     loadMore,
     onToggleSource:      handleToggleSource,
     onToggleTopic:       handleToggleTopic,
+    onToggleAiBar:       handleToggleAiBar,
     onResetPrefs:        handleResetPrefs,
     onClearViewed:       handleClearViewed,
     onRefresh:           handleRefresh,
@@ -466,6 +740,15 @@ export function useFeed() {
     onImportOPML:         handleImportOPML,
     onExportBookmarks:    handleExportBookmarks,
     onImportBookmarks:    handleImportBookmarks,
+    labelHits,
+    articleTags,
+    articleTagsMap,
+    classificationStatus,
+    aiTaggingStarted,
+    onStartAiTagging: handleStartAiTagging,
+    onAddLabel:    handleAddLabel,
+    onDeleteLabel: handleDeleteLabel,
+    onRenameLabel: handleRenameLabel,
     feedEnterIds,
   };
 }

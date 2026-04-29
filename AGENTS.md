@@ -7,8 +7,9 @@
 | `shared/rss-sources.json` | Canonical built-in RSS source list — imported at build by `news-feed` and `rss-worker` |
 | `news-feed/` | News PWA (React + Vite + Fireproof), deployed to GitHub Pages at `/boomerang` |
 | `rss-worker/` | Cloudflare Worker — RSS aggregation (`GET /bundle`), staggered upstream fetches |
+| `sync-worker/` | Cloudflare Worker — cross-browser sync via R2 (`POST /sync/room`, `PUT/GET /sync/{roomId}/meta`, `PUT/GET /sync/{roomId}/blocks/{cid}`, `DELETE /sync/{roomId}`). Token auth: SHA-256(token) stored in R2; raw token travels only in the URL fragment, never in query strings. |
 | `.github/workflows/deploy.yml` | Builds `news-feed/` only; uploads `news-feed/dist` |
-| `/` (repo root) | `npm run dev` / `preview` forward to `news-feed/`. **`npm run build`** runs `npm ci` + build in `news-feed/` (same as Cloudflare Pages from repo root). In **`news-feed`**, **`npm run preview:gh-pages`** = GitHub Pages–style build + preview (`http://localhost:4173/boomerang`). **`make`** same (needs GNU Make). |
+| `/` (repo root) | `npm run dev` / `preview` forward to `news-feed/`. **`npm run build`** runs `npm ci` + build in `news-feed/` (same as Cloudflare Pages from repo root). In **`news-feed`**, **`npm run preview:gh-pages`** = GitHub Pages–style build + preview (`http://localhost:4173/boomerang`). **`make`** same (needs GNU Make). **`make test`** runs tests in all three packages. |
 
 ## PR workflow — always follow this order
 
@@ -42,11 +43,20 @@
 ## Tech stack — news-feed
 
 - **Framework**: React 18 + Vite + TypeScript
-- **Storage**: Fireproof (`use-fireproof ^0.19.0`) — database name `boomerang-news`
+- **Storage**: Fireproof (`use-fireproof ^0.24.0`) — database name `boomerang-news`
   - `user-prefs` document: topic weights, seenIds, readIds, savedIds, source/topic toggles
   - `feed-cache` document: last ranked article list + fetchedAt timestamp
 - **RSS fetching**: **Cloudflare Worker only** (`rss-worker/`). Set `VITE_RSS_WORKER_URL` at build time (no trailing slash), e.g. `https://boomerang-rss.boomerang.workers.dev` — that is `https://<wrangler-name>.<account-subdomain>.workers.dev` (not the bare account URL `https://boomerang.workers.dev`). GitHub Actions reads **repository variable** `VITE_RSS_WORKER_URL`. Worker exposes `GET /bundle?include=id1,id2,...`. There is no browser RSS or CORS-proxy fallback; local dev uses `VITE_RSS_WORKER_URL=http://127.0.0.1:8787` with `wrangler dev`.
+- **Sync**: `sync-worker/` — cross-browser preferences and bookmarks sync. Set `VITE_SYNC_WORKER_URL` at build time; defaults to `https://boomerang-sync.boomerang.workers.dev` in production builds. URL fragment carries `roomId:token:workerUrl`; token is never sent in query strings. Client hook: `useSyncWorker` (polls 30s + visibilitychange, debounced push, 412 conflict retry). R2 bucket name: `boomerang`.
 - **PWA**: `vite-plugin-pwa`
+
+## Tech stack — sync-worker
+
+- **Runtime**: Cloudflare Workers + R2 (bucket binding: `SYNC_BLOCKS`, bucket name: `boomerang`)
+- **Auth**: Bearer token in `Authorization` header; SHA-256 hash stored at `{roomId}/token` in R2
+- **Routes**: `POST /sync/room` (create), `GET|PUT /sync/{roomId}/meta` (clock head + ETag/If-Match), `GET|PUT /sync/{roomId}/blocks/{cid}` (block store), `DELETE /sync/{roomId}` (revoke)
+- **Tests**: Vitest 4 + `@cloudflare/vitest-pool-workers` (`src/worker.test.ts`); config in `vitest.config.mts`
+- **Deploy**: `cd sync-worker && wrangler deploy`; create bucket once with `wrangler r2 bucket create boomerang`
 
 ## Key behaviours to preserve
 
@@ -59,32 +69,24 @@
 
 ---
 
-# Claude Code Workflow — Plan → Glossary → PRD → Plan → TDD
+# Claude Code Workflow — Design → PRD → Plan → TDD
+
+End-to-end feature work follows four **local** doc steps below. The flow is the
+same idea as “stress-test the design → PRD → vertical-slice plan → TDD”, but
+this repo does **not** rely on external skill packages—only the files under
+`./docs/<feature-slug>/`.
 
 ## Session Start
 
-On your first response in a new session, check whether this project has
-a `./docs/` folder with feature artifacts (grill-me.md, prd.md, plan.md).
+On your first response in a new session, check whether this project has a
+`./docs/` folder with feature artifacts (`design.md`, `prd.md`, `plan.md`).
 
 - If yes, just acknowledge and continue normally.
-- If no, ask once: "Want me to scaffold the grill-me → glossary → PRD →
-  plan → TDD workflow for the next feature, or are we doing something
-  else today?"
+- If no, ask once: "Want me to scaffold the design → PRD → plan → TDD workflow
+  for the next feature, or are we doing something else today?"
 
 Don't ask again in the same session. Don't ask if the user opens with a
 specific request — just handle the request.
-
-## Required Skills
-
-These five skills must be installed. If any are missing, run:
-
-```bash
-npx skills@latest add mattpocock/skills/grill-me
-npx skills@latest add mattpocock/skills/ubiquitous-language
-npx skills@latest add mattpocock/skills/write-a-prd
-npx skills@latest add mattpocock/skills/prd-to-plan
-npx skills@latest add mattpocock/skills/tdd
-```
 
 ## Minimum Viable Diff (Applies to All Code Changes)
 
@@ -113,34 +115,27 @@ any tendency to "improve things while you're in there."
 When I share a plan, design, or feature idea, run this chain end-to-end
 without asking permission between steps:
 
-1. **grill-me** — Interview me one question at a time, with your
-   recommended answer for each, walking each branch of the design tree
-   until we reach shared understanding. Then summarize.
+1. **Design (Q&A and domain)** — Interview one question at a time with your
+   recommended answer until the design tree is resolved. Stress-test vague or
+   overloaded terms; align with the codebase where facts matter. Capture in
+   `design.md`: Q&A summary, decisions, edge-case scenarios, and a **canonical
+   vocabulary** (terms to use consistently in later docs and code).
 
-2. **ubiquitous-language** — Scan the grill-me Q&A for domain-relevant
-   nouns, verbs, and concepts. Flag ambiguities (same word, different
-   concepts), synonyms (different words, same concept), and overloaded
-   or vague terms. Propose canonical, opinionated term choices. Use
-   these terms consistently in every subsequent step.
+2. **PRD** — Skip repeating problem discovery if `design.md` already covered it.
+   Explore the codebase to verify claims. Sketch deep modules with simple,
+   testable interfaces. Use the canonical terms from `design.md`. Write
+   `prd.md`: problem, solution, numbered user stories, implementation decisions,
+   testing strategy, out-of-scope.
 
-3. **write-a-prd** — Skip problem capture if grill-me covered it.
-   Explore the codebase to verify assertions about current state. Sketch
-   deep modules with simple, testable interfaces. Use the canonical
-   terms from `UBIQUITOUS_LANGUAGE.md`. Output the full PRD (problem,
-   solution, numbered user stories, implementation decisions, testing
-   strategy, out-of-scope).
+3. **Plan** — Break the PRD into **tracer-bullet vertical slices** (each slice
+   cuts through all layers end-to-end: data/schema → logic → UI → tests—not
+   horizontal layers alone). Prefer extending existing code over replacing it
+   (minimum viable diff). Output `plan.md` only (no issue-tracker export
+   required). Confirm granularity once before coding.
 
-4. **prd-to-plan** — Break the PRD into multi-phase tracer-bullet
-   vertical slices. Each phase cuts through ALL integration layers
-   end-to-end (schema/data → logic → UI → tests), NOT horizontal layers.
-   Slices should respect the minimum-viable-diff principle: prefer
-   slices that extend existing code over slices that replace it.
-   Briefly confirm granularity once before proceeding.
-
-5. **tdd** — One vertical slice at a time. RED (one test for one
-   behavior, confirm it fails) → GREEN (minimal code to pass) → REFACTOR
-   if needed. Continue through slices until the plan is complete or I
-   stop you.
+4. **TDD** — Execute `plan.md` one slice at a time: RED → GREEN → REFACTOR if
+   needed. Maintain `tdd-log.md` with per-slice status (pending, red, green,
+   refactor, done).
 
 **Skip ahead** if I say "skip to <step>".
 **Stop** the chain if I say "stop", "no chain", or "just answer".
@@ -153,11 +148,10 @@ writing the first file so I can correct it in one word.
 
 ```
 ./docs/<feature-slug>/
-  ├── grill-me.md             # Q&A summary and decisions made
-  ├── UBIQUITOUS_LANGUAGE.md  # canonical domain glossary
-  ├── prd.md                  # full PRD
-  ├── plan.md                 # phased implementation plan (vertical slices)
-  └── tdd-log.md              # per-slice status: pending, red, green, refactor, done
+  ├── design.md      # Q&A, decisions, scenarios, canonical vocabulary
+  ├── prd.md         # full PRD
+  ├── plan.md        # vertical slices (local plan—not a ticket export)
+  └── tdd-log.md     # per-slice TDD status and notes
 ```
 
 If the working directory isn't a git repo, write the files anyway and
@@ -168,8 +162,7 @@ skip the commit steps below.
 After each step writes its artifact, commit it before moving on. Use
 conventional-commit-style messages:
 
-- `docs(<slug>): grill-me Q&A`
-- `docs(<slug>): ubiquitous language glossary`
+- `docs(<slug>): design Q&A and vocabulary`
 - `docs(<slug>): PRD`
 - `docs(<slug>): implementation plan`
 
@@ -193,11 +186,11 @@ independently retryable:
 
 - **Bad TDD slice** → revert that slice's commits, re-run tdd from
   `plan.md` slice N.
-- **Plan feels off** → re-run prd-to-plan from `prd.md`.
-- **PRD missed something** → re-run write-a-prd from `grill-me.md` and
-  `UBIQUITOUS_LANGUAGE.md`, or re-grill on the gap and update first.
-- **Glossary terms drift** → re-run ubiquitous-language; it will mark
-  changed entries with "(updated)" and new entries with "(new)".
+- **Plan feels off** → re-plan from `prd.md` into `plan.md`.
+- **PRD missed something** → re-write `prd.md` from `design.md`, or extend
+  `design.md` and then PRD.
+- **Terms drift** → update the vocabulary section in `design.md`, then align
+  `prd.md` / `plan.md` if needed.
 
 ## What This Doesn't Apply To
 
@@ -216,9 +209,13 @@ Don't run the chain for any of these — just do the work directly
 - Feature-slug rule: kebab-case, drop articles ("the", "a"), keep it
   under ~30 chars. Example: "combat resolution system" →
   `combat-resolution`.
-- Once `UBIQUITOUS_LANGUAGE.md` exists, refer back to it before
-  introducing any new domain term in conversation, code, or commits. If
-  a new term emerges, re-run ubiquitous-language to incorporate it.
+- Use the **canonical vocabulary** section in `design.md` before introducing
+  new domain terms in conversation, code, or commits. If a new term emerges,
+  update `design.md` first, then propagate to PRD/plan as needed.
+- Older feature folders may still use `grill-me.md` and
+  `UBIQUITOUS_LANGUAGE.md`; for new work prefer `design.md` (merge glossary
+  into that file). When extending an old folder, keep its existing names or
+  consolidate in a follow-up edit—don’t duplicate both styles in one folder.
 - The chain can run long. If context starts feeling thin mid-chain,
   flag it and suggest splitting into a fresh session at the next clean
   boundary (between slices is ideal).
