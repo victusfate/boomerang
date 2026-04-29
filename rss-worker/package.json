@@ -6,14 +6,17 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "cf-typegen": "wrangler types",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "fast-xml-parser": "^5.7.2"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.15.1",
     "@cloudflare/workers-types": "^4.20260409.1",
     "typescript": "^5.5.2",
+    "vitest": "^4.1.0",
     "wrangler": "^4.81.0"
   }
 }

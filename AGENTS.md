@@ -7,8 +7,9 @@
 | `shared/rss-sources.json` | Canonical built-in RSS source list — imported at build by `news-feed` and `rss-worker` |
 | `news-feed/` | News PWA (React + Vite + Fireproof), deployed to GitHub Pages at `/boomerang` |
 | `rss-worker/` | Cloudflare Worker — RSS aggregation (`GET /bundle`), staggered upstream fetches |
+| `sync-worker/` | Cloudflare Worker — cross-browser sync via R2 (`POST /sync/room`, `PUT/GET /sync/{roomId}/meta`, `PUT/GET /sync/{roomId}/blocks/{cid}`, `DELETE /sync/{roomId}`). Token auth: SHA-256(token) stored in R2; raw token travels only in the URL fragment, never in query strings. |
 | `.github/workflows/deploy.yml` | Builds `news-feed/` only; uploads `news-feed/dist` |
-| `/` (repo root) | `npm run dev` / `preview` forward to `news-feed/`. **`npm run build`** runs `npm ci` + build in `news-feed/` (same as Cloudflare Pages from repo root). In **`news-feed`**, **`npm run preview:gh-pages`** = GitHub Pages–style build + preview (`http://localhost:4173/boomerang`). **`make`** same (needs GNU Make). |
+| `/` (repo root) | `npm run dev` / `preview` forward to `news-feed/`. **`npm run build`** runs `npm ci` + build in `news-feed/` (same as Cloudflare Pages from repo root). In **`news-feed`**, **`npm run preview:gh-pages`** = GitHub Pages–style build + preview (`http://localhost:4173/boomerang`). **`make`** same (needs GNU Make). **`make test`** runs tests in all three packages. |
 
 ## PR workflow — always follow this order
 
@@ -42,11 +43,20 @@
 ## Tech stack — news-feed
 
 - **Framework**: React 18 + Vite + TypeScript
-- **Storage**: Fireproof (`use-fireproof ^0.19.0`) — database name `boomerang-news`
+- **Storage**: Fireproof (`use-fireproof ^0.24.0`) — database name `boomerang-news`
   - `user-prefs` document: topic weights, seenIds, readIds, savedIds, source/topic toggles
   - `feed-cache` document: last ranked article list + fetchedAt timestamp
 - **RSS fetching**: **Cloudflare Worker only** (`rss-worker/`). Set `VITE_RSS_WORKER_URL` at build time (no trailing slash), e.g. `https://boomerang-rss.boomerang.workers.dev` — that is `https://<wrangler-name>.<account-subdomain>.workers.dev` (not the bare account URL `https://boomerang.workers.dev`). GitHub Actions reads **repository variable** `VITE_RSS_WORKER_URL`. Worker exposes `GET /bundle?include=id1,id2,...`. There is no browser RSS or CORS-proxy fallback; local dev uses `VITE_RSS_WORKER_URL=http://127.0.0.1:8787` with `wrangler dev`.
+- **Sync**: `sync-worker/` — cross-browser preferences and bookmarks sync. Set `VITE_SYNC_WORKER_URL` at build time; defaults to `https://boomerang-sync.boomerang.workers.dev` in production builds. URL fragment carries `roomId:token:workerUrl`; token is never sent in query strings. Client hook: `useSyncWorker` (polls 30s + visibilitychange, debounced push, 412 conflict retry). R2 bucket name: `boomerang`.
 - **PWA**: `vite-plugin-pwa`
+
+## Tech stack — sync-worker
+
+- **Runtime**: Cloudflare Workers + R2 (bucket binding: `SYNC_BLOCKS`, bucket name: `boomerang`)
+- **Auth**: Bearer token in `Authorization` header; SHA-256 hash stored at `{roomId}/token` in R2
+- **Routes**: `POST /sync/room` (create), `GET|PUT /sync/{roomId}/meta` (clock head + ETag/If-Match), `GET|PUT /sync/{roomId}/blocks/{cid}` (block store), `DELETE /sync/{roomId}` (revoke)
+- **Tests**: Vitest 4 + `@cloudflare/vitest-pool-workers` (`src/worker.test.ts`); config in `vitest.config.mts`
+- **Deploy**: `cd sync-worker && wrangler deploy`; create bucket once with `wrangler r2 bucket create boomerang`
 
 ## Key behaviours to preserve
 
