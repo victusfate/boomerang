@@ -7,7 +7,7 @@ const EMPTY_PREFS: UserPrefs = {
   topicWeights: {}, sourceWeights: {}, keywordWeights: {},
   readIds: [], savedIds: [], seenIds: [], upvotedIds: [], downvotedIds: [],
   lastDecayAt: 0, enabledSources: [], disabledSourceIds: [], enabledTopics: [],
-  customSources: [], userLabels: [],
+  customSources: [], userLabels: [], hideAiBar: false,
 };
 
 test('parseLabels splits newline-separated suggestions', () => {

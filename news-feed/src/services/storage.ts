@@ -18,6 +18,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   enabledTopics:  [],   // empty = all enabled
   customSources:  [],
   userLabels:     [],
+  hideAiBar:      false,
 };
 
 // ── Keyword extraction ────────────────────────────────────────────────────────

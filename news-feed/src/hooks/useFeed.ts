@@ -577,6 +577,10 @@ export function useFeed() {
     updatePrefs(renameUserLabel(labelId, name, prefsRef.current));
   }, [updatePrefs]);
 
+  const handleToggleAiBar = useCallback(() => {
+    updatePrefs({ ...prefsRef.current, hideAiBar: !prefsRef.current.hideAiBar });
+  }, [updatePrefs]);
+
   const handleResetPrefs = useCallback(() => {
     const next = resetLearnedWeights(prefsRef.current);
     updatePrefs(next);
@@ -726,6 +730,7 @@ export function useFeed() {
     onLoadMore:     loadMore,
     onToggleSource:      handleToggleSource,
     onToggleTopic:       handleToggleTopic,
+    onToggleAiBar:       handleToggleAiBar,
     onResetPrefs:        handleResetPrefs,
     onClearViewed:       handleClearViewed,
     onRefresh:           handleRefresh,

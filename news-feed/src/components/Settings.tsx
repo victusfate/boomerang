@@ -39,6 +39,7 @@ interface Props {
   syncUrl: string | null;
   onGenerateLink: () => Promise<void>;
   onRevoke: () => Promise<void>;
+  onToggleAiBar: () => void;
 }
 
 export function Settings({
@@ -47,7 +48,7 @@ export function Settings({
   onExportBookmarks, onImportBookmarks,
   onAddLabel, onDeleteLabel, onSuggestLabels,
   syncActive, syncStatus, syncedAt, syncError, syncUrl,
-  onGenerateLink, onRevoke,
+  onGenerateLink, onRevoke, onToggleAiBar,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
@@ -506,6 +507,14 @@ export function Settings({
         <section className="settings-section">
           <h3>Preferences</h3>
           <p className="settings-hint">Clear viewed history to see previously read articles again.</p>
+          <label className="settings-toggle-row">
+            <input
+              type="checkbox"
+              checked={!prefs.hideAiBar}
+              onChange={onToggleAiBar}
+            />
+            Show Chrome AI bar
+          </label>
           <button className="btn-reset-prefs" onClick={() => { onClearViewed(); onClose(); }}>
             Clear viewed history
           </button>

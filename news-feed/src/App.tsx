@@ -34,7 +34,7 @@ export default function App() {
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
     articleTagsMap, classificationStatus, aiTaggingStarted, onStartAiTagging, onAddLabel, onDeleteLabel,
-    labelHits, articleTags,
+    labelHits, articleTags, onToggleAiBar,
   } = useFeed();
 
   const handleSyncMerge = useCallback((_merged: {
@@ -228,22 +228,33 @@ export default function App() {
         />
       )}
 
-      <div className="ai-status" aria-live="polite">
-        <span className={`ai-status-dot ${classificationStatus ? '' : 'idle'}`} />
-        {classificationStatus || 'Chrome AI tagging'}
-        <a
-          href="https://developer.chrome.com/docs/ai/get-started"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Chrome AI setup
-        </a>
-        {canUseBrowserAi && !aiTaggingStarted && (
-          <button type="button" onClick={onStartAiTagging}>
-            Enhance news with browser AI
+      {!prefs.hideAiBar && (
+        <div className="ai-status" aria-live="polite">
+          <span className={`ai-status-dot ${classificationStatus ? '' : 'idle'}`} />
+          {classificationStatus || 'Chrome AI tagging'}
+          <a
+            href="https://developer.chrome.com/docs/ai/get-started"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Chrome AI setup
+          </a>
+          {canUseBrowserAi && !aiTaggingStarted && (
+            <button type="button" onClick={onStartAiTagging}>
+              Enhance news with browser AI
+            </button>
+          )}
+          <button
+            type="button"
+            className="ai-status-dismiss"
+            onClick={onToggleAiBar}
+            aria-label="Hide Chrome AI bar"
+            title="Hide"
+          >
+            ×
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {pullProgress > 0 && (
         <div className="pull-indicator">
@@ -338,6 +349,7 @@ export default function App() {
           syncUrl={syncUrl}
           onGenerateLink={generateLink}
           onRevoke={revoke}
+          onToggleAiBar={onToggleAiBar}
         />
       )}
     </>

@@ -80,6 +80,7 @@ export interface UserPrefs {
   enabledTopics:  Topic[];
   customSources:  CustomSource[];
   userLabels:     UserLabel[];
+  hideAiBar:      boolean;
 }
 
 export type FeedView = 'feed' | 'saved' | 'settings';
