@@ -1,0 +1,19 @@
+# TDD Log — Shared Article Metadata
+
+| Slice | Description | Status |
+|-------|-------------|--------|
+| S1 | meta-worker scaffold: wrangler.jsonc, KV binding, CORS, GET /health | pending |
+| S2 | DO WebSocket: connect, subscribe, ping/pong, graceful close + hibernation | pending |
+| S3 | submitTags (batch): DO accepts, normalises, rate-limits, writes KV | pending |
+| S4 | Tags broadcast: DO pushes `tags` messages to subscribed clients only | pending |
+| S5 | catchUp: client sends `since`, DO replies with delta from KV | pending |
+| S6 | rss-worker: ARTICLE_META KV binding + tags injected into GET /bundle | pending |
+| S7 | news-feed useMetaWorker hook: connect, subscribe, receive tags, catchUp | pending |
+| S8 | news-feed auto-submit: after Chrome AI batch, fire batched submitTags | pending |
+| S9 | news-feed articleTagsMap merge: local + meta tags unified in display | pending |
+| S10 | news-feed inline tag editor: add/edit tags on article cards in the feed | pending |
+
+---
+
+## S1 — meta-worker scaffold
+- **Status**: pending
