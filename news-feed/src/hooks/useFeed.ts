@@ -133,8 +133,8 @@ export function useFeed(options?: UseFeedOptions) {
       if (availability === 'available') {
         stopAiModelPolling();
         setClassificationStatus('Chrome AI model ready — starting tagging…');
-        if (articlePoolRef.current.length > 0) {
-          schedulePassRef.current(articlePoolRef.current);
+        if (allArticlesRef.current.length > 0) {
+          schedulePassRef.current([...allArticlesRef.current]);
         }
       } else if (availability === 'downloading') {
         setClassificationStatus('Chrome AI model downloading…');
@@ -150,6 +150,7 @@ export function useFeed(options?: UseFeedOptions) {
   }, [stopAiModelPolling]);
 
   // ── Tagging pass (Chrome 138+ Prompt API, no-op elsewhere) ──────────────────
+  /** `articles` should be feed **display order** (e.g. `allArticles`): top cards are tagged first. */
   const scheduleTaggingPass = useCallback((articles: Article[]) => {
     if (!isPromptApiAvailable()) {
       console.info('[AI Tags] schedule skipped — LanguageModel not available');
@@ -256,11 +257,11 @@ export function useFeed(options?: UseFeedOptions) {
   schedulePassRef.current = scheduleTaggingPass;
 
   const handleStartAiTagging = useCallback(() => {
-    if (articlePoolRef.current.length === 0) {
+    if (allArticlesRef.current.length === 0) {
       setClassificationStatus('Load articles before starting Chrome AI tagging');
       return;
     }
-    schedulePassRef.current(articlePoolRef.current);
+    schedulePassRef.current([...allArticlesRef.current]);
   }, []);
 
   // ── Load prefs + cache from Fireproof on mount ────────────────────────────────
@@ -384,7 +385,7 @@ export function useFeed(options?: UseFeedOptions) {
         // Without this, `refresh()` never runs on cold start when cache exists — AI tagging
         // (and the status bar) only appeared after a manual refresh. Re-run the same pass as post-fetch.
         queueMicrotask(() => {
-          schedulePassRef.current(cached.articles);
+          schedulePassRef.current([...ranked]);
         });
       }
     });
@@ -488,7 +489,7 @@ export function useFeed(options?: UseFeedOptions) {
         applyRankedBatch(all);
         database.put({ _id: CACHE_ID, articles: dehydrate(all), fetchedAt: Date.now() })
           .catch(console.error);
-        schedulePassRef.current(all);
+        schedulePassRef.current([...allArticlesRef.current]);
       }
     } catch (e) {
       if (fetchIdRef.current === myFetchId) {
