@@ -11,13 +11,22 @@
 | S7 | news-feed useMetaWorker hook: connect, subscribe, receive tags, catchUp | done |
 | S8 | news-feed auto-submit: after Chrome AI batch, fire batched submitTags | done |
 | S9 | news-feed articleTagsMap merge: local + meta tags unified in display | done |
-| S10 | news-feed inline tag editor: add/edit tags on article cards in the feed | pending |
+| S10 | news-feed inline tag editor: add/edit tags on article cards in the feed | done |
 
 ---
 
 ## S1 — meta-worker scaffold
 - **Status**: done
 - 3 tests pass: GET /health → 200, OPTIONS → 204, unknown → 404
+
+## S10 — news-feed inline tag editor
+- **Status**: done
+- 7 tests pass: addManualTag (add, normalise, ignore empty, dedup), removeManualTag (remove, last tag, absent tag)
+- `tagEditorUtils.ts`: pure `addManualTag` / `removeManualTag` helpers
+- `useFeed.ts`: `handleAddManualTag` / `handleRemoveManualTag` write to Fireproof `ARTICLE_TAGS_ID`
+- `ArticleCard.tsx`: inline `+` button opens text input; Enter/blur commits; × removes pill
+- `App.tsx`: `onAddManualTag` / `onRemoveManualTag` wired to all ArticleCards
+- CSS: `.label-badge-remove`, `.label-badge-add`, `.label-badge-input`
 
 ## S3 — submitTags: normalise, rate-limit, write KV
 - **Status**: done

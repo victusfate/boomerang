@@ -39,7 +39,7 @@ export default function App() {
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
     articleTagsMap, classificationStatus, aiTaggingStarted, onStartAiTagging, onAddLabel, onDeleteLabel,
-    labelHits, articleTags, onToggleAiBar,
+    labelHits, articleTags, onToggleAiBar, onAddManualTag, onRemoveManualTag,
   } = useFeed({ metaCallbacks: { feedTaggedArticle, endTaggingPass }, metaTagsMap });
 
   const handleSyncMerge = useCallback((_merged: {
@@ -307,6 +307,8 @@ export default function App() {
             onUpvote={onUpvote}
             onDownvote={onDownvote}
             onSeen={onSeen}
+            onAddManualTag={onAddManualTag}
+            onRemoveManualTag={onRemoveManualTag}
           />
         ))}
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { Article, UserPrefs } from '../types';
 import { getRssWorkerBaseUrl } from '../services/newsService';
 import { TOPIC_META } from './TopicFilter';
@@ -110,6 +110,8 @@ interface Props {
   onUpvote: (article: Article) => void;
   onDownvote: (article: Article) => void;
   onSeen?: (id: string) => void;
+  onAddManualTag?: (articleId: string, tag: string) => void;
+  onRemoveManualTag?: (articleId: string, tag: string) => void;
 }
 
 export function ArticleCard({
@@ -123,6 +125,8 @@ export function ArticleCard({
   onUpvote,
   onDownvote,
   onSeen,
+  onAddManualTag,
+  onRemoveManualTag,
 }: Props) {
   const saved     = prefs.savedIds.includes(article.id);
   const votedUp   = prefs.upvotedIds.includes(article.id);
@@ -136,6 +140,22 @@ export function ArticleCard({
     || /youtube\.com|youtu\.be/i.test(navUrl);
 
   const { cardRef, imageUrl, onImageError } = useLazyOGImage(navUrl, article.imageUrl, priority);
+
+  const [addingTag, setAddingTag] = useState(false);
+  const [newTagText, setNewTagText] = useState('');
+  const tagInputRef = useRef<HTMLInputElement>(null);
+
+  const commitNewTag = useCallback(() => {
+    const v = newTagText.trim();
+    if (v && onAddManualTag) onAddManualTag(article.id, v);
+    setNewTagText('');
+    setAddingTag(false);
+  }, [newTagText, onAddManualTag, article.id]);
+
+  const handleTagInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { e.preventDefault(); commitNewTag(); }
+    if (e.key === 'Escape') { setNewTagText(''); setAddingTag(false); }
+  };
 
   // Mark as seen after DWELL_MS of ≥50% visibility
   useEffect(() => {
@@ -234,11 +254,42 @@ export function ArticleCard({
           </span>
         </div>
 
-        {articleLabelNames.length > 0 && (
+        {(articleLabelNames.length > 0 || onAddManualTag) && (
           <div className="label-badges">
             {articleLabelNames.map(name => (
-              <span key={name} className="label-badge">{name}</span>
+              <span key={name} className="label-badge">
+                {name}
+                {onRemoveManualTag && (
+                  <button
+                    className="label-badge-remove"
+                    onClick={(e) => { e.stopPropagation(); onRemoveManualTag(article.id, name); }}
+                    aria-label={`Remove tag ${name}`}
+                  >×</button>
+                )}
+              </span>
             ))}
+            {onAddManualTag && (
+              addingTag ? (
+                <input
+                  ref={tagInputRef}
+                  className="label-badge-input"
+                  value={newTagText}
+                  onChange={e => setNewTagText(e.target.value)}
+                  onBlur={commitNewTag}
+                  onKeyDown={handleTagInputKeyDown}
+                  placeholder="tag…"
+                  autoFocus
+                  maxLength={30}
+                />
+              ) : (
+                <button
+                  className="label-badge-add"
+                  onClick={() => setAddingTag(true)}
+                  aria-label="Add tag"
+                  title="Add tag"
+                >+</button>
+              )
+            )}
           </div>
         )}
 

@@ -590,6 +590,40 @@ export function useFeed(options?: UseFeedOptions) {
     updatePrefs(renameUserLabel(labelId, name, prefsRef.current));
   }, [updatePrefs]);
 
+  const handleAddManualTag = useCallback((articleId: string, raw: string) => {
+    const tag = raw.trim().toLowerCase();
+    if (!tag) return;
+    setArticleTags(prev => {
+      const existing = prev.find(t => t.articleId === articleId);
+      let updated: ArticleTag[];
+      if (existing) {
+        if (existing.tags.includes(tag)) return prev;
+        updated = prev.map(t =>
+          t.articleId === articleId ? { ...t, tags: [...t.tags, tag], taggedAt: Date.now() } : t
+        );
+      } else {
+        updated = [...prev, { articleId, tags: [tag], taggedAt: Date.now() }];
+      }
+      articleTagsRef.current = updated;
+      database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc).catch(console.error);
+      return updated;
+    });
+  }, [database]);
+
+  const handleRemoveManualTag = useCallback((articleId: string, tag: string) => {
+    setArticleTags(prev => {
+      const existing = prev.find(t => t.articleId === articleId);
+      if (!existing) return prev;
+      const newTags = existing.tags.filter(t => t !== tag);
+      const updated = newTags.length > 0
+        ? prev.map(t => t.articleId === articleId ? { ...t, tags: newTags, taggedAt: Date.now() } : t)
+        : prev.filter(t => t.articleId !== articleId);
+      articleTagsRef.current = updated;
+      database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc).catch(console.error);
+      return updated;
+    });
+  }, [database]);
+
   const handleToggleAiBar = useCallback(() => {
     updatePrefs({ ...prefsRef.current, hideAiBar: !prefsRef.current.hideAiBar });
   }, [updatePrefs]);
@@ -776,6 +810,8 @@ export function useFeed(options?: UseFeedOptions) {
     onAddLabel:    handleAddLabel,
     onDeleteLabel: handleDeleteLabel,
     onRenameLabel: handleRenameLabel,
+    onAddManualTag:    handleAddManualTag,
+    onRemoveManualTag: handleRemoveManualTag,
     feedEnterIds,
   };
 }
