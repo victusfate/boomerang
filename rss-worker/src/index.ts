@@ -207,7 +207,7 @@ async function rssWorkerFetch(request: Request, env: Env, ctx: ExecutionContext)
           },
         });
         if (!upstream.ok) {
-          return json({ imageUrl: null }, request, env, { status: 502 });
+          return json({ imageUrl: null }, request, env, { status: 404 });
         }
         const cl = parseInt(upstream.headers.get('Content-Length') ?? '0', 10);
         if (cl > MAX_HTML_BYTES) return json({ imageUrl: null }, request, env, { status: 413 });
@@ -215,7 +215,7 @@ async function rssWorkerFetch(request: Request, env: Env, ctx: ExecutionContext)
         if (buf.byteLength > MAX_HTML_BYTES) return json({ imageUrl: null }, request, env, { status: 413 });
         html = new TextDecoder().decode(buf);
       } catch {
-        return json({ imageUrl: null }, request, env, { status: 502 });
+        return json({ imageUrl: null }, request, env, { status: 404 });
       }
 
       const resolved = extractOgImageFromHtml(html, target);
