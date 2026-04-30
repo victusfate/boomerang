@@ -155,8 +155,22 @@ export class MetaDO implements DurableObject {
     this.broadcast(entry.articleId, entry.tags, entry.updatedAt);
   }
 
-  protected async handleCatchUp(_ws: WebSocket, _since: number): Promise<void> {
-    // Implemented in S5
+  protected async handleCatchUp(ws: WebSocket, since: number): Promise<void> {
+    const updates: ArticleMetaEntry[] = [];
+    let cursor: string | undefined;
+
+    do {
+      const listed = await this.env.ARTICLE_META.list({ prefix: 'meta:', cursor });
+      for (const key of listed.keys) {
+        const entry = await this.env.ARTICLE_META.get<ArticleMetaEntry>(key.name, 'json');
+        if (entry && entry.updatedAt > since) {
+          updates.push(entry);
+        }
+      }
+      cursor = listed.list_complete ? undefined : listed.cursor;
+    } while (cursor);
+
+    ws.send(JSON.stringify({ type: 'catchUp', updates }));
   }
 
   protected broadcast(articleId: string, tags: string[], updatedAt: number): void {

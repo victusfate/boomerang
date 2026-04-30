@@ -162,6 +162,32 @@ describe('S3 — submitTags', () => {
     wsB.close();
   });
 
+  it('catchUp since=0 returns all KV entries', async () => {
+    const ids = ['catchup0000000001', 'catchup0000000002', 'catchup0000000003'];
+    for (const id of ids) {
+      ws.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: id, tags: ['test'] }] }));
+    }
+    await new Promise(r => setTimeout(r, 50));
+
+    const replyPromise = nextMessage(ws);
+    ws.send(JSON.stringify({ type: 'catchUp', since: 0 }));
+    const reply = await replyPromise as { type: string; updates: unknown[] };
+
+    expect(reply.type).toBe('catchUp');
+    expect(reply.updates.length).toBeGreaterThanOrEqual(3);
+    ws.close();
+  });
+
+  it('catchUp since=future returns empty updates', async () => {
+    const replyPromise = nextMessage(ws);
+    ws.send(JSON.stringify({ type: 'catchUp', since: Date.now() + 9_999_999 }));
+    const reply = await replyPromise as { type: string; updates: unknown[] };
+
+    expect(reply.type).toBe('catchUp');
+    expect(reply.updates).toEqual([]);
+    ws.close();
+  });
+
   it('rate-limits to 20 messages/min per connection', async () => {
     // Send 21 messages rapidly; 21st should be ignored (connection not closed but msg dropped)
     for (let i = 0; i < 21; i++) {

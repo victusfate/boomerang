@@ -6,7 +6,7 @@
 | S2 | DO WebSocket: connect, subscribe, ping/pong, graceful close + hibernation | done |
 | S3 | submitTags (batch): DO accepts, normalises, rate-limits, writes KV | done |
 | S4 | Tags broadcast: DO pushes `tags` messages to subscribed clients only | done |
-| S5 | catchUp: client sends `since`, DO replies with delta from KV | pending |
+| S5 | catchUp: client sends `since`, DO replies with delta from KV | done |
 | S6 | rss-worker: ARTICLE_META KV binding + tags injected into GET /bundle | pending |
 | S7 | news-feed useMetaWorker hook: connect, subscribe, receive tags, catchUp | pending |
 | S8 | news-feed auto-submit: after Chrome AI batch, fire batched submitTags | pending |
