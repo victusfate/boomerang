@@ -10,7 +10,7 @@
 | S6 | rss-worker: ARTICLE_META KV binding + tags injected into GET /bundle | done |
 | S7 | news-feed useMetaWorker hook: connect, subscribe, receive tags, catchUp | done |
 | S8 | news-feed auto-submit: after Chrome AI batch, fire batched submitTags | done |
-| S9 | news-feed articleTagsMap merge: local + meta tags unified in display | pending |
+| S9 | news-feed articleTagsMap merge: local + meta tags unified in display | done |
 | S10 | news-feed inline tag editor: add/edit tags on article cards in the feed | pending |
 
 ---

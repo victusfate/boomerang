@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useFeed } from './hooks/useFeed';
 import { useSyncWorker } from './hooks/useSyncWorker';
+import { useMetaWorker } from './hooks/useMetaWorker';
 import { ArticleCard } from './components/ArticleCard';
 import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
@@ -26,6 +27,10 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 }
 
 export default function App() {
+  // Wire useMetaWorker first so we can pass callbacks into useFeed
+  const [articleIds, setArticleIds] = useState<string[]>([]);
+  const { metaTagsMap, feedTaggedArticle, endTaggingPass } = useMetaWorker(articleIds);
+
   const {
     visibleArticles, savedArticles, hasMore, totalLoaded,
     loading, refreshing, fetching, error, prefs, lastRefresh, feedEnterIds,
@@ -35,7 +40,7 @@ export default function App() {
     onExportBookmarks, onImportBookmarks,
     articleTagsMap, classificationStatus, aiTaggingStarted, onStartAiTagging, onAddLabel, onDeleteLabel,
     labelHits, articleTags, onToggleAiBar,
-  } = useFeed();
+  } = useFeed({ metaCallbacks: { feedTaggedArticle, endTaggingPass }, metaTagsMap });
 
   const handleSyncMerge = useCallback((_merged: {
     prefs: import('./types').UserPrefs;
@@ -54,6 +59,11 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [pullProgress, setPullProgress] = useState(0); // 0–1
   const canUseBrowserAi = isPromptApiAvailable();
+
+  // Keep articleIds in sync for meta-worker subscriptions
+  useEffect(() => {
+    setArticleIds(visibleArticles.map(a => a.id));
+  }, [visibleArticles]);
 
   // Keep a stable ref so the touch handlers always call the latest onRefresh
   const onRefreshRef = useRef(onRefresh);
@@ -146,7 +156,7 @@ export default function App() {
     if (activeFilter?.kind === 'topic') list = list.filter(a => a.topics.includes(activeFilter.value));
     if (activeFilter?.kind === 'label') {
       const labelName = (prefs.userLabels ?? []).find(l => l.id === activeFilter.value)?.name?.toLowerCase() ?? '';
-      list = list.filter(a => (articleTagsMap.get(a.id) ?? []).some(t => t.includes(labelName) || labelName.includes(t)));
+      list = list.filter(a => (articleTagsMap.get(a.id) ?? []).some((t: string) => t.includes(labelName) || labelName.includes(t)));
     }
     return list;
   }, [visibleArticles, savedArticles, view, activeFilter, articleTagsMap, prefs.userLabels]);

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseServerMsg, metaWorkerWsUrl, DEFAULT_META_WORKER_URL,
@@ -26,11 +26,11 @@ describe('parseServerMsg', () => {
 
 describe('metaWorkerWsUrl', () => {
   it('converts https → wss', () => {
-    expect(metaWorkerWsUrl('https://example.com')).toBe('wss://example.com/ws');
+    assert.strictEqual(metaWorkerWsUrl('https://example.com'), 'wss://example.com/ws');
   });
 
   it('converts http → ws', () => {
-    expect(metaWorkerWsUrl('http://localhost:8787')).toBe('ws://localhost:8787/ws');
+    assert.strictEqual(metaWorkerWsUrl('http://localhost:8787'), 'ws://localhost:8787/ws');
   });
 
   it('default URL is https', () => {

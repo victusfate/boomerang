@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react';
 import { useFireproof } from 'use-fireproof';
 import { fetchAllSources, DEFAULT_SOURCES } from '../services/newsService';
 import { rankFeed } from '../services/algorithm';
@@ -43,7 +43,13 @@ export interface UseFeedMetaCallbacks {
   endTaggingPass: () => void;
 }
 
-export function useFeed(metaCallbacks?: UseFeedMetaCallbacks) {
+export interface UseFeedOptions {
+  metaCallbacks?: UseFeedMetaCallbacks;
+  metaTagsMap?: Map<string, string[]>;
+}
+
+export function useFeed(options?: UseFeedOptions) {
+  const { metaCallbacks, metaTagsMap } = options ?? {};
   const { database } = useFireproof('boomerang-news');
 
   const [prefs, setPrefsState]      = useState<UserPrefs>(DEFAULT_PREFS);
@@ -716,7 +722,21 @@ export function useFeed(metaCallbacks?: UseFeedMetaCallbacks) {
     ...importedSaves.filter(a => savedIds.has(a.id) && !poolIds.has(a.id)),
   ];
 
-  const articleTagsMap = new Map(articleTags.map(t => [t.articleId, t.tags]));
+  const articleTagsMap = useMemo(() => {
+    const map = new Map<string, string[]>(articleTags.map(t => [t.articleId, t.tags]));
+    if (metaTagsMap) {
+      for (const [id, metaTags] of metaTagsMap) {
+        const local = map.get(id);
+        if (local) {
+          const merged = [...new Set([...local, ...metaTags])];
+          map.set(id, merged);
+        } else {
+          map.set(id, metaTags);
+        }
+      }
+    }
+    return map;
+  }, [articleTags, metaTagsMap]);
 
   return {
     visibleArticles: allArticles.slice(0, visibleCount),
