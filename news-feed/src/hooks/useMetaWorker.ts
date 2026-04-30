@@ -109,6 +109,11 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
 
       if (msg.type === 'tags') {
         lastTagsAtRef.current = Math.max(lastTagsAtRef.current, msg.updatedAt);
+        console.info('[sync:meta-worker] broadcast', {
+          articleId: msg.articleId,
+          tags: msg.tags,
+          updatedAt: new Date(msg.updatedAt).toISOString(),
+        });
         setMetaTagsMap(prev => {
           const next = new Map(prev);
           next.set(msg.articleId, msg.tags);
@@ -118,6 +123,12 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
       }
 
       if (msg.type === 'catchUp') {
+        console.info('[sync:meta-worker] catchUp', {
+          updates: msg.updates.length,
+          hasMore: msg.hasMore ?? false,
+          cursor: msg.cursor,
+          sample: msg.updates.slice(0, 3).map(u => ({ articleId: u.articleId, tags: u.tags })),
+        });
         setMetaTagsMap(prev => {
           const next = new Map(prev);
           for (const u of msg.updates) {

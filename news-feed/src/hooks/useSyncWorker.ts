@@ -69,10 +69,24 @@ export function useSyncWorker(
       const remote = await fetchMeta(r);
       if (remote) {
         etagRef.current = remote.etag;
-        const merged = mergePayload(
-          { prefs: prefsRef.current, articleTags: articleTagsRef.current, labelHits: labelHitsRef.current, savedArticles: savedRef.current },
-          remote.payload,
+        const local = { prefs: prefsRef.current, articleTags: articleTagsRef.current, labelHits: labelHitsRef.current, savedArticles: savedRef.current };
+        const merged = mergePayload(local, remote.payload);
+
+        const newTags = merged.articleTags.filter(
+          t => !local.articleTags.some(l => l.articleId === t.articleId && l.tags.join() === t.tags.join()),
         );
+        const newSaved = merged.savedArticles.filter(
+          a => !local.savedArticles.some(l => l.id === a.id),
+        );
+        const newSavedIds = merged.prefs.savedIds.filter(id => !local.prefs.savedIds.includes(id));
+        console.info('[sync:sync-worker] poll merged', {
+          newTaggedArticles: newTags.length,
+          newSavedArticles: newSaved.length,
+          newSavedIds: newSavedIds.length,
+          newTagsSample: newTags.slice(0, 3).map(t => ({ articleId: t.articleId, tags: t.tags })),
+          newSavedSample: newSaved.slice(0, 3).map(a => ({ id: a.id, title: a.title })),
+        });
+
         onMergeRef.current(merged);
       }
       setSyncedAt(new Date());
