@@ -2,6 +2,22 @@ import { DEFAULT_SOURCES, SOURCE_BY_ID, type NewsSource } from './sources';
 import { fetchFeedsStaggered } from './rssFetch';
 import { extractOgImageFromHtml, isAllowedOgFetchUrl } from './ogImage';
 
+export async function buildTagsMap(
+  articleIds: string[],
+  kv: KVNamespace,
+): Promise<Record<string, string[]>> {
+  if (articleIds.length === 0) return {};
+  const entries = await Promise.all(
+    articleIds.map(id => kv.get<{ tags: string[] }>(`meta:${id}`, 'json')),
+  );
+  const map: Record<string, string[]> = {};
+  for (let i = 0; i < articleIds.length; i++) {
+    const entry = entries[i];
+    if (entry?.tags) map[articleIds[i]] = entry.tags;
+  }
+  return map;
+}
+
 /** Production + explicit dev URLs. Local Vite may use any port — see `isAllowedOrigin`. */
 const ALLOWED_ORIGINS = [
   'https://victusfate.github.io',
@@ -146,12 +162,16 @@ export default {
       }
 
       const { articles, errors } = await fetchFeedsStaggered([...sources, ...customSources]);
+      const tags = env.ARTICLE_META
+        ? await buildTagsMap(articles.map(a => a.id), env.ARTICLE_META)
+        : {};
       const body = {
         ok: true,
         articles,
         errors,
         partial: errors.length > 0,
         fetchedAt: Date.now(),
+        tags,
       };
 
       const response = json(body, request, env);

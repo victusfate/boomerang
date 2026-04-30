@@ -1,5 +1,5 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import worker from './index';
 
 const ORIGIN = 'http://localhost:4173';
@@ -46,5 +46,31 @@ describe('404', () => {
   it('unknown path returns 404', async () => {
     const res = await req('GET', '/unknown');
     expect(res.status).toBe(404);
+  });
+});
+
+describe('S6 — buildTagsMap', () => {
+  const TEST_ID = 'aabbccdd11223344';
+
+  it('KV hit → returns tags for article', async () => {
+    await env.ARTICLE_META.put(
+      `meta:${TEST_ID}`,
+      JSON.stringify({ articleId: TEST_ID, tags: ['ai', 'climate'], updatedAt: 1, contributors: 1 }),
+    );
+    const { buildTagsMap } = await import('./index');
+    const map = await buildTagsMap([TEST_ID], env.ARTICLE_META);
+    expect(map[TEST_ID]).toEqual(['ai', 'climate']);
+  });
+
+  it('KV miss → articleId absent from map', async () => {
+    const { buildTagsMap } = await import('./index');
+    const map = await buildTagsMap(['nosuchid00000000'], env.ARTICLE_META);
+    expect(map['nosuchid00000000']).toBeUndefined();
+  });
+
+  it('empty id list → empty map', async () => {
+    const { buildTagsMap } = await import('./index');
+    const map = await buildTagsMap([], env.ARTICLE_META);
+    expect(map).toEqual({});
   });
 });

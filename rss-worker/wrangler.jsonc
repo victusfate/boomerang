@@ -4,5 +4,8 @@
   "compatibility_date": "2026-04-09",
   "observability": {
     "enabled": true
-  }
+  },
+  "kv_namespaces": [
+    { "binding": "ARTICLE_META", "id": "00000000000000000000000000000001" }
+  ]
 }
