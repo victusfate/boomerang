@@ -47,6 +47,12 @@ function json(data: unknown, request: Request, env: Env, init?: ResponseInit): R
 }
 
 export default {
+  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    const id = env.META_DO.idFromName('global');
+    const stub = env.META_DO.get(id);
+    ctx.waitUntil(stub.fetch(new Request('http://do-internal/prune', { method: 'POST' })));
+  },
+
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders(request, env) });

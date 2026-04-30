@@ -4,9 +4,8 @@ const MAX_MISSED_PONGS = 2;
 const MAX_BATCH_SIZE = 200;
 const MAX_MSG_PER_MIN = 20;
 const MAX_TAGS_PER_ARTICLE = 6;
-const KV_TTL_SECONDS = 90 * 24 * 60 * 60;          // 90 days
+const KV_TTL_SECONDS = 90 * 24 * 60 * 60;            // 90 days
 const SQLITE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
-const ALARM_INTERVAL_MS = 60 * 60 * 1000;            // 1 hour
 const CATCHUP_PAGE_SIZE = 200;
 
 export interface ArticleMetaEntry {
@@ -26,31 +25,31 @@ export class MetaDO implements DurableObject {
   private sessions = new Map<WebSocket, SessionState>();
 
   constructor(private state: DurableObjectState, private env: Env) {
-    // LRU index — tag data lives in KV; SQLite tracks recency for catchUp + alarm pruning
     this.state.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS article_meta (
         article_id TEXT PRIMARY KEY,
         updated_at INTEGER NOT NULL
       )
     `);
-    // Schedule hourly pruning alarm on first boot; no-op if already set
-    void this.state.storage.getAlarm().then(existing => {
-      if (existing === null) {
-        void this.state.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
-      }
-    });
   }
 
-  async alarm(): Promise<void> {
+  prune(): void {
     const cutoff = Date.now() - SQLITE_RETENTION_MS;
     this.state.storage.sql.exec(
       'DELETE FROM article_meta WHERE updated_at < ?',
       cutoff,
     );
-    await this.state.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
   }
 
   async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    // Internal-only prune route — only reachable via DO stub from scheduled handler
+    if (url.pathname === '/prune' && request.method === 'POST') {
+      this.prune();
+      return new Response(null, { status: 204 });
+    }
+
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
 

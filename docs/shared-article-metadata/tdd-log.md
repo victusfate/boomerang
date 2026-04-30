@@ -14,12 +14,23 @@
 | S10 | news-feed inline tag editor: add/edit tags on article cards in the feed | done |
 | S11 | meta-worker: DO SQLite primary store, MAX_TAGS=6, KV 14-day TTL, SQLite catchUp | done |
 | S12 | meta-worker: SQLite as index-only, KV 90-day TTL, paginated catchUp, hourly alarm prune | done |
+| S13 | meta-worker: replace DO alarm with Cloudflare Cron Trigger + internal POST /prune | done |
 
 ---
 
 ## S1 — meta-worker scaffold
 - **Status**: done
 - 3 tests pass: GET /health → 200, OPTIONS → 204, unknown → 404
+
+## S13 — Cron Trigger replaces DO alarm
+- **Status**: done
+- 1 new test: POST /prune returns 404 at public Worker layer (security boundary verified)
+- `alarm()` method and `setAlarm` constructor logic removed from MetaDO
+- `prune()` method added to MetaDO — synchronous SQL DELETE, called by DO stub only
+- `POST /prune` route added to MetaDO.fetch() — unreachable from public internet
+- `scheduled` handler added to index.ts — calls DO stub internally via `ctx.waitUntil`
+- `"triggers": { "crons": ["0 * * * *"] }` added to wrangler.jsonc
+- Security: Worker.fetch() returns 404 for /prune; only scheduled handler holds DO stub
 
 ## S12 — SQLite index-only, KV 90-day TTL, paginated catchUp, DO alarm pruning
 - **Status**: done

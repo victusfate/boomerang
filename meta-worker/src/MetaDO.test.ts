@@ -199,7 +199,7 @@ describe('S3 — submitTags', () => {
   });
 });
 
-describe('S11/S12 — SQLite index, tag cap, KV TTL, pagination, alarm', () => {
+describe('S11/S12/S13 — SQLite index, tag cap, KV TTL, pagination, cron prune', () => {
   let ws: WebSocket;
 
   beforeEach(async () => {
@@ -279,6 +279,14 @@ describe('S11/S12 — SQLite index, tag cap, KV TTL, pagination, alarm', () => {
 
     const entry = await env.ARTICLE_META.get('meta:' + id, 'json') as Record<string, unknown>;
     expect((entry.tags as string[])).toContain('new');
+    ws.close();
+  });
+
+  it('POST /prune is blocked at the public Worker layer (404)', async () => {
+    // The Worker's fetch handler does not route /prune to the DO.
+    // Only the scheduled handler can reach it via the internal DO stub.
+    const res = await SELF.fetch('http://localhost/prune', { method: 'POST' });
+    expect(res.status).toBe(404);
     ws.close();
   });
 });
