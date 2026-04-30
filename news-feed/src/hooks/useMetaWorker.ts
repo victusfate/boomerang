@@ -31,8 +31,14 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
   const FLUSH_INTERVAL_MS = 20_000;
   const MAX_BATCH = 200;
 
-  // Keep articleIds ref current so the reconnect closure sees fresh value
-  useEffect(() => { articleIdsRef.current = articleIds; }, [articleIds]);
+  // Keep articleIds ref current and re-subscribe so the DO broadcasts for newly visible articles
+  useEffect(() => {
+    articleIdsRef.current = articleIds;
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN && articleIds.length > 0) {
+      ws.send(JSON.stringify({ type: 'subscribe', articleIds }));
+    }
+  }, [articleIds]);
 
   const send = useCallback((msg: ClientMsg) => {
     const ws = wsRef.current;
@@ -63,7 +69,6 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
     if (pendingBufferRef.current.length >= MAX_BATCH) {
       stopFlushTimer();
       flush();
-      // Restart the 20s timer for any remainder
       flushTimerRef.current = setTimeout(flush, FLUSH_INTERVAL_MS);
     } else if (!flushTimerRef.current) {
       flushTimerRef.current = setTimeout(flush, FLUSH_INTERVAL_MS);
@@ -85,11 +90,12 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
       reconnectDelayRef.current = RECONNECT_DELAY_MS;
       const ids = articleIdsRef.current;
       const since = lastTagsAtRef.current;
-      ws.send(JSON.stringify({ type: 'subscribe', articleIds: ids }));
-      if (since > 0) {
-        catchUpSinceRef.current = since;
-        ws.send(JSON.stringify({ type: 'catchUp', since }));
+      if (ids.length > 0) {
+        ws.send(JSON.stringify({ type: 'subscribe', articleIds: ids }));
       }
+      // Always catch up — since=0 fetches all stored tags for other browsers on first connect
+      catchUpSinceRef.current = since;
+      ws.send(JSON.stringify({ type: 'catchUp', since }));
     };
 
     ws.onmessage = (e) => {
