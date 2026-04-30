@@ -7,13 +7,17 @@ export async function buildTagsMap(
   kv: KVNamespace,
 ): Promise<Record<string, string[]>> {
   if (articleIds.length === 0) return {};
-  const entries = await Promise.all(
-    articleIds.map(id => kv.get<{ tags: string[] }>(`meta:${id}`, 'json')),
-  );
+  const CONCURRENCY = 20;
   const map: Record<string, string[]> = {};
-  for (let i = 0; i < articleIds.length; i++) {
-    const entry = entries[i];
-    if (entry?.tags) map[articleIds[i]] = entry.tags;
+  for (let i = 0; i < articleIds.length; i += CONCURRENCY) {
+    const chunk = articleIds.slice(i, i + CONCURRENCY);
+    const entries = await Promise.all(
+      chunk.map(id => kv.get<{ tags: string[] }>(`meta:${id}`, 'json')),
+    );
+    for (let j = 0; j < chunk.length; j++) {
+      const entry = entries[j];
+      if (entry?.tags) map[chunk[j]] = entry.tags;
+    }
   }
   return map;
 }
@@ -123,6 +127,21 @@ function resolveCustomSources(searchParams: URLSearchParams): NewsSource[] {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    try {
+      return await rssWorkerFetch(request, env, ctx);
+    } catch (err) {
+      console.error('Unhandled error in rss-worker fetch:', err);
+      return json(
+        { ok: false, message: 'Internal server error', articles: [], errors: [], fetchedAt: Date.now() },
+        request,
+        env,
+        { status: 500 },
+      );
+    }
+  },
+} satisfies ExportedHandler<Env>;
+
+async function rssWorkerFetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders(request, env) });
     }
@@ -295,5 +314,4 @@ export default {
     }
 
     return new Response('Not Found', { status: 404, headers: corsHeaders(request, env) });
-  },
-} satisfies ExportedHandler<Env>;
+}
