@@ -58,6 +58,16 @@ export default {
       return json({ ok: true, service: 'boomerang-meta' }, request, env);
     }
 
+    if (url.pathname === '/ws' && request.method === 'GET') {
+      const upgrade = request.headers.get('Upgrade');
+      if (upgrade?.toLowerCase() !== 'websocket') {
+        return new Response('Upgrade Required', { status: 426, headers: corsHeaders(request, env) });
+      }
+      const id = env.META_DO.idFromName('global');
+      const stub = env.META_DO.get(id);
+      return stub.fetch(request);
+    }
+
     return new Response('Not Found', { status: 404, headers: corsHeaders(request, env) });
   },
 } satisfies ExportedHandler<Env>;

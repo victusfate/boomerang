@@ -3,7 +3,7 @@
 | Slice | Description | Status |
 |-------|-------------|--------|
 | S1 | meta-worker scaffold: wrangler.jsonc, KV binding, CORS, GET /health | done |
-| S2 | DO WebSocket: connect, subscribe, ping/pong, graceful close + hibernation | pending |
+| S2 | DO WebSocket: connect, subscribe, ping/pong, graceful close + hibernation | done |
 | S3 | submitTags (batch): DO accepts, normalises, rate-limits, writes KV | pending |
 | S4 | Tags broadcast: DO pushes `tags` messages to subscribed clients only | pending |
 | S5 | catchUp: client sends `since`, DO replies with delta from KV | pending |
@@ -18,3 +18,8 @@
 ## S1 — meta-worker scaffold
 - **Status**: done
 - 3 tests pass: GET /health → 200, OPTIONS → 204, unknown → 404
+
+## S2 — DO WebSocket connect + hibernation
+- **Status**: done
+- 4 tests pass: 101 upgrade + welcome, reconnect → welcome again, pong handling, 426 for non-WS
+- `webSocketOpen` fires on hibernation wake; welcome sent eagerly from `fetch()` for first-connect compatibility in miniflare
