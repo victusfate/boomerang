@@ -100,6 +100,7 @@ export function useFeed(options?: UseFeedOptions) {
 
   const [classificationStatus, setClassificationStatus] = useState('');
   const [aiTaggingStarted, setAiTaggingStarted] = useState(false);
+  const [taggingArticleId, setTaggingArticleId] = useState<string | null>(null);
   const aiModelPollTimerRef = useRef<number | null>(null);
 
   // ── URL hash sync import ──────────────────────────────────────────────────────
@@ -164,22 +165,32 @@ export function useFeed(options?: UseFeedOptions) {
     schedule(() => {
       void (async () => {
         const idleT0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        console.info('[AI Tags] idle run start', { inputArticles: articles.length });
+
+        // Tag in feed display order — visible/high-ranked cards first
+        const rankMap = new Map(allArticlesRef.current.map((a, i) => [a.id, i]));
+        const sortedArticles = [...articles].sort((a, b) => {
+          const ra = rankMap.get(a.id) ?? Infinity;
+          const rb = rankMap.get(b.id) ?? Infinity;
+          return ra - rb;
+        });
+
+        console.info('[AI Tags] idle run start', { inputArticles: sortedArticles.length });
 
         const existing = articleTagsRef.current;
-        const toTag = articles.filter(a => !existing.some(t => t.articleId === a.id));
+        const toTag = sortedArticles.filter(a => !existing.some(t => t.articleId === a.id));
         if (toTag.length === 0) {
           console.info('[AI Tags] skip — nothing new to tag', {
-            inputArticles: articles.length,
+            inputArticles: sortedArticles.length,
             storedTagRows: existing.length,
           });
+          setTaggingArticleId(null);
           setClassificationStatus('');
           return;
         }
         setClassificationStatus(`Preparing on-device model… (${toTag.length} articles)`);
         let done = 0;
         try {
-          await runTaggingPass(articles, existing, (tag) => {
+          await runTaggingPass(sortedArticles, existing, (tag) => {
             done++;
             // Per-article logs + timings live in labelClassifier.runTaggingPass
             setClassificationStatus(`Tagging articles… ${done}/${toTag.length}`);
@@ -214,8 +225,9 @@ export function useFeed(options?: UseFeedOptions) {
               setAiTaggingStarted(true);
               setClassificationStatus(`Tagging articles… 0/${toTag.length}`);
             },
-            onArticleStart: (i, total) => {
+            onArticleStart: (i, total, articleId) => {
               setClassificationStatus(`Tagging article ${i}/${total}…`);
+              setTaggingArticleId(articleId ?? null);
             },
             onUnavailable: (availability, reason) => {
               setClassificationStatus(
@@ -236,9 +248,11 @@ export function useFeed(options?: UseFeedOptions) {
               '[AI Tags] On-device AI may be stopped or still downloading. Check chrome://on-device-internals, flags in https://developer.chrome.com/docs/ai/get-started — first create() may need a recent user gesture.',
             );
           }
+          setTaggingArticleId(null);
           setClassificationStatus('');
           return;
         }
+        setTaggingArticleId(null);
         metaCallbacks?.endTaggingPass();
         const idleMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - idleT0);
         console.info('[AI Tags] idle run finished', {
@@ -807,6 +821,7 @@ export function useFeed(options?: UseFeedOptions) {
     articleTagsMap,
     classificationStatus,
     aiTaggingStarted,
+    taggingArticleId,
     onStartAiTagging: handleStartAiTagging,
     onAddLabel:    handleAddLabel,
     onDeleteLabel: handleDeleteLabel,

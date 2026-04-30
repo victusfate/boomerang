@@ -110,6 +110,8 @@ interface Props {
   onUpvote: (article: Article) => void;
   onDownvote: (article: Article) => void;
   onSeen?: (id: string) => void;
+  /** True while Chrome AI is actively tagging this card */
+  isTagging?: boolean;
   onAddManualTag?: (articleId: string, tag: string) => void;
   onRemoveManualTag?: (articleId: string, tag: string) => void;
 }
@@ -120,6 +122,7 @@ export function ArticleCard({
   animateEnter = false,
   priority = false,
   articleLabelNames = [],
+  isTagging = false,
   onOpen,
   onSave,
   onUpvote,
@@ -245,6 +248,7 @@ export function ArticleCard({
 
       <div className="card-body">
         <div className="card-meta">
+          {isTagging && <span className="card-tagging-dot" aria-label="AI tagging in progress" title="AI tagging…" />}
           <span className="card-source">{article.source}</span>
           <span className="card-dot">·</span>
           <span className="card-time">{timeAgo(article.publishedAt)}</span>

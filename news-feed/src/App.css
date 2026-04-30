@@ -231,6 +231,15 @@ html, body {
   50% { opacity: 0.3; }
 }
 
+.card-tagging-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: pulse 0.9s ease-in-out infinite;
+}
+
 .topic-overflow-panel {
   display: flex;
   flex-wrap: wrap;

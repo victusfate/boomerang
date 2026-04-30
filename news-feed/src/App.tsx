@@ -38,7 +38,7 @@ export default function App() {
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
-    articleTagsMap, classificationStatus, aiTaggingStarted, onStartAiTagging, onAddLabel, onDeleteLabel,
+    articleTagsMap, classificationStatus, aiTaggingStarted, taggingArticleId, onStartAiTagging, onAddLabel, onDeleteLabel,
     labelHits, articleTags, onToggleAiBar, onAddManualTag, onRemoveManualTag,
   } = useFeed({ metaCallbacks: { feedTaggedArticle, endTaggingPass }, metaTagsMap });
 
@@ -302,6 +302,7 @@ export default function App() {
             animateEnter={feedEnterIds.includes(article.id)}
             priority={index === 0}
             articleLabelNames={articleTagsMap.get(article.id) ?? []}
+            isTagging={taggingArticleId === article.id}
             onOpen={onOpen}
             onSave={onSave}
             onUpvote={onUpvote}

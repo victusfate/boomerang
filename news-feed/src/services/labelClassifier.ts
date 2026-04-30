@@ -135,7 +135,7 @@ export type TaggingPassHooks = {
   /** Fires after `LanguageModel.create()` — first chance to show progress before any prompt. */
   onSessionReady?: () => void;
   /** Fires before each `tagArticle` call (slow on first article while the model warms up). */
-  onArticleStart?: (index: number, total: number) => void;
+  onArticleStart?: (index: number, total: number, articleId?: string) => void;
   /** Fires when Chrome exposes LanguageModel but the local model is not ready/allowed. */
   onUnavailable?: (availability: string | null, reason: 'mobile-user-agent' | null) => void;
 };
@@ -220,7 +220,7 @@ export async function runTaggingPass(
   for (let i = 0; i < toTag.length; i++) {
     const article = toTag[i];
     const idx = i + 1;
-    hooks?.onArticleStart?.(idx, toTag.length);
+    hooks?.onArticleStart?.(idx, toTag.length, article.id);
     const titleSnippet = article.title.slice(0, 72) + (article.title.length > 72 ? '…' : '');
     console.info(TAG_LOG, 'prompt start', { idx, total: toTag.length, id: article.id, title: titleSnippet });
     const promptT0 = nowMs();
