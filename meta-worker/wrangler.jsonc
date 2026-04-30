@@ -8,8 +8,7 @@
 	"kv_namespaces": [
 		{
 			"binding": "ARTICLE_META",
-			"id": "3357ba71982a42d3af3e5ceb7413781e",
-			"remote": true
+			"id": "3357ba71982a42d3af3e5ceb7413781e"
 		}
 	],
 	"durable_objects": {

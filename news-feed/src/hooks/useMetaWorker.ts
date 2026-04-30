@@ -22,6 +22,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
   const [metaTagsMap, setMetaTagsMap] = useState<MetaTagsMap>(new Map());
   const wsRef = useRef<WebSocket | null>(null);
   const lastTagsAtRef = useRef<number>(0);
+  const catchUpSinceRef = useRef<number>(0); // stable across paginated catchUp requests
   const reconnectDelayRef = useRef<number>(RECONNECT_DELAY_MS);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const articleIdsRef = useRef<string[]>(articleIds);
@@ -86,6 +87,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
       const since = lastTagsAtRef.current;
       ws.send(JSON.stringify({ type: 'subscribe', articleIds: ids }));
       if (since > 0) {
+        catchUpSinceRef.current = since;
         ws.send(JSON.stringify({ type: 'catchUp', since }));
       }
     };
@@ -118,6 +120,10 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
           }
           return next;
         });
+        // Fetch next page if more results available
+        if (msg.hasMore && msg.cursor !== undefined) {
+          send({ type: 'catchUp', since: catchUpSinceRef.current, before: msg.cursor });
+        }
         return;
       }
     };

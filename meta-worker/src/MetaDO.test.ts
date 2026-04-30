@@ -70,12 +70,10 @@ describe('S3 — submitTags', () => {
       type: 'submitTags',
       articles: [{ articleId: 'aabbccdd11223344', tags: ['ai', 'Climate '] }],
     }));
-    // Allow async KV write to settle
     await new Promise(r => setTimeout(r, 50));
     const entry = await env.ARTICLE_META.get('meta:aabbccdd11223344', 'json') as Record<string, unknown> | null;
     expect(entry).not.toBeNull();
     expect(entry!.tags).toEqual(['ai', 'climate']); // normalised
-    expect(entry!.contributors).toBe(1);
     ws.close();
   });
 
@@ -90,9 +88,8 @@ describe('S3 — submitTags', () => {
     ws.close();
   });
 
-  it('stops accepting after N=3 contributors', async () => {
-    const id = 'captest0000000001';
-    // Fill 3 contributors via 3 separate connections
+  it('4th submission adds new tags — no contributor cap', async () => {
+    const id = 'nocap000000000001';
     for (let i = 0; i < 3; i++) {
       const w = await connectWS();
       await nextMessage(w);
@@ -100,14 +97,12 @@ describe('S3 — submitTags', () => {
       await new Promise(r => setTimeout(r, 50));
       w.close();
     }
-    // 4th contributor should be silently dropped
     const w4 = await connectWS();
     await nextMessage(w4);
-    w4.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: id, tags: ['extra'] }] }));
+    w4.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: id, tags: ['fourth'] }] }));
     await new Promise(r => setTimeout(r, 50));
     const entry = await env.ARTICLE_META.get('meta:' + id, 'json') as Record<string, unknown>;
-    expect(entry.contributors).toBe(3);
-    expect((entry.tags as string[])).not.toContain('extra');
+    expect((entry.tags as string[])).toContain('fourth');
     w4.close();
     ws.close();
   });
@@ -204,7 +199,7 @@ describe('S3 — submitTags', () => {
   });
 });
 
-describe('S11 — SQLite primary store + tag cap + KV TTL', () => {
+describe('S11/S12 — SQLite index, tag cap, KV TTL, pagination, alarm', () => {
   let ws: WebSocket;
 
   beforeEach(async () => {
@@ -225,49 +220,65 @@ describe('S11 — SQLite primary store + tag cap + KV TTL', () => {
     ws.close();
   });
 
-  it('catchUp reads from SQLite — returns entry even after KV key is deleted', async () => {
-    const id = 'sqlitecatchup0001';
-    ws.send(JSON.stringify({
-      type: 'submitTags',
-      articles: [{ articleId: id, tags: ['persist'] }],
-    }));
+  it('no-op when all incoming tags already present', async () => {
+    const id = 'noop000000000001';
+    ws.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: id, tags: ['a','b','c','d','e','f'] }] }));
     await new Promise(r => setTimeout(r, 50));
+    const before = await env.ARTICLE_META.get<{ updatedAt: number }>('meta:' + id, 'json');
 
-    // Simulate KV expiry by deleting the cached key
-    await env.ARTICLE_META.delete('meta:' + id);
-
-    const replyPromise = nextMessage(ws);
-    ws.send(JSON.stringify({ type: 'catchUp', since: 0 }));
-    const reply = await replyPromise as { type: string; updates: Array<{ articleId: string }> };
-
-    expect(reply.type).toBe('catchUp');
-    expect(reply.updates.some(u => u.articleId === id)).toBe(true);
+    ws.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: id, tags: ['a','b'] }] }));
+    await new Promise(r => setTimeout(r, 50));
+    const after = await env.ARTICLE_META.get<{ updatedAt: number }>('meta:' + id, 'json');
+    expect(after!.updatedAt).toBe(before!.updatedAt);
     ws.close();
   });
 
-  it('re-interaction after KV expiry merges new tags from SQLite history', async () => {
-    const id = 'rehydrate00000001';
-    // First submission
-    ws.send(JSON.stringify({
-      type: 'submitTags',
-      articles: [{ articleId: id, tags: ['old'] }],
-    }));
+  it('catchUp returns hasMore=false and no cursor when results fit one page', async () => {
+    const id = 'pageshape00000001';
+    ws.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: id, tags: ['x'] }] }));
     await new Promise(r => setTimeout(r, 50));
 
-    // Simulate KV expiry
+    const replyPromise = nextMessage(ws);
+    ws.send(JSON.stringify({ type: 'catchUp', since: 0 }));
+    const reply = await replyPromise as { type: string; updates: unknown[]; hasMore: boolean; cursor?: number };
+
+    expect(reply.type).toBe('catchUp');
+    expect(reply.hasMore).toBe(false);
+    expect(reply.cursor).toBeUndefined();
+    ws.close();
+  });
+
+  it('catchUp with before= filters to entries older than the cursor', async () => {
+    const idA = 'beforefilter00001';
+    const idB = 'beforefilter00002';
+    ws.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: idA, tags: ['first'] }] }));
+    await new Promise(r => setTimeout(r, 30));
+    const mid = Date.now();
+    await new Promise(r => setTimeout(r, 30));
+    ws.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: idB, tags: ['second'] }] }));
+    await new Promise(r => setTimeout(r, 50));
+
+    const replyPromise = nextMessage(ws);
+    ws.send(JSON.stringify({ type: 'catchUp', since: 0, before: mid }));
+    const reply = await replyPromise as { type: string; updates: Array<{ articleId: string }> };
+
+    expect(reply.updates.some(u => u.articleId === idA)).toBe(true);
+    expect(reply.updates.some(u => u.articleId === idB)).toBe(false);
+    ws.close();
+  });
+
+  it('after KV expiry a new submission starts fresh with only the new tags', async () => {
+    const id = 'kvexpiry000000001';
+    ws.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: id, tags: ['old'] }] }));
+    await new Promise(r => setTimeout(r, 50));
+
     await env.ARTICLE_META.delete('meta:' + id);
 
-    // Second submission — should read SQLite and merge
-    ws.send(JSON.stringify({
-      type: 'submitTags',
-      articles: [{ articleId: id, tags: ['new'] }],
-    }));
+    ws.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: id, tags: ['new'] }] }));
     await new Promise(r => setTimeout(r, 50));
 
     const entry = await env.ARTICLE_META.get('meta:' + id, 'json') as Record<string, unknown>;
-    const tags = entry.tags as string[];
-    expect(tags).toContain('old');
-    expect(tags).toContain('new');
+    expect((entry.tags as string[])).toContain('new');
     ws.close();
   });
 });

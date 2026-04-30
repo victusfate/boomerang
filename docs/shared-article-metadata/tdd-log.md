@@ -13,12 +13,24 @@
 | S9 | news-feed articleTagsMap merge: local + meta tags unified in display | done |
 | S10 | news-feed inline tag editor: add/edit tags on article cards in the feed | done |
 | S11 | meta-worker: DO SQLite primary store, MAX_TAGS=6, KV 14-day TTL, SQLite catchUp | done |
+| S12 | meta-worker: SQLite as index-only, KV 90-day TTL, paginated catchUp, hourly alarm prune | done |
 
 ---
 
 ## S1 — meta-worker scaffold
 - **Status**: done
 - 3 tests pass: GET /health → 200, OPTIONS → 204, unknown → 404
+
+## S12 — SQLite index-only, KV 90-day TTL, paginated catchUp, DO alarm pruning
+- **Status**: done
+- 5 new tests pass: tag cap, no-op unchanged, catchUp pagination shape, before= cursor filtering, KV expiry fresh start
+- SQLite schema slimmed to `(article_id, updated_at)` only — ~40 bytes/row, ~25M articles before 1 GB
+- KV TTL raised to 90 days; SQLite index pruned to 14-day window by hourly DO alarm
+- `handleCatchUp`: SQL gives IDs for `[since, before)` window, concurrent KV reads supply tags, returns `hasMore + cursor`
+- `useMetaWorker`: follows pagination via `catchUpSinceRef` + `before=cursor` on next request
+- Contributor cap removed; no-op early-exit guards against redundant KV writes
+- `"remote": true` removed from wrangler.jsonc KV binding (was breaking local tests)
+- `CatchUpMsg` gains optional `before?: number`; `CatchUpReplyMsg` gains `hasMore?, cursor?`
 
 ## S11 — DO SQLite primary store + tag cap + KV TTL
 - **Status**: done
