@@ -289,4 +289,33 @@ describe('S11/S12/S13 — SQLite index, tag cap, KV TTL, pagination, cron prune'
     expect(res.status).toBe(404);
     ws.close();
   });
+
+  it('DO stub POST /prune deletes SQLite rows older than the cutoff', async () => {
+    const id = 'pruneviado0000001';
+
+    // Write a tag — lands in SQLite with current timestamp
+    ws.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: id, tags: ['stale'] }] }));
+    await new Promise(r => setTimeout(r, 50));
+
+    // Verify entry is present in catchUp
+    const beforePromise = nextMessage(ws);
+    ws.send(JSON.stringify({ type: 'catchUp', since: 0 }));
+    const before = await beforePromise as { updates: Array<{ articleId: string }> };
+    expect(before.updates.some(u => u.articleId === id)).toBe(true);
+
+    // Call DO stub directly — cutoff = now+1000 prunes all current rows
+    const stub = env.META_DO.get(env.META_DO.idFromName('global'));
+    const pruneRes = await stub.fetch(
+      new Request(`http://do-internal/prune?cutoff=${Date.now() + 1000}`, { method: 'POST' }),
+    );
+    expect(pruneRes.status).toBe(204);
+
+    // Verify entry is gone from catchUp
+    const afterPromise = nextMessage(ws);
+    ws.send(JSON.stringify({ type: 'catchUp', since: 0 }));
+    const after = await afterPromise as { updates: Array<{ articleId: string }> };
+    expect(after.updates.some(u => u.articleId === id)).toBe(false);
+
+    ws.close();
+  });
 });

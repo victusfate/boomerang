@@ -33,8 +33,7 @@ export class MetaDO implements DurableObject {
     `);
   }
 
-  prune(): void {
-    const cutoff = Date.now() - SQLITE_RETENTION_MS;
+  prune(cutoff = Date.now() - SQLITE_RETENTION_MS): void {
     this.state.storage.sql.exec(
       'DELETE FROM article_meta WHERE updated_at < ?',
       cutoff,
@@ -46,7 +45,8 @@ export class MetaDO implements DurableObject {
 
     // Internal-only prune route — only reachable via DO stub from scheduled handler
     if (url.pathname === '/prune' && request.method === 'POST') {
-      this.prune();
+      const cutoffParam = url.searchParams.get('cutoff');
+      this.prune(cutoffParam !== null ? parseInt(cutoffParam, 10) : undefined);
       return new Response(null, { status: 204 });
     }
 
