@@ -28,7 +28,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
   const articleIdsRef = useRef<string[]>(articleIds);
   const pendingBufferRef = useRef<Array<{ articleId: string; tags: string[] }>>([]);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const FLUSH_INTERVAL_MS = 0;
+  const FLUSH_INTERVAL_MS = 20_000;
   const MAX_BATCH = 200;
 
   // Keep articleIds ref current and re-subscribe so the DO broadcasts for newly visible articles
