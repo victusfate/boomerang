@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFireproof } from 'use-fireproof';
 import { fetchAllSources, DEFAULT_SOURCES } from '../services/newsService';
 import { rankFeed } from '../services/algorithm';
@@ -195,14 +195,12 @@ export function useFeed(options?: UseFeedOptions) {
             // Per-article logs + timings live in labelClassifier.runTaggingPass
             setClassificationStatus(`Tagging articles… ${done}/${toTag.length}`);
             metaCallbacks?.feedTaggedArticle(tag.articleId, tag.tags);
-            startTransition(() => {
-              setArticleTags(prev => {
-                const updated = [...prev, tag];
-                articleTagsRef.current = updated;
-                database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc)
-                  .catch(console.error);
-                return updated;
-              });
+            setArticleTags(prev => {
+              const updated = [...prev, tag];
+              articleTagsRef.current = updated;
+              database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc)
+                .catch(console.error);
+              return updated;
             });
           }, {
             onModelStatus: (status) => {
