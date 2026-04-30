@@ -1,8 +1,22 @@
+import { normaliseTags, mergeTagSets } from './tags';
+
 const MAX_MISSED_PONGS = 2;
+const MAX_BATCH_SIZE = 200;
+const MAX_MSG_PER_MIN = 20;
+const MAX_CONTRIBUTORS = 3;
+
+export interface ArticleMetaEntry {
+  articleId: string;
+  tags: string[];
+  updatedAt: number;
+  contributors: number;
+}
 
 interface SessionState {
   missedPongs: number;
   subscribedIds: Set<string>;
+  msgCount: number;
+  msgWindowStart: number;
 }
 
 export class MetaDO implements DurableObject {
@@ -15,17 +29,25 @@ export class MetaDO implements DurableObject {
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
 
     this.state.acceptWebSocket(server);
-    this.sessions.set(server, { missedPongs: 0, subscribedIds: new Set() });
+    this.sessions.set(server, {
+      missedPongs: 0,
+      subscribedIds: new Set(),
+      msgCount: 0,
+      msgWindowStart: Date.now(),
+    });
     server.send(JSON.stringify({ type: 'welcome' }));
 
     return new Response(null, { status: 101, webSocket: client });
   }
 
   webSocketOpen(ws: WebSocket): void {
-    // Called on hibernation wake for existing connections that were hibernated.
-    // First-connect welcome is sent from fetch() above.
     if (!this.sessions.has(ws)) {
-      this.sessions.set(ws, { missedPongs: 0, subscribedIds: new Set() });
+      this.sessions.set(ws, {
+        missedPongs: 0,
+        subscribedIds: new Set(),
+        msgCount: 0,
+        msgWindowStart: Date.now(),
+      });
       ws.send(JSON.stringify({ type: 'welcome' }));
     }
   }
@@ -33,6 +55,15 @@ export class MetaDO implements DurableObject {
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
     const session = this.sessions.get(ws);
     if (!session) return;
+
+    // Rate-limit: max 20 messages per 60s window per connection
+    const now = Date.now();
+    if (now - session.msgWindowStart >= 60_000) {
+      session.msgCount = 0;
+      session.msgWindowStart = now;
+    }
+    session.msgCount++;
+    if (session.msgCount > MAX_MSG_PER_MIN) return;
 
     let msg: Record<string, unknown>;
     try {
@@ -70,11 +101,62 @@ export class MetaDO implements DurableObject {
   }
 
   protected handleMessage(
-    _ws: WebSocket,
-    _session: SessionState,
-    _msg: Record<string, unknown>,
+    ws: WebSocket,
+    session: SessionState,
+    msg: Record<string, unknown>,
   ): void {
-    // Extended in later slices
+    if (msg.type === 'subscribe') {
+      const ids = msg.articleIds;
+      if (Array.isArray(ids)) {
+        session.subscribedIds = new Set(ids.filter((id): id is string => typeof id === 'string'));
+      }
+      return;
+    }
+
+    if (msg.type === 'submitTags') {
+      const articles = msg.articles;
+      if (!Array.isArray(articles) || articles.length > MAX_BATCH_SIZE) return;
+      this.state.waitUntil(this.processSubmitTags(articles));
+      return;
+    }
+
+    if (msg.type === 'catchUp') {
+      const since = typeof msg.since === 'number' ? msg.since : 0;
+      this.state.waitUntil(this.handleCatchUp(ws, since));
+      return;
+    }
+  }
+
+  private async processSubmitTags(
+    articles: Array<{ articleId: string; tags: string[] }>,
+  ): Promise<void> {
+    for (const item of articles) {
+      if (typeof item.articleId !== 'string' || !Array.isArray(item.tags)) continue;
+      const normalised = normaliseTags(item.tags);
+      if (normalised.length === 0) continue;
+      await this.kvWrite(item.articleId, normalised);
+    }
+  }
+
+  private async kvWrite(articleId: string, incomingTags: string[]): Promise<void> {
+    const key = `meta:${articleId}`;
+    const existing = await this.env.ARTICLE_META.get<ArticleMetaEntry>(key, 'json');
+
+    if (existing && existing.contributors >= MAX_CONTRIBUTORS) return;
+
+    const entry: ArticleMetaEntry = {
+      articleId,
+      tags: existing ? mergeTagSets(existing.tags, incomingTags) : incomingTags,
+      updatedAt: Date.now(),
+      contributors: existing ? existing.contributors + 1 : 1,
+    };
+
+    await this.env.ARTICLE_META.put(key, JSON.stringify(entry));
+    this.broadcast(entry.articleId, entry.tags, entry.updatedAt);
+  }
+
+  protected async handleCatchUp(_ws: WebSocket, _since: number): Promise<void> {
+    // Implemented in S5
   }
 
   protected broadcast(articleId: string, tags: string[], updatedAt: number): void {

@@ -1,5 +1,5 @@
-import { SELF } from 'cloudflare:test';
-import { describe, it, expect } from 'vitest';
+import { SELF, env } from 'cloudflare:test';
+import { describe, it, expect, beforeEach } from 'vitest';
 
 async function connectWS(): Promise<WebSocket> {
   const res = await SELF.fetch('http://localhost/ws', {
@@ -54,5 +54,89 @@ describe('S2 — DO WebSocket', () => {
   it('non-WebSocket GET /ws → 426 Upgrade Required', async () => {
     const res = await SELF.fetch('http://localhost/ws');
     expect(res.status).toBe(426);
+  });
+});
+
+describe('S3 — submitTags', () => {
+  let ws: WebSocket;
+
+  beforeEach(async () => {
+    ws = await connectWS();
+    await nextMessage(ws); // consume welcome
+  });
+
+  it('accepts a valid submitTags batch and writes to KV', async () => {
+    ws.send(JSON.stringify({
+      type: 'submitTags',
+      articles: [{ articleId: 'aabbccdd11223344', tags: ['ai', 'Climate '] }],
+    }));
+    // Allow async KV write to settle
+    await new Promise(r => setTimeout(r, 50));
+    const entry = await env.ARTICLE_META.get('meta:aabbccdd11223344', 'json') as Record<string, unknown> | null;
+    expect(entry).not.toBeNull();
+    expect(entry!.tags).toEqual(['ai', 'climate']); // normalised
+    expect(entry!.contributors).toBe(1);
+    ws.close();
+  });
+
+  it('union-merges tags from two submissions', async () => {
+    const id = 'merge000000000001';
+    ws.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: id, tags: ['ai'] }] }));
+    await new Promise(r => setTimeout(r, 50));
+    ws.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: id, tags: ['climate'] }] }));
+    await new Promise(r => setTimeout(r, 50));
+    const entry = await env.ARTICLE_META.get('meta:' + id, 'json') as Record<string, unknown>;
+    expect((entry.tags as string[]).sort()).toEqual(['ai', 'climate']);
+    ws.close();
+  });
+
+  it('stops accepting after N=3 contributors', async () => {
+    const id = 'captest0000000001';
+    // Fill 3 contributors via 3 separate connections
+    for (let i = 0; i < 3; i++) {
+      const w = await connectWS();
+      await nextMessage(w);
+      w.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: id, tags: [`tag${i}`] }] }));
+      await new Promise(r => setTimeout(r, 50));
+      w.close();
+    }
+    // 4th contributor should be silently dropped
+    const w4 = await connectWS();
+    await nextMessage(w4);
+    w4.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: id, tags: ['extra'] }] }));
+    await new Promise(r => setTimeout(r, 50));
+    const entry = await env.ARTICLE_META.get('meta:' + id, 'json') as Record<string, unknown>;
+    expect(entry.contributors).toBe(3);
+    expect((entry.tags as string[])).not.toContain('extra');
+    w4.close();
+    ws.close();
+  });
+
+  it('rejects batch larger than 200 articles silently', async () => {
+    const articles = Array.from({ length: 201 }, (_, i) => ({
+      articleId: `batch${String(i).padStart(12, '0')}`,
+      tags: ['x'],
+    }));
+    ws.send(JSON.stringify({ type: 'submitTags', articles }));
+    await new Promise(r => setTimeout(r, 50));
+    // First article should NOT have been written
+    const entry = await env.ARTICLE_META.get('meta:batch000000000000', 'json');
+    expect(entry).toBeNull();
+    ws.close();
+  });
+
+  it('rate-limits to 20 messages/min per connection', async () => {
+    // Send 21 messages rapidly; 21st should be ignored (connection not closed but msg dropped)
+    for (let i = 0; i < 21; i++) {
+      ws.send(JSON.stringify({
+        type: 'submitTags',
+        articles: [{ articleId: `rate${String(i).padStart(12, '0')}`, tags: ['t'] }],
+      }));
+    }
+    await new Promise(r => setTimeout(r, 100));
+    // Article 20 (0-indexed) should NOT be written
+    const entry = await env.ARTICLE_META.get('meta:rate000000000020', 'json');
+    expect(entry).toBeNull();
+    ws.close();
   });
 });

@@ -4,7 +4,7 @@
 |-------|-------------|--------|
 | S1 | meta-worker scaffold: wrangler.jsonc, KV binding, CORS, GET /health | done |
 | S2 | DO WebSocket: connect, subscribe, ping/pong, graceful close + hibernation | done |
-| S3 | submitTags (batch): DO accepts, normalises, rate-limits, writes KV | pending |
+| S3 | submitTags (batch): DO accepts, normalises, rate-limits, writes KV | done |
 | S4 | Tags broadcast: DO pushes `tags` messages to subscribed clients only | pending |
 | S5 | catchUp: client sends `since`, DO replies with delta from KV | pending |
 | S6 | rss-worker: ARTICLE_META KV binding + tags injected into GET /bundle | pending |
@@ -18,6 +18,11 @@
 ## S1 — meta-worker scaffold
 - **Status**: done
 - 3 tests pass: GET /health → 200, OPTIONS → 204, unknown → 404
+
+## S3 — submitTags: normalise, rate-limit, write KV
+- **Status**: done
+- 7 tests pass: normalise, merge, KV write, union-merge, N=3 cap, batch-size cap, 20 msg/min rate-limit
+- KV write debounce dropped (contributor cap already bounds writes to 3/article; simpler + testable)
 
 ## S2 — DO WebSocket connect + hibernation
 - **Status**: done
