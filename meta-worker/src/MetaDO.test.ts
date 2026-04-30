@@ -203,3 +203,71 @@ describe('S3 — submitTags', () => {
     ws.close();
   });
 });
+
+describe('S11 — SQLite primary store + tag cap + KV TTL', () => {
+  let ws: WebSocket;
+
+  beforeEach(async () => {
+    ws = await connectWS();
+    await nextMessage(ws); // consume welcome
+  });
+
+  it('truncates tags to MAX_TAGS_PER_ARTICLE=6', async () => {
+    const id = 'tagcap0000000001';
+    ws.send(JSON.stringify({
+      type: 'submitTags',
+      articles: [{ articleId: id, tags: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] }],
+    }));
+    await new Promise(r => setTimeout(r, 50));
+    const entry = await env.ARTICLE_META.get('meta:' + id, 'json') as Record<string, unknown>;
+    expect(Array.isArray(entry.tags)).toBe(true);
+    expect((entry.tags as string[]).length).toBeLessThanOrEqual(6);
+    ws.close();
+  });
+
+  it('catchUp reads from SQLite — returns entry even after KV key is deleted', async () => {
+    const id = 'sqlitecatchup0001';
+    ws.send(JSON.stringify({
+      type: 'submitTags',
+      articles: [{ articleId: id, tags: ['persist'] }],
+    }));
+    await new Promise(r => setTimeout(r, 50));
+
+    // Simulate KV expiry by deleting the cached key
+    await env.ARTICLE_META.delete('meta:' + id);
+
+    const replyPromise = nextMessage(ws);
+    ws.send(JSON.stringify({ type: 'catchUp', since: 0 }));
+    const reply = await replyPromise as { type: string; updates: Array<{ articleId: string }> };
+
+    expect(reply.type).toBe('catchUp');
+    expect(reply.updates.some(u => u.articleId === id)).toBe(true);
+    ws.close();
+  });
+
+  it('re-interaction after KV expiry merges new tags from SQLite history', async () => {
+    const id = 'rehydrate00000001';
+    // First submission
+    ws.send(JSON.stringify({
+      type: 'submitTags',
+      articles: [{ articleId: id, tags: ['old'] }],
+    }));
+    await new Promise(r => setTimeout(r, 50));
+
+    // Simulate KV expiry
+    await env.ARTICLE_META.delete('meta:' + id);
+
+    // Second submission — should read SQLite and merge
+    ws.send(JSON.stringify({
+      type: 'submitTags',
+      articles: [{ articleId: id, tags: ['new'] }],
+    }));
+    await new Promise(r => setTimeout(r, 50));
+
+    const entry = await env.ARTICLE_META.get('meta:' + id, 'json') as Record<string, unknown>;
+    const tags = entry.tags as string[];
+    expect(tags).toContain('old');
+    expect(tags).toContain('new');
+    ws.close();
+  });
+});

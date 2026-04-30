@@ -12,12 +12,21 @@
 | S8 | news-feed auto-submit: after Chrome AI batch, fire batched submitTags | done |
 | S9 | news-feed articleTagsMap merge: local + meta tags unified in display | done |
 | S10 | news-feed inline tag editor: add/edit tags on article cards in the feed | done |
+| S11 | meta-worker: DO SQLite primary store, MAX_TAGS=6, KV 14-day TTL, SQLite catchUp | done |
 
 ---
 
 ## S1 — meta-worker scaffold
 - **Status**: done
 - 3 tests pass: GET /health → 200, OPTIONS → 204, unknown → 404
+
+## S11 — DO SQLite primary store + tag cap + KV TTL
+- **Status**: done
+- 3 tests pass: tag cap at 6, catchUp from SQLite survives KV expiry, re-interaction merges from SQLite history
+- `kvWrite`: reads from DO SQLite (synchronous, no network hop) → merge → truncate to 6 → write SQLite + KV with 14-day TTL
+- `handleCatchUp`: single SQL `WHERE updated_at > ?` replaces paginated KV list + serial GETs
+- Constructor: `CREATE TABLE IF NOT EXISTS article_meta (article_id, tags, contributors, updated_at)`
+- Constants: `MAX_TAGS_PER_ARTICLE = 6`, `KV_TTL_SECONDS = 14 * 24 * 60 * 60`
 
 ## S10 — news-feed inline tag editor
 - **Status**: done

@@ -4,6 +4,8 @@ const MAX_MISSED_PONGS = 2;
 const MAX_BATCH_SIZE = 200;
 const MAX_MSG_PER_MIN = 20;
 const MAX_CONTRIBUTORS = 3;
+const MAX_TAGS_PER_ARTICLE = 6;
+const KV_TTL_SECONDS = 14 * 24 * 60 * 60; // 14 days
 
 export interface ArticleMetaEntry {
   articleId: string;
@@ -22,7 +24,16 @@ interface SessionState {
 export class MetaDO implements DurableObject {
   private sessions = new Map<WebSocket, SessionState>();
 
-  constructor(private state: DurableObjectState, private env: Env) {}
+  constructor(private state: DurableObjectState, private env: Env) {
+    this.state.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS article_meta (
+        article_id   TEXT PRIMARY KEY,
+        tags         TEXT    NOT NULL,
+        contributors INTEGER NOT NULL DEFAULT 1,
+        updated_at   INTEGER NOT NULL
+      )
+    `);
+  }
 
   async fetch(request: Request): Promise<Response> {
     const pair = new WebSocketPair();
@@ -139,36 +150,49 @@ export class MetaDO implements DurableObject {
   }
 
   private async kvWrite(articleId: string, incomingTags: string[]): Promise<void> {
-    const key = `meta:${articleId}`;
-    const existing = await this.env.ARTICLE_META.get<ArticleMetaEntry>(key, 'json');
-
-    if (existing && existing.contributors >= MAX_CONTRIBUTORS) return;
-
-    const entry: ArticleMetaEntry = {
+    // Read from SQLite (local, synchronous — no network hop)
+    type Row = { tags: string; contributors: number; updated_at: number };
+    const rows = [...this.state.storage.sql.exec<Row>(
+      'SELECT tags, contributors, updated_at FROM article_meta WHERE article_id = ?',
       articleId,
-      tags: existing ? mergeTagSets(existing.tags, incomingTags) : incomingTags,
-      updatedAt: Date.now(),
-      contributors: existing ? existing.contributors + 1 : 1,
-    };
+    )];
+    const row = rows[0] ?? null;
 
-    await this.env.ARTICLE_META.put(key, JSON.stringify(entry));
-    this.broadcast(entry.articleId, entry.tags, entry.updatedAt);
+    if (row && row.contributors >= MAX_CONTRIBUTORS) return;
+
+    const existingTags = row ? JSON.parse(row.tags) as string[] : [];
+    const merged = mergeTagSets(existingTags, incomingTags).slice(0, MAX_TAGS_PER_ARTICLE);
+    const contributors = row ? row.contributors + 1 : 1;
+    const updatedAt = Date.now();
+
+    // Durable store (primary)
+    this.state.storage.sql.exec(
+      'INSERT OR REPLACE INTO article_meta (article_id, tags, contributors, updated_at) VALUES (?, ?, ?, ?)',
+      articleId, JSON.stringify(merged), contributors, updatedAt,
+    );
+
+    // Hot cache (14-day sliding TTL)
+    const entry: ArticleMetaEntry = { articleId, tags: merged, updatedAt, contributors };
+    await this.env.ARTICLE_META.put(`meta:${articleId}`, JSON.stringify(entry), {
+      expirationTtl: KV_TTL_SECONDS,
+    });
+
+    this.broadcast(articleId, merged, updatedAt);
   }
 
   protected async handleCatchUp(ws: WebSocket, since: number): Promise<void> {
-    const updates: ArticleMetaEntry[] = [];
-    let cursor: string | undefined;
+    type Row = { article_id: string; tags: string; contributors: number; updated_at: number };
+    const rows = [...this.state.storage.sql.exec<Row>(
+      'SELECT article_id, tags, contributors, updated_at FROM article_meta WHERE updated_at > ?',
+      since,
+    )];
 
-    do {
-      const listed = await this.env.ARTICLE_META.list({ prefix: 'meta:', cursor });
-      for (const key of listed.keys) {
-        const entry = await this.env.ARTICLE_META.get<ArticleMetaEntry>(key.name, 'json');
-        if (entry && entry.updatedAt > since) {
-          updates.push(entry);
-        }
-      }
-      cursor = listed.list_complete ? undefined : listed.cursor;
-    } while (cursor);
+    const updates: ArticleMetaEntry[] = rows.map(r => ({
+      articleId: r.article_id,
+      tags: JSON.parse(r.tags) as string[],
+      contributors: r.contributors,
+      updatedAt: r.updated_at,
+    }));
 
     ws.send(JSON.stringify({ type: 'catchUp', updates }));
   }
