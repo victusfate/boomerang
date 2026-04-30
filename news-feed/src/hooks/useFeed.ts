@@ -38,7 +38,12 @@ interface ArticleTagsDoc      { _id: string; hits: ArticleTag[] }
 type PrefsDoc = UserPrefs & { _id: string };
 
 
-export function useFeed() {
+export interface UseFeedMetaCallbacks {
+  feedTaggedArticle: (articleId: string, tags: string[]) => void;
+  endTaggingPass: () => void;
+}
+
+export function useFeed(metaCallbacks?: UseFeedMetaCallbacks) {
   const { database } = useFireproof('boomerang-news');
 
   const [prefs, setPrefsState]      = useState<UserPrefs>(DEFAULT_PREFS);
@@ -171,6 +176,7 @@ export function useFeed() {
             done++;
             // Per-article logs + timings live in labelClassifier.runTaggingPass
             setClassificationStatus(`Tagging articles… ${done}/${toTag.length}`);
+            metaCallbacks?.feedTaggedArticle(tag.articleId, tag.tags);
             startTransition(() => {
               setArticleTags(prev => {
                 const updated = [...prev, tag];
@@ -226,6 +232,7 @@ export function useFeed() {
           setClassificationStatus('');
           return;
         }
+        metaCallbacks?.endTaggingPass();
         const idleMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - idleT0);
         console.info('[AI Tags] idle run finished', {
           tagged: done,
