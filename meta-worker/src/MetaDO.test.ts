@@ -125,6 +125,43 @@ describe('S3 — submitTags', () => {
     ws.close();
   });
 
+  it('subscribe + submitTags → broadcast only to subscribed client', async () => {
+    const wsA = await connectWS();
+    await nextMessage(wsA); // welcome
+    const wsB = await connectWS();
+    await nextMessage(wsB); // welcome
+
+    const idA = 'broadcastaaa00001';
+    const idB = 'broadcastbbb00001';
+
+    wsA.send(JSON.stringify({ type: 'subscribe', articleIds: [idA] }));
+    wsB.send(JSON.stringify({ type: 'subscribe', articleIds: [idB] }));
+    await new Promise(r => setTimeout(r, 20));
+
+    // Collect any incoming message on wsB with a short race
+    let bGotMsg = false;
+    const bRace = new Promise<void>(resolve => {
+      wsB.addEventListener('message', () => { bGotMsg = true; resolve(); }, { once: true });
+      setTimeout(resolve, 200);
+    });
+
+    // Register listener before send so we don't miss the broadcast
+    const msgAPromise = Promise.race([
+      nextMessage(wsA),
+      new Promise<null>(r => setTimeout(() => r(null), 300)),
+    ]);
+
+    wsA.send(JSON.stringify({ type: 'submitTags', articles: [{ articleId: idA, tags: ['ai'] }] }));
+    const msgA = await msgAPromise;
+    await bRace;
+
+    expect(msgA).toMatchObject({ type: 'tags', articleId: idA });
+    expect(bGotMsg).toBe(false);
+
+    wsA.close();
+    wsB.close();
+  });
+
   it('rate-limits to 20 messages/min per connection', async () => {
     // Send 21 messages rapidly; 21st should be ignored (connection not closed but msg dropped)
     for (let i = 0; i < 21; i++) {
