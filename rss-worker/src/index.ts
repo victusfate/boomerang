@@ -53,10 +53,10 @@ function corsHeaders(request: Request, env: Env): Headers {
   return h;
 }
 
-function json(data: unknown, request: Request, env: Env, init?: ResponseInit): Response {
+function json(data: unknown, request: Request, env: Env, init?: ResponseInit, ttl = BUNDLE_CACHE_TTL_SEC): Response {
   const headers = corsHeaders(request, env);
   headers.set('Content-Type', 'application/json; charset=utf-8');
-  headers.set('Cache-Control', `public, max-age=${BUNDLE_CACHE_TTL_SEC}`);
+  headers.set('Cache-Control', `public, max-age=${ttl}`);
   return new Response(JSON.stringify(data), { ...init, headers });
 }
 
@@ -220,7 +220,7 @@ async function rssWorkerFetch(request: Request, env: Env, ctx: ExecutionContext)
 
       const resolved = extractOgImageFromHtml(html, target);
       const body = { imageUrl: resolved ?? null };
-      const response = json(body, request, env);
+      const response = json(body, request, env, undefined, IMAGE_PROXY_CACHE_TTL_SEC);
       ctx.waitUntil(
         cache.put(cacheKey, response.clone()).catch(() => {
           /* ignore — dev / quota / transient cache failures */

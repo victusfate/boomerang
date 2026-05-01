@@ -1,7 +1,8 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from 'react';
 import { useFeed } from './hooks/useFeed';
 import { useSyncWorker } from './hooks/useSyncWorker';
 import { useMetaWorker } from './hooks/useMetaWorker';
+import { useOGImageBatch } from './hooks/useOGImageBatch';
 import { ArticleCard } from './components/ArticleCard';
 import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
@@ -169,6 +170,9 @@ export default function App() {
     if (filteredArticles.length === 0) onLoadMore();
   }, [activeFilter, view, fetching, loading, hasMore, filteredArticles.length, onLoadMore]);
 
+  const { ogMap, sentinelRef: ogSentinelRef, fetchedUpTo: ogFetchedUpTo } =
+    useOGImageBatch(filteredArticles, 10);
+
   function formatLastRefresh() {
     if (!lastRefresh) return '';
     const mins = Math.floor((Date.now() - lastRefresh.getTime()) / 60000);
@@ -295,22 +299,27 @@ export default function App() {
         )}
 
         {filteredArticles.map((article, index) => (
-          <ArticleCard
-            key={article.id}
-            article={article}
-            prefs={prefs}
-            animateEnter={feedEnterIds.includes(article.id)}
-            priority={index === 0}
-            articleLabelNames={articleTagsMap.get(article.id) ?? []}
-            isTagging={taggingArticleId === article.id}
-            onOpen={onOpen}
-            onSave={onSave}
-            onUpvote={onUpvote}
-            onDownvote={onDownvote}
-            onSeen={onSeen}
-            onAddManualTag={onAddManualTag}
-            onRemoveManualTag={onRemoveManualTag}
-          />
+          <Fragment key={article.id}>
+            <ArticleCard
+              article={article}
+              prefs={prefs}
+              animateEnter={feedEnterIds.includes(article.id)}
+              priority={index === 0}
+              ogImageUrl={ogMap.get(article.id)}
+              articleLabelNames={articleTagsMap.get(article.id) ?? []}
+              isTagging={taggingArticleId === article.id}
+              onOpen={onOpen}
+              onSave={onSave}
+              onUpvote={onUpvote}
+              onDownvote={onDownvote}
+              onSeen={onSeen}
+              onAddManualTag={onAddManualTag}
+              onRemoveManualTag={onRemoveManualTag}
+            />
+            {index === Math.min(ogFetchedUpTo, filteredArticles.length) - 1 && (
+              <div ref={ogSentinelRef} aria-hidden="true" />
+            )}
+          </Fragment>
         ))}
 
         {/* Sentinel — IntersectionObserver target */}

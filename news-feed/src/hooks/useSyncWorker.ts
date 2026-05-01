@@ -7,7 +7,7 @@ import {
   type SyncRoom,
 } from '../services/syncWorker';
 
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = 300_000; // 5 minutes — tab visibilitychange still fires immediately on focus
 const PUSH_DEBOUNCE_MS = 2_000;
 const DEFAULT_BOOMERANG_SYNC_URL = 'https://boomerang-sync.boomerang.workers.dev';
 const envSyncWorker = import.meta.env.VITE_SYNC_WORKER_URL?.replace(/\/$/, '') ?? '';
@@ -43,7 +43,8 @@ export function useSyncWorker(
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncUrl, setSyncUrl]   = useState<string | null>(null);
 
-  const etagRef    = useRef<string>('');
+  const etagRef         = useRef<string>('');
+  const lastPushedRef   = useRef<string>('');
   const pushTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollTimer  = useRef<ReturnType<typeof setInterval> | null>(null);
   const roomRef    = useRef<SyncRoom | null>(null);
@@ -102,12 +103,16 @@ export function useSyncWorker(
     const r = roomRef.current;
     if (!r) return;
     const payload = buildPayload(prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current);
+    const payloadJson = JSON.stringify(payload);
+    if (payloadJson === lastPushedRef.current) return; // nothing changed since last push
     const result = await pushMeta(r, payload, etagRef.current || undefined);
     if (result.conflict) {
       // Remote is ahead — pull first, then push again after a short delay
       await doPoll();
       setTimeout(() => void doPush(), 500);
+      return; // don't mark as pushed — retry will re-check
     }
+    lastPushedRef.current = payloadJson;
   }, [doPoll]);
 
   const schedulePush = useCallback(() => {

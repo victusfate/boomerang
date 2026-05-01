@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { Article, UserPrefs } from '../types';
-import { getRssWorkerBaseUrl } from '../services/newsService';
 import { TOPIC_META } from './TopicFilter';
 
 /** Match worker `normalizeHttpUrl` — fixes `&amp;` in stored URLs and canonicalizes for href / window.open. */
@@ -14,74 +13,6 @@ function normalizeArticleNavUrl(raw: string): string {
   } catch {
     return raw.trim();
   }
-}
-
-/** Resolve image hrefs against the article page so relative paths are not loaded from the SPA origin. */
-function resolveArticleImageUrl(raw: string, articlePageUrl: string): string | undefined {
-  const t = raw.trim();
-  if (!t) return undefined;
-  if (t.startsWith('?') || t.startsWith('&')) return undefined;
-  try {
-    const u = new URL(t, articlePageUrl);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return undefined;
-    return u.href;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Lazy og:image via Cloudflare Worker (`GET /og-image`) — no third-party CORS proxies. */
-async function fetchOGImage(articlePageUrl: string): Promise<string | undefined> {
-  const signal = AbortSignal.timeout(10000);
-  const base = getRssWorkerBaseUrl();
-  const res = await fetch(
-    `${base}/og-image?url=${encodeURIComponent(articlePageUrl)}`,
-    { signal },
-  );
-  if (!res.ok) return undefined;
-  const d = (await res.json()) as { imageUrl: string | null };
-  if (!d.imageUrl) return undefined;
-  return resolveArticleImageUrl(d.imageUrl, articlePageUrl) ?? d.imageUrl;
-}
-
-function useLazyOGImage(articleUrl: string, existingImage?: string, priority = false) {
-  const [lazyImg, setLazyImg] = useState<string | undefined>(undefined);
-  const [imgFailed, setImgFailed] = useState(false);
-  const cardRef = useRef<HTMLElement>(null);
-
-  // Fetch og:image when: no RSS image at all, OR the RSS image failed to load.
-  const shouldFetch = !existingImage || imgFailed;
-
-  useEffect(() => {
-    if (!shouldFetch) return;
-    const el = cardRef.current;
-    if (!el) return;
-
-    if (priority) {
-      fetchOGImage(articleUrl).then(img => {
-        if (img) setLazyImg(img);
-      }).catch(() => {});
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      entries => {
-        if (!entries[0].isIntersecting) return;
-        observer.disconnect();
-        fetchOGImage(articleUrl).then(img => {
-          if (img) setLazyImg(img);
-        }).catch(() => {});
-      },
-      { rootMargin: '400px' },
-    );
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [articleUrl, shouldFetch, priority]);
-
-  const raw = imgFailed ? lazyImg : (existingImage ?? lazyImg);
-  const imageUrl = raw ? resolveArticleImageUrl(raw, articleUrl) : undefined;
-  return { cardRef, imageUrl, onImageError: () => setImgFailed(true) };
 }
 
 function timeAgo(date: Date): string {
@@ -101,8 +32,10 @@ interface Props {
   prefs: UserPrefs;
   /** Short enter animation when appended during progressive refresh */
   animateEnter?: boolean;
-  /** First visible card — eager image load + immediate og:image fetch */
+  /** First visible card — eager image load */
   priority?: boolean;
+  /** og:image fetched by the centralized batch hook; used when article has no RSS image */
+  ogImageUrl?: string | null;
   /** AI-classified label names that apply to this article */
   articleLabelNames?: string[];
   onOpen: (article: Article) => void;
@@ -121,6 +54,7 @@ export function ArticleCard({
   prefs,
   animateEnter = false,
   priority = false,
+  ogImageUrl,
   articleLabelNames = [],
   isTagging = false,
   onOpen,
@@ -142,7 +76,10 @@ export function ArticleCard({
     article.imageUrl?.includes('img.youtube.com') === true
     || /youtube\.com|youtu\.be/i.test(navUrl);
 
-  const { cardRef, imageUrl, onImageError } = useLazyOGImage(navUrl, article.imageUrl, priority);
+  const cardRef = useRef<HTMLElement>(null);
+  const [imgFailed, setImgFailed] = useState(false);
+  // Prefer RSS image; if it fails fall back to og:image from batch hook
+  const imageUrl = imgFailed ? (ogImageUrl ?? undefined) : (article.imageUrl ?? ogImageUrl ?? undefined);
 
   const [addingTag, setAddingTag] = useState(false);
   const [newTagText, setNewTagText] = useState('');
@@ -238,7 +175,7 @@ export function ArticleCard({
             className="card-image"
             loading={priority ? 'eager' : 'lazy'}
             fetchPriority={priority ? 'high' : undefined}
-            onError={() => onImageError()}
+            onError={() => setImgFailed(true)}
           />
           {isVideo && (
             <span className="card-play-btn" aria-label="Play video">▶</span>
