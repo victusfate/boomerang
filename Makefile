@@ -1,7 +1,7 @@
 # Requires GNU Make (Git for Windows: add Git's usr\bin to PATH, or use Git Bash).
 # Default: production-like preview at /boomerang (same base as GitHub Pages).
 
-.PHONY: help preview-pages run dev worker worker-meta worker-rss install test \
+.PHONY: help preview-pages run dev worker worker-meta worker-sync worker-rss install test \
         deploy-rss deploy-sync deploy-meta deploy \
         create-kv create-r2
 
@@ -16,7 +16,8 @@ help:
 	@echo "  make run                   Same as preview-pages"
 	@echo "  make dev                   Vite dev — http://localhost:5173/"
 	@echo "  make worker-rss            wrangler dev — rss-worker  http://127.0.0.1:8787"
-	@echo "  make worker-meta           wrangler dev — meta-worker http://127.0.0.1:8788"
+	@echo "  make worker-sync           wrangler dev — sync-worker  http://127.0.0.1:8788"
+	@echo "  make worker-meta           wrangler dev — meta-worker  http://127.0.0.1:8789"
 	@echo "  make worker                alias for worker-rss (backwards compat)"
 	@echo "  make install               npm ci in all four packages"
 	@echo "  make test                  Run tests in all four packages"
@@ -44,10 +45,13 @@ dev:
 # ── Worker dev servers ────────────────────────────────────────────────────────
 
 worker-rss:
-	cd rss-worker && npx wrangler dev
+	cd rss-worker && npx wrangler dev --port 8787
+
+worker-sync:
+	cd sync-worker && npx wrangler dev --port 8788
 
 worker-meta:
-	cd meta-worker && npx wrangler dev --port 8788
+	cd meta-worker && npx wrangler dev --port 8789
 
 worker: worker-rss
 
