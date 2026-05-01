@@ -12,6 +12,15 @@ import type { ActiveFilter, FeedView } from './types';
 
 const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
 
+/** Same length and same id at each index (order matters — feed order). */
+function sameIdsInOrder(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 function RefreshIcon({ spinning }: { spinning: boolean }) {
   return (
     <svg
@@ -28,7 +37,7 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 }
 
 export default function App() {
-  // Wire useMetaWorker first so we can pass callbacks into useFeed
+  // Meta hook runs first: useFeed needs its callbacks + live tag map from the worker.
   const [articleIds, setArticleIds] = useState<string[]>([]);
   const { metaTagsMap, feedTaggedArticle, endTaggingPass, metaEnvError } = useMetaWorker(articleIds);
 
@@ -44,10 +53,8 @@ export default function App() {
     onRemoteSync,
   } = useFeed({ metaCallbacks: { feedTaggedArticle, endTaggingPass }, metaTagsMap });
 
-  const handleSyncMerge = onRemoteSync;
-
   const { syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError, generateLink, revoke } =
-    useSyncWorker(prefs, articleTags, labelHits, savedArticles, handleSyncMerge);
+    useSyncWorker(prefs, articleTags, labelHits, savedArticles, onRemoteSync);
 
   const [view, setView] = useState<FeedView>('feed');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>(null);
@@ -55,9 +62,12 @@ export default function App() {
   const [pullProgress, setPullProgress] = useState(0); // 0–1
   const canUseBrowserAi = isPromptApiAvailable();
 
-  // Keep articleIds in sync for meta-worker subscriptions
+  // Drive WebSocket `subscribe` in useMetaWorker. `visibleArticles` is a fresh array every
+  // render (useFeed does `allArticles.slice(0, visibleCount)`), so comparing by value and
+  // returning `prev` avoids setState → render → setState loops.
   useEffect(() => {
-    setArticleIds(visibleArticles.map(a => a.id));
+    const nextIds = visibleArticles.map(a => a.id);
+    setArticleIds(prev => (sameIdsInOrder(prev, nextIds) ? prev : nextIds));
   }, [visibleArticles]);
 
   // Keep a stable ref so the touch handlers always call the latest onRefresh
