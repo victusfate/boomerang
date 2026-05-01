@@ -30,7 +30,7 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 export default function App() {
   // Wire useMetaWorker first so we can pass callbacks into useFeed
   const [articleIds, setArticleIds] = useState<string[]>([]);
-  const { metaTagsMap, feedTaggedArticle, endTaggingPass } = useMetaWorker(articleIds);
+  const { metaTagsMap, feedTaggedArticle, endTaggingPass, metaEnvError } = useMetaWorker(articleIds);
 
   const {
     visibleArticles, savedArticles, hasMore, totalLoaded,
@@ -46,7 +46,7 @@ export default function App() {
 
   const handleSyncMerge = onRemoteSync;
 
-  const { syncActive, syncStatus, syncedAt, syncError, syncUrl, generateLink, revoke } =
+  const { syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError, generateLink, revoke } =
     useSyncWorker(prefs, articleTags, labelHits, savedArticles, handleSyncMerge);
 
   const [view, setView] = useState<FeedView>('feed');
@@ -276,10 +276,15 @@ export default function App() {
       )}
 
       <main className="feed">
-        {error && (
+        {(error || metaEnvError) && (
           <div className="feed-error">
-            <p>{error}</p>
-            <button onClick={onRefresh} className="btn-retry">Try again</button>
+            {error && (
+              <>
+                <p>{error}</p>
+                <button onClick={onRefresh} className="btn-retry">Try again</button>
+              </>
+            )}
+            {metaEnvError && <p>{metaEnvError}</p>}
           </div>
         )}
 
@@ -328,7 +333,7 @@ export default function App() {
           </div>
         )}
 
-        {!loading && !fetching && filteredArticles.length === 0 && !error && (
+        {!loading && !fetching && filteredArticles.length === 0 && !error && !metaEnvError && (
           <div className="feed-empty">
             {view === 'saved' ? (
               prefs.savedIds.length > 0
@@ -363,6 +368,7 @@ export default function App() {
           syncedAt={syncedAt}
           syncError={syncError}
           syncUrl={syncUrl}
+          syncEnvError={syncEnvError}
           onGenerateLink={generateLink}
           onRevoke={revoke}
           onToggleAiBar={onToggleAiBar}

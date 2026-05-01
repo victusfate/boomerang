@@ -1,11 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  DEFAULT_META_WORKER_URL, metaWorkerWsUrl, parseServerMsg,
-  type ClientMsg,
-} from '../services/metaWorker.ts';
+import { workerUrlFromEnv, missingWorkerEnvMessage } from '../config/workerEnv';
+import { metaWorkerWsUrl, parseServerMsg, type ClientMsg } from '../services/metaWorker.ts';
 
-const envMeta = import.meta.env.VITE_META_WORKER_URL?.replace(/\/$/, '') ?? '';
-const WORKER_BASE = envMeta || (import.meta.env.PROD ? DEFAULT_META_WORKER_URL : '');
+const WORKER_BASE = workerUrlFromEnv(import.meta.env.VITE_META_WORKER_URL);
 
 const RECONNECT_DELAY_MS = 3_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
@@ -16,9 +13,14 @@ export interface UseMetaWorkerResult {
   metaTagsMap: MetaTagsMap;
   feedTaggedArticle: (articleId: string, tags: string[]) => void;
   endTaggingPass: () => void;
+  /** Set when `VITE_META_WORKER_URL` is missing at build time */
+  metaEnvError: string | null;
 }
 
 export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
+  const [metaEnvError] = useState<string | null>(() =>
+    WORKER_BASE ? null : missingWorkerEnvMessage('VITE_META_WORKER_URL'),
+  );
   const [metaTagsMap, setMetaTagsMap] = useState<MetaTagsMap>(new Map());
   const wsRef = useRef<WebSocket | null>(null);
   const lastTagsAtRef = useRef<number>(0);
@@ -171,5 +173,5 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
     };
   }, [connect]);
 
-  return { metaTagsMap, feedTaggedArticle, endTaggingPass };
+  return { metaTagsMap, feedTaggedArticle, endTaggingPass, metaEnvError };
 }

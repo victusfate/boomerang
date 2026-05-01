@@ -1,5 +1,3 @@
-export const DEFAULT_META_WORKER_URL = 'https://boomerang-meta.boomerang.workers.dev';
-
 export function metaWorkerWsUrl(base: string): string {
   return base.replace(/^http/, 'ws') + '/ws';
 }

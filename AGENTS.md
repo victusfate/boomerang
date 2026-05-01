@@ -8,8 +8,9 @@
 | `news-feed/` | News PWA (React + Vite + Fireproof), deployed to GitHub Pages at `/boomerang` |
 | `rss-worker/` | Cloudflare Worker — RSS aggregation (`GET /bundle`), staggered upstream fetches |
 | `sync-worker/` | Cloudflare Worker — cross-browser sync via R2 (`POST /sync/room`, `PUT/GET /sync/{roomId}/meta`, `PUT/GET /sync/{roomId}/blocks/{cid}`, `DELETE /sync/{roomId}`). Token auth: SHA-256(token) stored in R2; raw token travels only in the URL fragment, never in query strings. |
+| `meta-worker/` | Cloudflare Worker + global Durable Object — shared per-article metadata (e.g. AI tags). WebSocket `GET /ws` for subscribe/catch-up; KV namespace shared with `rss-worker` so `GET /bundle` can inline tags. Feature docs: `docs/shared-article-metadata/`. |
 | `.github/workflows/deploy.yml` | Builds `news-feed/` only; uploads `news-feed/dist` |
-| `/` (repo root) | `npm run dev` / `preview` forward to `news-feed/`. **`npm run build`** runs `npm ci` + build in `news-feed/` (same as Cloudflare Pages from repo root). In **`news-feed`**, **`npm run preview:gh-pages`** = GitHub Pages–style build + preview (`http://localhost:4173/boomerang`). **`make`** same (needs GNU Make). **`make test`** runs tests in all three packages. |
+| `/` (repo root) | `npm run dev` / `preview` forward to `news-feed/`. **`npm run build`** runs `npm ci` + build in `news-feed/` (same as Cloudflare Pages from repo root). In **`news-feed`**, **`npm run preview:gh-pages`** = GitHub Pages–style build + preview (`http://localhost:4173/boomerang`). **`make`** same (needs GNU Make). **`make test`** runs tests in all four packages (`news-feed`, `rss-worker`, `sync-worker`, `meta-worker`). |
 
 ## PR workflow — always follow this order
 
@@ -46,8 +47,9 @@
 - **Storage**: Fireproof (`use-fireproof ^0.24.0`) — database name `boomerang-news`
   - `user-prefs` document: topic weights, seenIds, readIds, savedIds, source/topic toggles
   - `feed-cache` document: last ranked article list + fetchedAt timestamp
-- **RSS fetching**: **Cloudflare Worker only** (`rss-worker/`). Set `VITE_RSS_WORKER_URL` at build time (no trailing slash), e.g. `https://boomerang-rss.boomerang.workers.dev` — that is `https://<wrangler-name>.<account-subdomain>.workers.dev` (not the bare account URL `https://boomerang.workers.dev`). GitHub Actions reads **repository variable** `VITE_RSS_WORKER_URL`. Worker exposes `GET /bundle?include=id1,id2,...`. There is no browser RSS or CORS-proxy fallback; local dev uses `VITE_RSS_WORKER_URL=http://127.0.0.1:8787` with `wrangler dev`.
-- **Sync**: `sync-worker/` — cross-browser preferences and bookmarks sync. Set `VITE_SYNC_WORKER_URL` at build time; defaults to `https://boomerang-sync.boomerang.workers.dev` in production builds. URL fragment carries `roomId:token:workerUrl`; token is never sent in query strings. Client hook: `useSyncWorker` (polls 30s + visibilitychange, debounced push, 412 conflict retry). R2 bucket name: `boomerang`.
+- **RSS fetching**: **Cloudflare Worker only** (`rss-worker/`). **Required** at build/dev: `VITE_RSS_WORKER_URL` (no trailing slash), e.g. `https://<wrangler-name>.<account-subdomain>.workers.dev` (not the bare account URL `https://boomerang.workers.dev`). GitHub Actions must set repository variables **`VITE_RSS_WORKER_URL`**, **`VITE_SYNC_WORKER_URL`**, and **`VITE_META_WORKER_URL`**. Worker exposes `GET /bundle?include=id1,id2,...`. There is no browser RSS or CORS-proxy fallback. Local dev: see `news-feed/.env.example`.
+- **Shared article metadata**: `meta-worker/` — real-time WebSocket updates and KV-backed tags; `rss-worker` reads the same KV to attach tags in `GET /bundle`. **Required**: `VITE_META_WORKER_URL` at build time (no trailing slash). Client hook: `useMetaWorker`. Local dev: `make worker-meta` (Wrangler default port **8788** in the Makefile; avoid port clashes with other local workers).
+- **Sync**: `sync-worker/` — cross-browser preferences and bookmarks sync. **Required** for creating share links: `VITE_SYNC_WORKER_URL` at build time (no trailing slash). URL fragment carries `roomId:token:workerUrl`; token is never sent in query strings. Client hook: `useSyncWorker` (polls 30s + visibilitychange, debounced push, 412 conflict retry). R2 bucket name: `boomerang`.
 - **PWA**: `vite-plugin-pwa`
 
 ## Tech stack — sync-worker
@@ -58,11 +60,19 @@
 - **Tests**: Vitest 4 + `@cloudflare/vitest-pool-workers` (`src/worker.test.ts`); config in `vitest.config.mts`
 - **Deploy**: `cd sync-worker && wrangler deploy`; create bucket once with `wrangler r2 bucket create boomerang`
 
+## Tech stack — meta-worker
+
+- **Runtime**: Cloudflare Workers + one global Durable Object (`META_DO`, name `global`) + KV (`ARTICLE_META`, shared binding id with `rss-worker` where configured)
+- **Routes**: `GET /health`, `GET /ws` (WebSocket — subscribe, catch-up, tag submit handled in the DO)
+- **Maintenance**: Cron trigger → internal `POST` prune on the DO (see `meta-worker/wrangler.jsonc`)
+- **Tests**: Vitest + `@cloudflare/vitest-pool-workers` (`src/worker.test.ts`); config in `vitest.config.mts`
+- **Deploy**: `cd meta-worker && wrangler deploy`; KV namespace: `make create-kv` (see Makefile)
+
 ## Key behaviours to preserve
 
 - **Progressive loading**: 5 articles at a time, `IntersectionObserver` sentinel auto-loads more
 - **Seen tracking**: articles rendered in the feed are written to `seenIds` in Fireproof; filtered out on next refresh
-- **Streaming fetch**: With CORS fallback, `fetchAllSources` streams per source via `onBatch`. With the Worker, one response updates the feed.
+- **Worker fetch + `onBatch`**: `fetchAllSources` talks to `rss-worker` only (no browser RSS). The client still uses `onBatch` as the merged article pool grows (e.g. fast-tier + background-tier paths), not per-source browser streaming.
 - **Fireproof cache**: cold starts show the cached feed instantly, then refresh in background
 - **YouTube thumbnails**: extracted from watch URLs via `img.youtube.com/vi/{id}/hqdefault.jpg`; `media:thumbnail` also parsed for Atom feeds
 - **Lazy og:image**: cards without RSS images fetch `og:image` via CORS proxy when scrolled into view

@@ -37,6 +37,7 @@ interface Props {
   syncedAt: Date | null;
   syncError: string | null;
   syncUrl: string | null;
+  syncEnvError: string | null;
   onGenerateLink: () => Promise<void>;
   onRevoke: () => Promise<void>;
   onToggleAiBar: () => void;
@@ -46,8 +47,8 @@ export function Settings({
   prefs, onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onClose,
   onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
   onExportBookmarks, onImportBookmarks,
-  onAddLabel, onDeleteLabel, onSuggestLabels,
-  syncActive, syncStatus, syncedAt, syncError, syncUrl,
+  onAddLabel, onDeleteLabel,   onSuggestLabels,
+  syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError,
   onGenerateLink, onRevoke, onToggleAiBar,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -446,6 +447,9 @@ export function Settings({
         {/* ── Sync across devices ──────────────────────────────────────── */}
         <section className="settings-section">
           <h3>Sync across devices</h3>
+          {!syncActive && syncEnvError && (
+            <p className="sync-error" role="alert">{syncEnvError}</p>
+          )}
           {!syncActive ? (
             <>
               <p className="settings-hint">

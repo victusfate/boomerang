@@ -6,12 +6,11 @@ import {
   buildSyncUrl, buildPayload, mergePayload,
   type SyncRoom,
 } from '../services/syncWorker';
+import { workerUrlFromEnv, missingWorkerEnvMessage } from '../config/workerEnv';
 
 const POLL_INTERVAL_MS = 300_000; // 5 minutes — tab visibilitychange still fires immediately on focus
 const PUSH_DEBOUNCE_MS = 2_000;
-const DEFAULT_BOOMERANG_SYNC_URL = 'https://boomerang-sync.boomerang.workers.dev';
-const envSyncWorker = import.meta.env.VITE_SYNC_WORKER_URL?.replace(/\/$/, '') ?? '';
-const WORKER_URL = envSyncWorker || (import.meta.env.PROD ? DEFAULT_BOOMERANG_SYNC_URL : undefined);
+const SYNC_WORKER_BASE = workerUrlFromEnv(import.meta.env.VITE_SYNC_WORKER_URL);
 
 export type SyncStatus = 'idle' | 'active' | 'syncing' | 'error';
 
@@ -23,6 +22,8 @@ export interface UseSyncWorkerResult {
   syncUrl: string | null;
   generateLink: () => Promise<void>;
   revoke: () => Promise<void>;
+  /** Non-null when `VITE_SYNC_WORKER_URL` is missing — needed to create new rooms; existing fragment/storage rooms still work */
+  syncEnvError: string | null;
 }
 
 export function useSyncWorker(
@@ -127,7 +128,7 @@ export function useSyncWorker(
     saveSyncRoom(r);
     setSyncStatus('active');
     setSyncError(null);
-    if (WORKER_URL || r.workerUrl) {
+    if (SYNC_WORKER_BASE || r.workerUrl) {
       setSyncUrl(buildSyncUrl(r.workerUrl, r.roomId, r.token));
     }
   }, []);
@@ -173,8 +174,11 @@ export function useSyncWorker(
   }, [prefs, articleTags, labelHits, savedArticles, room, schedulePush]);
 
   const generateLink = useCallback(async () => {
-    const workerUrl = WORKER_URL;
-    if (!workerUrl) { setSyncError('VITE_SYNC_WORKER_URL not configured'); return; }
+    const workerUrl = SYNC_WORKER_BASE;
+    if (!workerUrl) {
+      setSyncError(missingWorkerEnvMessage('VITE_SYNC_WORKER_URL'));
+      return;
+    }
     try {
       setSyncStatus('syncing');
       const r = await createSyncRoom(workerUrl);
@@ -213,5 +217,6 @@ export function useSyncWorker(
     syncUrl,
     generateLink,
     revoke,
+    syncEnvError: SYNC_WORKER_BASE ? null : missingWorkerEnvMessage('VITE_SYNC_WORKER_URL'),
   };
 }
