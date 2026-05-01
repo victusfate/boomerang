@@ -35,6 +35,7 @@ function formatCooldownLabel(remainingMs: number): string {
 function syncIndicatorState(
   syncActive: boolean,
   syncStatus: SyncStatus,
+  metaStatus: 'disabled' | 'active' | 'syncing' | 'error',
   syncedAt: Date | null,
   syncError: string | null,
   syncEnvError: string | null,
@@ -43,7 +44,7 @@ function syncIndicatorState(
   if (syncError || syncStatus === 'error') {
     return { state: 'error', label: 'Sync error', title: syncError ?? 'Sync failed' };
   }
-  if (syncStatus === 'syncing') {
+  if (syncStatus === 'syncing' || metaStatus === 'syncing') {
     return { state: 'syncing', label: 'Syncing...', title: 'Pulling or pushing sync data' };
   }
   if (cooldownMs > 0) {
@@ -109,6 +110,7 @@ export default function App() {
   const syncIndicator = syncIndicatorState(
     syncActive,
     syncStatus,
+    metaStatus,
     syncedAt,
     syncError,
     syncEnvError,
@@ -281,7 +283,7 @@ export default function App() {
             type="button"
             className={`sync-indicator ${syncIndicator.state}`}
             onClick={onMainSyncClick}
-            disabled={combinedSyncCooldownMs > 0}
+            disabled={combinedSyncCooldownMs > 0 || syncIndicator.state === 'syncing'}
             title={syncIndicator.title}
             aria-label="Sync now"
           >

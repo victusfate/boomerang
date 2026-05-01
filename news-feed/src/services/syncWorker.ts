@@ -65,12 +65,32 @@ export interface MetaResponse {
   payload: SyncPayloadV1;
   etag: string;
   unauthorized?: boolean;
+  rateLimited?: boolean;
+  retryAfterMs?: number;
+}
+
+function parseRetryAfterMs(res: Response): number | undefined {
+  const raw = res.headers.get('Retry-After');
+  if (!raw) return undefined;
+  const asSeconds = Number(raw);
+  if (Number.isFinite(asSeconds)) return Math.max(0, Math.round(asSeconds * 1000));
+  const asDate = Date.parse(raw);
+  if (Number.isNaN(asDate)) return undefined;
+  return Math.max(0, asDate - Date.now());
 }
 
 export async function fetchMeta(room: SyncRoom): Promise<MetaResponse | null> {
   const res = await fetch(`${room.workerUrl}/sync/${room.roomId}/meta`);
   if (res.status === 404) return null;
   if (res.status === 401) return { payload: {} as SyncPayloadV1, etag: '', unauthorized: true };
+  if (res.status === 429) {
+    return {
+      payload: {} as SyncPayloadV1,
+      etag: '',
+      rateLimited: true,
+      retryAfterMs: parseRetryAfterMs(res),
+    };
+  }
   if (!res.ok) throw new Error(`fetchMeta failed: ${res.status}`);
   const etag = res.headers.get('ETag') ?? '';
   const payload = await res.json() as SyncPayloadV1;
@@ -81,7 +101,7 @@ export async function pushMeta(
   room: SyncRoom,
   payload: SyncPayloadV1,
   etag?: string,
-): Promise<{ ok: boolean; conflict: boolean; unauthorized: boolean }> {
+): Promise<{ ok: boolean; conflict: boolean; unauthorized: boolean; rateLimited: boolean; retryAfterMs?: number }> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${room.token}`,
@@ -94,10 +114,13 @@ export async function pushMeta(
     body: JSON.stringify(payload),
   });
 
-  if (res.status === 412) return { ok: false, conflict: true, unauthorized: false };
-  if (res.status === 401) return { ok: false, conflict: false, unauthorized: true };
-  if (!res.ok) return { ok: false, conflict: false, unauthorized: false };
-  return { ok: true, conflict: false, unauthorized: false };
+  if (res.status === 412) return { ok: false, conflict: true, unauthorized: false, rateLimited: false, retryAfterMs: undefined };
+  if (res.status === 401) return { ok: false, conflict: false, unauthorized: true, rateLimited: false, retryAfterMs: undefined };
+  if (res.status === 429) {
+    return { ok: false, conflict: false, unauthorized: false, rateLimited: true, retryAfterMs: parseRetryAfterMs(res) };
+  }
+  if (!res.ok) return { ok: false, conflict: false, unauthorized: false, rateLimited: false, retryAfterMs: undefined };
+  return { ok: true, conflict: false, unauthorized: false, rateLimited: false, retryAfterMs: undefined };
 }
 
 export async function deleteRoom(room: SyncRoom): Promise<void> {

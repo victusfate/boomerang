@@ -2,6 +2,10 @@ import { MetaDO } from './MetaDO';
 export { MetaDO };
 import { normaliseTags, mergeTagSets } from './tags';
 
+const RATE_LIMIT_MAX_REQUESTS = 30;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+
 const ALLOWED_ORIGINS = [
   'https://victusfate.github.io',
   'https://boomerang-news.com',
@@ -47,6 +51,45 @@ function json(data: unknown, request: Request, env: Env, init?: ResponseInit): R
   const headers = corsHeaders(request, env);
   headers.set('Content-Type', 'application/json; charset=utf-8');
   return new Response(JSON.stringify(data), { ...init, headers });
+}
+
+function tooManyRequests(request: Request, env: Env, retryAfterSeconds: number): Response {
+  const headers = corsHeaders(request, env);
+  headers.set('Retry-After', String(retryAfterSeconds));
+  headers.set('Content-Type', 'application/json; charset=utf-8');
+  return new Response(JSON.stringify({ ok: false, message: 'Too Many Requests' }), { status: 429, headers });
+}
+
+function getClientIp(request: Request): string | null {
+  const cfIp = request.headers.get('CF-Connecting-IP');
+  if (cfIp) return cfIp;
+  const forwarded = request.headers.get('X-Forwarded-For');
+  if (!forwarded) return null;
+  const first = forwarded.split(',')[0]?.trim();
+  return first || null;
+}
+
+function checkRateLimit(request: Request): { limited: false } | { limited: true; retryAfterSeconds: number } {
+  const clientIp = getClientIp(request);
+  // Local tests/dev may not have edge-provided client IP headers.
+  if (!clientIp) return { limited: false };
+  const now = Date.now();
+  const key = `meta:${clientIp}`;
+  const existing = rateBuckets.get(key);
+  if (!existing || existing.resetAt <= now) {
+    rateBuckets.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return { limited: false };
+  }
+  if (existing.count >= RATE_LIMIT_MAX_REQUESTS) {
+    return { limited: true, retryAfterSeconds: Math.max(1, Math.ceil((existing.resetAt - now) / 1000)) };
+  }
+  existing.count += 1;
+  if (rateBuckets.size > 5000) {
+    for (const [bucketKey, bucket] of rateBuckets) {
+      if (bucket.resetAt <= now) rateBuckets.delete(bucketKey);
+    }
+  }
+  return { limited: false };
 }
 
 interface ArticleMetaEntry {
@@ -100,6 +143,8 @@ export default {
     }
 
     if (pathname === '/meta' && request.method === 'GET') {
+      const limited = checkRateLimit(request);
+      if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
       const ids = parseIdsParam(url);
       if (ids.length === 0) return json({ updates: [] }, request, env);
       const updates = await loadMetaEntries(env, ids);
@@ -107,6 +152,8 @@ export default {
     }
 
     if (pathname === '/meta/tags' && request.method === 'POST') {
+      const limited = checkRateLimit(request);
+      if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
       let body: { articles?: Array<{ articleId?: unknown; tags?: unknown }> };
       try {
         body = await request.json() as { articles?: Array<{ articleId?: unknown; tags?: unknown }> };

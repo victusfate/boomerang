@@ -2,8 +2,14 @@ import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:
 import { describe, it, expect } from 'vitest';
 import worker from './index';
 
-async function req(method: string, path: string, origin = 'https://victusfate.github.io'): Promise<Response> {
+async function req(
+  method: string,
+  path: string,
+  origin = 'https://victusfate.github.io',
+  clientIp?: string,
+): Promise<Response> {
   const headers = new Headers({ Origin: origin });
+  if (clientIp) headers.set('CF-Connecting-IP', clientIp);
   const request = new Request(`http://localhost${path}`, { method, headers });
   const ctx = createExecutionContext();
   const response = await worker.fetch(request, env, ctx);
@@ -77,5 +83,16 @@ describe('S1 — meta-worker scaffold', () => {
   it('GET /ws/ (trailing slash) without Upgrade → 426 like /ws', async () => {
     const res = await req('GET', '/ws/');
     expect(res.status).toBe(426);
+  });
+
+  it('rate-limits /meta reads to 30 requests/min per client', async () => {
+    const clientIp = '203.0.113.11';
+    for (let i = 0; i < 30; i += 1) {
+      const res = await req('GET', '/meta?ids=a1', 'https://victusfate.github.io', clientIp);
+      expect(res.status).toBe(200);
+    }
+    const limited = await req('GET', '/meta?ids=a1', 'https://victusfate.github.io', clientIp);
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('Retry-After')).toBeTruthy();
   });
 });

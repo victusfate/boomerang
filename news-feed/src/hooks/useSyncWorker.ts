@@ -10,6 +10,8 @@ import { workerUrlFromEnv, missingWorkerEnvMessage } from '../config/workerEnv';
 
 const SYNC_WORKER_BASE = workerUrlFromEnv(import.meta.env.VITE_SYNC_WORKER_URL);
 const MANUAL_SYNC_COOLDOWN_MS = 15_000;
+const RATE_LIMIT_BACKOFF_BASE_MS = 2_000;
+const RATE_LIMIT_BACKOFF_MAX_MS = 5 * 60_000;
 
 export type SyncStatus = 'idle' | 'active' | 'syncing' | 'error';
 
@@ -50,6 +52,7 @@ export function useSyncWorker(
   const lastPushedRef   = useRef<string>('');
   const syncInFlightRef = useRef(false);
   const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const rateLimitBackoffStepRef = useRef(0);
   const roomRef = useRef<SyncRoom | null>(null);
   // Keep in sync with `room` on every render; `activate` also sets the ref immediately so
   // `doPoll()` can run in the same tick as `activate` (before React commits `setRoom`).
@@ -67,16 +70,44 @@ export function useSyncWorker(
   savedRef.current       = savedArticles;
   onMergeRef.current     = onMerge;
 
-  const doPoll = useCallback(async () => {
+  const startSyncCooldown = useCallback((durationMs = MANUAL_SYNC_COOLDOWN_MS) => {
+    const cooldownUntil = Date.now() + durationMs;
+    setSyncCooldownMs(durationMs);
+    if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+    cooldownTimerRef.current = setInterval(() => {
+      const remaining = Math.max(0, cooldownUntil - Date.now());
+      setSyncCooldownMs(remaining);
+      if (remaining <= 0 && cooldownTimerRef.current) {
+        clearInterval(cooldownTimerRef.current);
+        cooldownTimerRef.current = null;
+      }
+    }, 500);
+  }, []);
+
+  const applyRateLimitBackoff = useCallback((retryAfterMs?: number) => {
+    const step = rateLimitBackoffStepRef.current;
+    const expBackoffMs = Math.min(RATE_LIMIT_BACKOFF_BASE_MS * 2 ** step, RATE_LIMIT_BACKOFF_MAX_MS);
+    const backoffMs = Math.max(retryAfterMs ?? 0, expBackoffMs);
+    rateLimitBackoffStepRef.current = Math.min(step + 1, 20);
+    startSyncCooldown(backoffMs);
+    setSyncStatus('active');
+    setSyncError(`Sync rate limited. Retrying allowed in ${Math.max(1, Math.ceil(backoffMs / 1000))}s.`);
+  }, [startSyncCooldown]);
+
+  const doPoll = useCallback(async (): Promise<'ok' | 'blocked' | 'rate_limited'> => {
     const r = roomRef.current;
-    if (!r) return;
+    if (!r) return 'blocked';
     try {
       setSyncStatus('syncing');
       const remote = await fetchMeta(r);
       if (remote?.unauthorized) {
         setSyncStatus('error');
         setSyncError('Sync room credentials are invalid or expired. Revoke sync and generate a new link.');
-        return;
+        return 'blocked';
+      }
+      if (remote?.rateLimited) {
+        applyRateLimitBackoff(remote.retryAfterMs);
+        return 'rate_limited';
       }
       if (remote) {
         etagRef.current = remote.etag;
@@ -103,62 +134,70 @@ export function useSyncWorker(
       setSyncedAt(new Date());
       setSyncStatus('active');
       setSyncError(null);
+      rateLimitBackoffStepRef.current = 0;
+      return 'ok';
     } catch (e) {
       setSyncStatus('error');
       setSyncError(e instanceof Error ? e.message : 'Sync failed');
+      return 'blocked';
     }
-  }, []);
+  }, [applyRateLimitBackoff]);
 
-  const doPush = useCallback(async () => {
+  const doPush = useCallback(async (): Promise<'ok' | 'blocked' | 'rate_limited'> => {
     const r = roomRef.current;
-    if (!r) return;
+    if (!r) return 'blocked';
     const payload = buildPayload(prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current);
     const payloadJson = JSON.stringify(payload);
-    if (payloadJson === lastPushedRef.current) return; // nothing changed since last push
+    if (payloadJson === lastPushedRef.current) return 'ok'; // nothing changed since last push
     const result = await pushMeta(r, payload, etagRef.current || undefined);
     if (result.conflict) {
       // Remote is ahead — pull first, then push again after a short delay
-      await doPoll();
-      setTimeout(() => void doPush(), 500);
-      return; // don't mark as pushed — retry will re-check
+      const pollResult = await doPoll();
+      if (pollResult === 'ok') setTimeout(() => void doPush(), 500);
+      return 'blocked'; // don't mark as pushed — retry will re-check
     }
     if (result.unauthorized) {
       setSyncStatus('error');
       setSyncError('Sync room credentials are invalid or expired. Revoke sync and generate a new link.');
-      return;
+      return 'blocked';
+    }
+    if (result.rateLimited) {
+      applyRateLimitBackoff(result.retryAfterMs);
+      return 'rate_limited';
     }
     if (!result.ok) {
       setSyncStatus('error');
       setSyncError('Could not upload changes to sync (PUT failed). Check the Network tab for /meta.');
-      return;
+      return 'blocked';
     }
     lastPushedRef.current = payloadJson;
     setSyncError(null);
-  }, [doPoll]);
+    rateLimitBackoffStepRef.current = 0;
+    return 'ok';
+  }, [applyRateLimitBackoff, doPoll]);
 
   const forceSync = useCallback(async () => {
     if (!roomRef.current) return;
     if (syncInFlightRef.current) return;
     if (syncCooldownMs > 0) return;
-    const cooldownUntil = Date.now() + MANUAL_SYNC_COOLDOWN_MS;
-    setSyncCooldownMs(MANUAL_SYNC_COOLDOWN_MS);
-    if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
-    cooldownTimerRef.current = setInterval(() => {
-      const remaining = Math.max(0, cooldownUntil - Date.now());
-      setSyncCooldownMs(remaining);
-      if (remaining <= 0 && cooldownTimerRef.current) {
-        clearInterval(cooldownTimerRef.current);
-        cooldownTimerRef.current = null;
-      }
-    }, 500);
     syncInFlightRef.current = true;
+    let rateLimited = false;
     try {
-      await doPoll();
-      await doPush();
+      const pollResult = await doPoll();
+      if (pollResult !== 'ok') {
+        rateLimited = pollResult === 'rate_limited';
+        return;
+      }
+      const pushResult = await doPush();
+      if (pushResult !== 'ok') {
+        rateLimited = pushResult === 'rate_limited';
+        return;
+      }
     } finally {
       syncInFlightRef.current = false;
+      if (!rateLimited) startSyncCooldown();
     }
-  }, [doPoll, doPush, syncCooldownMs]);
+  }, [doPoll, doPush, startSyncCooldown, syncCooldownMs]);
 
   // Activate sync with a room
   const activate = useCallback((r: SyncRoom) => {

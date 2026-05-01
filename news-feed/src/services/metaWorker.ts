@@ -8,11 +8,32 @@ export interface ArticleMetaEntry {
   updatedAt: number;
 }
 
+export class MetaRateLimitError extends Error {
+  retryAfterMs?: number;
+
+  constructor(retryAfterMs?: number) {
+    super('meta rate limited (429)');
+    this.name = 'MetaRateLimitError';
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+function parseRetryAfterMs(res: Response): number | undefined {
+  const raw = res.headers.get('Retry-After');
+  if (!raw) return undefined;
+  const asSeconds = Number(raw);
+  if (Number.isFinite(asSeconds)) return Math.max(0, Math.round(asSeconds * 1000));
+  const asDate = Date.parse(raw);
+  if (Number.isNaN(asDate)) return undefined;
+  return Math.max(0, asDate - Date.now());
+}
+
 export async function fetchMetaTags(base: string, articleIds: string[]): Promise<ArticleMetaEntry[]> {
   if (articleIds.length === 0) return [];
   const ids = Array.from(new Set(articleIds));
   const url = `${base}/meta?ids=${encodeURIComponent(ids.join(','))}`;
   const res = await fetch(url);
+  if (res.status === 429) throw new MetaRateLimitError(parseRetryAfterMs(res));
   if (!res.ok) throw new Error(`meta GET failed: ${res.status}`);
   const body = await res.json() as { updates?: ArticleMetaEntry[] };
   return body.updates ?? [];
@@ -28,6 +49,7 @@ export async function submitMetaTags(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ articles }),
   });
+  if (res.status === 429) throw new MetaRateLimitError(parseRetryAfterMs(res));
   if (!res.ok) throw new Error(`meta POST failed: ${res.status}`);
 }
 
