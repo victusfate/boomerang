@@ -1,20 +1,19 @@
 # Requires GNU Make (Git for Windows: add Git's usr\bin to PATH, or use Git Bash).
-# Default: production-like preview at /boomerang (same base as GitHub Pages).
+# Default: Vite dev server (loads news-feed/.env for VITE_* worker URLs).
 
 .PHONY: help preview-pages run dev worker worker-meta worker-sync worker-rss install test \
         deploy-rss deploy-sync deploy-meta deploy \
         create-kv create-r2
 
-.DEFAULT_GOAL := preview-pages
+.DEFAULT_GOAL := dev
 
 help:
 	@echo "Boomerang — common targets"
 	@echo ""
 	@echo "Dev"
-	@echo "  make / make preview-pages  Build news-feed with base /boomerang, then vite preview"
-	@echo "  (no make on Windows PS?)    npm run preview:gh-pages   — same as above"
-	@echo "  make run                   Same as preview-pages"
-	@echo "  make dev                   Vite dev — http://localhost:5173/"
+	@echo "  make / make dev / make run  Vite dev — http://localhost:5173/ (uses .env)"
+	@echo "  make preview-pages           GitHub Pages–style build + preview → http://localhost:4173/boomerang"
+	@echo "  (no make on Windows PS?)    npm run dev --prefix news-feed  /  npm run preview:gh-pages --prefix news-feed"
 	@echo "  make worker-rss            wrangler dev — rss-worker  http://127.0.0.1:8787"
 	@echo "  make worker-sync           wrangler dev — sync-worker  http://127.0.0.1:8788"
 	@echo "  make worker-meta           wrangler dev — meta-worker  http://127.0.0.1:8789"
@@ -37,7 +36,7 @@ help:
 preview-pages:
 	cd news-feed && npm run preview:gh-pages
 
-run: preview-pages
+run: dev
 
 dev:
 	npm run dev --prefix news-feed

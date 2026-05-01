@@ -2,12 +2,12 @@ import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:
 import { describe, it, expect, beforeEach } from 'vitest';
 import worker from './index';
 
-const ORIGIN = 'http://localhost:4173';
+const ORIGIN_DEV = 'http://localhost:5173';
 
-async function req(method: string, path: string): Promise<Response> {
+async function req(method: string, path: string, origin = ORIGIN_DEV): Promise<Response> {
   const request = new Request(`http://localhost${path}`, {
     method,
-    headers: { Origin: ORIGIN },
+    headers: { Origin: origin },
   });
   const ctx = createExecutionContext();
   const response = await worker.fetch(request, env, ctx);
@@ -26,10 +26,17 @@ describe('health', () => {
 });
 
 describe('CORS', () => {
-  it('OPTIONS preflight returns 204', async () => {
+  it('OPTIONS preflight returns 204 (Vite dev :5173)', async () => {
     const res = await req('OPTIONS', '/bundle');
     expect(res.status).toBe(204);
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(ORIGIN);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(ORIGIN_DEV);
+  });
+
+  it('OPTIONS preflight allows GH Pages preview :4173', async () => {
+    const origin = 'http://localhost:4173';
+    const res = await req('OPTIONS', '/bundle', origin);
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(origin);
   });
 });
 

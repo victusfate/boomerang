@@ -113,7 +113,13 @@ export function useSyncWorker(
       setTimeout(() => void doPush(), 500);
       return; // don't mark as pushed — retry will re-check
     }
+    if (!result.ok) {
+      setSyncStatus('error');
+      setSyncError('Could not upload changes to sync (PUT failed). Check the Network tab for /meta.');
+      return;
+    }
     lastPushedRef.current = payloadJson;
+    setSyncError(null);
   }, [doPoll]);
 
   const schedulePush = useCallback(() => {
@@ -185,7 +191,12 @@ export function useSyncWorker(
       activate(r);
       // Push current state immediately so second device gets data on first poll
       const payload = buildPayload(prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current);
-      await pushMeta(r, payload);
+      const put = await pushMeta(r, payload);
+      if (!put.ok && !put.conflict) {
+        setSyncStatus('error');
+        setSyncError('Initial sync upload failed. Try Generate sync link again.');
+        return;
+      }
       setSyncStatus('active');
     } catch (e) {
       setSyncStatus('error');

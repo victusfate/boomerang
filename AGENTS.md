@@ -10,7 +10,7 @@
 | `sync-worker/` | Cloudflare Worker — cross-browser sync via R2 (`POST /sync/room`, `PUT/GET /sync/{roomId}/meta`, `PUT/GET /sync/{roomId}/blocks/{cid}`, `DELETE /sync/{roomId}`). Token auth: SHA-256(token) stored in R2; raw token travels only in the URL fragment, never in query strings. |
 | `meta-worker/` | Cloudflare Worker + global Durable Object — shared per-article metadata (e.g. AI tags). WebSocket `GET /ws` for subscribe/catch-up; KV namespace shared with `rss-worker` so `GET /bundle` can inline tags. Feature docs: `docs/shared-article-metadata/`. |
 | `.github/workflows/deploy.yml` | Builds `news-feed/` only; uploads `news-feed/dist` |
-| `/` (repo root) | `npm run dev` / `preview` forward to `news-feed/`. **`npm run build`** runs `npm ci` + build in `news-feed/` (same as Cloudflare Pages from repo root). In **`news-feed`**, **`npm run preview:gh-pages`** = GitHub Pages–style build + preview (`http://localhost:4173/boomerang`). **`make`** same (needs GNU Make). **`make test`** runs tests in all four packages (`news-feed`, `rss-worker`, `sync-worker`, `meta-worker`). |
+| `/` (repo root) | `npm run dev` / `preview` forward to `news-feed/`. **`npm run build`** runs `npm ci` + build in `news-feed/` (same as Cloudflare Pages from repo root). In **`news-feed`**, **`npm run preview:gh-pages`** = GitHub Pages–style build + preview (`http://localhost:4173/boomerang`). **`make`** defaults to Vite dev (`http://localhost:5173/`); **`make preview-pages`** runs the GH Pages preview (needs GNU Make). **`make test`** runs tests in all four packages (`news-feed`, `rss-worker`, `sync-worker`, `meta-worker`). |
 
 ## PR workflow — always follow this order
 
