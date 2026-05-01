@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from 'react';
+import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { useFeed } from './hooks/useFeed';
 import { useSyncWorker } from './hooks/useSyncWorker';
 import { useMetaWorker } from './hooks/useMetaWorker';
@@ -41,16 +41,10 @@ export default function App() {
     onExportBookmarks, onImportBookmarks,
     articleTagsMap, classificationStatus, aiTaggingStarted, taggingArticleId, onStartAiTagging, onAddLabel, onDeleteLabel,
     labelHits, articleTags, onToggleAiBar, onAddManualTag, onRemoveManualTag,
+    onRemoteSync,
   } = useFeed({ metaCallbacks: { feedTaggedArticle, endTaggingPass }, metaTagsMap });
 
-  const handleSyncMerge = useCallback((_merged: {
-    prefs: import('./types').UserPrefs;
-    articleTags: import('./types').ArticleTag[];
-    labelHits: import('./types').LabelHit[];
-    savedArticles: import('./types').Article[];
-  }) => {
-    // Merge wiring into Fireproof handled as follow-up; hook is wired for when worker is deployed.
-  }, []);
+  const handleSyncMerge = onRemoteSync;
 
   const { syncActive, syncStatus, syncedAt, syncError, syncUrl, generateLink, revoke } =
     useSyncWorker(prefs, articleTags, labelHits, savedArticles, handleSyncMerge);

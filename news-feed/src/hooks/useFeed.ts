@@ -752,6 +752,49 @@ export function useFeed(options?: UseFeedOptions) {
     return true;
   }, [updatePrefs, refresh]);
 
+  // ── Live remote sync merge (sync-worker poll) ────────────────────────────────
+  // Called by useSyncWorker whenever a poll returns merged remote data.
+  const applyRemoteSync = useCallback((payload: {
+    prefs: UserPrefs;
+    articleTags: ArticleTag[];
+    labelHits: LabelHit[];
+    savedArticles: Article[];
+  }) => {
+    // Merge prefs (includes savedIds, topic weights, etc.)
+    const mergedPrefs = mergePrefs(prefsRef.current, payload.prefs);
+    updatePrefs(mergedPrefs);
+
+    // Merge saved articles into importedSaves — only non-RSS-pool articles are
+    // persisted here; pool articles show up via prefs.savedIds automatically.
+    const poolIds = new Set(articlePoolRef.current.map(a => a.id));
+    const remoteNonPool = payload.savedArticles.filter(a => !poolIds.has(a.id));
+    const mergedImported = mergeArticlesById(importedSavesRef.current, remoteNonPool);
+    if (mergedImported.length !== importedSavesRef.current.length) {
+      importedSavesRef.current = mergedImported;
+      setImportedSaves(mergedImported);
+      database.put({ _id: IMPORTED_SAVES_ID, articles: dehydrate(mergedImported) } as ImportedSavesDoc)
+        .catch(console.error);
+    }
+
+    // Merge label hits
+    const mergedHits = mergeLabelHits(labelHitsRef.current, payload.labelHits);
+    if (mergedHits.length !== labelHitsRef.current.length) {
+      labelHitsRef.current = mergedHits;
+      setLabelHits(mergedHits);
+      database.put({ _id: CLASSIFICATIONS_ID, hits: mergedHits } as ClassificationsDoc)
+        .catch(console.error);
+    }
+
+    // Merge article tags
+    const mergedTags = mergeArticleTags(articleTagsRef.current, payload.articleTags);
+    if (mergedTags.length !== articleTagsRef.current.length) {
+      articleTagsRef.current = mergedTags;
+      setArticleTags(mergedTags);
+      database.put({ _id: ARTICLE_TAGS_ID, hits: mergedTags } as ArticleTagsDoc)
+        .catch(console.error);
+    }
+  }, [database, updatePrefs]);
+
   // Auto-fetch on startup only when there is no cached feed to show.
   // After that, all refreshes are explicit (refresh button or pull-to-refresh).
   useEffect(() => {
@@ -827,5 +870,6 @@ export function useFeed(options?: UseFeedOptions) {
     onAddManualTag:    handleAddManualTag,
     onRemoveManualTag: handleRemoveManualTag,
     feedEnterIds,
+    onRemoteSync: applyRemoteSync,
   };
 }
