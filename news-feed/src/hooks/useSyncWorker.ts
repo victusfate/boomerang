@@ -4,6 +4,8 @@ import {
   loadSyncRoom, saveSyncRoom, clearSyncRoom, parseSyncFragment,
   createSyncRoom, fetchMeta, pushMeta, deleteRoom,
   buildSyncUrl, buildPayload, mergePayload,
+  autoSyncCompareKey,
+  autoSyncCompareKeyFromPushedJson,
   type SyncRoom,
 } from '../services/syncWorker';
 import { workerUrlFromEnv, missingWorkerEnvMessage } from '../config/workerEnv';
@@ -163,11 +165,15 @@ export function useSyncWorker(
     if (!r) return 'blocked';
     const payload = buildPayload(prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current);
     const payloadJson = JSON.stringify(payload);
-    if (payloadJson === lastPushedRef.current) {
+    const compareKey = autoSyncCompareKey(
+      prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current,
+    );
+    const prevKey = lastPushedRef.current ? autoSyncCompareKeyFromPushedJson(lastPushedRef.current) : null;
+    if (lastPushedRef.current && prevKey !== null && prevKey === compareKey) {
       syncDebugLog('saved', 'push:noop', { roomId: r.roomId });
       setSyncStatus('active');
       setHasDirtyData(false);
-      return 'ok'; // nothing changed since last push
+      return 'ok'; // nothing meaningful changed since last push (e.g. only seen/read churn)
     }
     setSyncStatus('syncing');
     syncDebugLog('saved', 'push:start', { roomId: r.roomId, etag: etagRef.current || null });
@@ -278,9 +284,33 @@ export function useSyncWorker(
     if (!room || !syncReady) return;
     if (dirtyDebounceRef.current) clearTimeout(dirtyDebounceRef.current);
     dirtyDebounceRef.current = setTimeout(() => {
-      const payload = buildPayload(prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current);
-      const payloadJson = JSON.stringify(payload);
-      const dirty = payloadJson !== lastPushedRef.current;
+      const key = autoSyncCompareKey(
+        prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current,
+      );
+      let dirty: boolean;
+      if (!lastPushedRef.current) {
+        dirty = true;
+      } else {
+        const prevKey = autoSyncCompareKeyFromPushedJson(lastPushedRef.current);
+        dirty = prevKey === null || prevKey !== key;
+      }
+      if (dirty) {
+        syncDebugLog('saved', 'dirty:set', {
+          reason: !lastPushedRef.current ? 'no-baseline-push-yet' : 'payload-changed',
+        });
+      } else {
+        const fullJson = JSON.stringify(
+          buildPayload(
+            prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current,
+          ),
+        );
+        const browseOnly =
+          !!lastPushedRef.current &&
+          fullJson !== lastPushedRef.current;
+        if (browseOnly) {
+          syncDebugLog('saved', 'dirty:clear (seen/read only; no auto-sync)');
+        }
+      }
       setHasDirtyData(dirty);
     }, DIRTY_SYNC_DEBOUNCE_MS);
     return () => {
@@ -321,6 +351,10 @@ export function useSyncWorker(
         setSyncStatus('error');
         setSyncError('Initial sync upload failed. Try Generate sync link again.');
         return;
+      }
+      if (put.ok) {
+        lastPushedRef.current = JSON.stringify(payload);
+        setHasDirtyData(false);
       }
       setSyncStatus('active');
     } catch (e) {

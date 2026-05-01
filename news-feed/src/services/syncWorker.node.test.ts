@@ -4,6 +4,7 @@ import {
   buildSyncFragment,
   parseSyncFragment,
   buildPayload,
+  autoSyncCompareKey,
   mergePayload,
   mergeSavedArticleSnapshots,
   materializeSavedArticlesForSync,
@@ -111,5 +112,29 @@ describe('buildPayload / mergePayload', () => {
       [],
     );
     assert.deepEqual(payload.articleTags[0].tags, ['politics', 'uk']);
+  });
+
+  test('autoSyncCompareKey ignores seenIds/readIds churn (browse vs bookmark edits)', () => {
+    const prefsBrowse: UserPrefs = {
+      ...DEFAULT_PREFS,
+      savedIds: ['a'],
+      seenIds: [],
+      readIds: [],
+    };
+    const prefsScroll: UserPrefs = {
+      ...DEFAULT_PREFS,
+      savedIds: ['a'],
+      seenIds: ['s1', 's2'],
+      readIds: ['r1'],
+    };
+    assert.equal(
+      autoSyncCompareKey(prefsBrowse, [], [], []),
+      autoSyncCompareKey(prefsScroll, [], [], []),
+    );
+    const prefsSaved: UserPrefs = { ...DEFAULT_PREFS, savedIds: ['a', 'b'], seenIds: [], readIds: [] };
+    assert.notEqual(
+      autoSyncCompareKey(prefsBrowse, [], [], []),
+      autoSyncCompareKey(prefsSaved, [], [], []),
+    );
   });
 });

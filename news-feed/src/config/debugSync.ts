@@ -15,6 +15,8 @@ function readRuntimeSyncDebugFlag(): boolean | null {
 export function isSyncDebugEnabled(): boolean {
   const runtimeOverride = readRuntimeSyncDebugFlag();
   if (runtimeOverride != null) return runtimeOverride;
+  // `vite` dev server: sync traces on by default (silent with `localStorage.setItem('debug.sync','false')`).
+  if (import.meta.env.DEV) return true;
   return TRUE_VALUES.has(ENV_DEBUG_SYNC);
 }
 

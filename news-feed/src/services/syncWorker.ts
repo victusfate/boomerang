@@ -227,3 +227,36 @@ export function buildPayload(
   const normalizedTags = mergeArticleTags([], articleTags);
   return { v: 1, prefs, articleTags: normalizedTags, labelHits, savedArticles: dehydrate(materialized) };
 }
+
+/**
+ * Auto-sync dirty / noop detection ignores high-churn browse fields (`seenIds`, `readIds`)
+ * so scrolling the feed does not constantly push. Full prefs (including those arrays)
+ * are still merged and sent when something else changes or on manual sync.
+ */
+function normalizePayloadForAutoSyncCompare(payload: SyncPayloadV1): string {
+  return JSON.stringify({
+    ...payload,
+    prefs: { ...payload.prefs, seenIds: [], readIds: [] },
+  });
+}
+
+export function autoSyncCompareKey(
+  prefs: UserPrefs,
+  articleTags: ArticleTag[],
+  labelHits: LabelHit[],
+  savedArticles: Article[],
+): string {
+  return normalizePayloadForAutoSyncCompare(
+    buildPayload(prefs, articleTags, labelHits, savedArticles),
+  );
+}
+
+export function autoSyncCompareKeyFromPushedJson(storedJson: string): string | null {
+  try {
+    const parsed = JSON.parse(storedJson) as SyncPayloadV1;
+    if (parsed?.v !== 1) return null;
+    return normalizePayloadForAutoSyncCompare(parsed);
+  } catch {
+    return null;
+  }
+}
