@@ -16,13 +16,13 @@ import {
   dehydrate,
   hydrate,
   mergeArticleTags,
-  mergeArticlesById,
   mergeLabelHits,
   mergePrefs,
   parseSyncHash,
   SYNC_LOG,
   type StoredArticle,
 } from '../services/syncShare';
+import { mergeSavedArticleSnapshots } from '../services/syncWorker';
 import type { Article, ArticleTag, CustomSource, LabelHit, Topic, UserLabel, UserPrefs } from '../types';
 
 const PAGE_SIZE          = 5;
@@ -331,7 +331,7 @@ export function useFeed(options?: UseFeedOptions) {
         ? mergePrefs(loadedPrefs, syncPayload.prefs)
         : loadedPrefs;
       const syncedImported = syncPayload?.savedArticles?.length
-        ? mergeArticlesById(imported, hydrate(syncPayload.savedArticles))
+        ? mergeSavedArticleSnapshots(hydrate(syncPayload.savedArticles), imported)
         : imported;
       const syncedHits = syncPayload?.labelHits?.length
         ? mergeLabelHits(hits, syncPayload.labelHits)
@@ -768,13 +768,11 @@ export function useFeed(options?: UseFeedOptions) {
     // persisted here; pool articles show up via prefs.savedIds automatically.
     const poolIds = new Set(articlePoolRef.current.map(a => a.id));
     const remoteNonPool = payload.savedArticles.filter(a => !poolIds.has(a.id));
-    const mergedImported = mergeArticlesById(importedSavesRef.current, remoteNonPool);
-    if (mergedImported.length !== importedSavesRef.current.length) {
-      importedSavesRef.current = mergedImported;
-      setImportedSaves(mergedImported);
-      database.put({ _id: IMPORTED_SAVES_ID, articles: dehydrate(mergedImported) } as ImportedSavesDoc)
-        .catch(console.error);
-    }
+    const mergedImported = mergeSavedArticleSnapshots(remoteNonPool, importedSavesRef.current);
+    importedSavesRef.current = mergedImported;
+    setImportedSaves(mergedImported);
+    database.put({ _id: IMPORTED_SAVES_ID, articles: dehydrate(mergedImported) } as ImportedSavesDoc)
+      .catch(console.error);
 
     // Merge label hits
     const mergedHits = mergeLabelHits(labelHitsRef.current, payload.labelHits);

@@ -36,4 +36,9 @@ describe('S1 — meta-worker scaffold', () => {
     const res = await req('GET', '/nonexistent');
     expect(res.status).toBe(404);
   });
+
+  it('GET /ws/ (trailing slash) without Upgrade → 426 like /ws', async () => {
+    const res = await req('GET', '/ws/');
+    expect(res.status).toBe(426);
+  });
 });

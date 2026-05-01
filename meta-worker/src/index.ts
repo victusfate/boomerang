@@ -5,6 +5,8 @@ const ALLOWED_ORIGINS = [
   'https://victusfate.github.io',
   'https://boomerang-news.com',
   'https://www.boomerang-news.com',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
   'http://localhost:4173',
   'http://127.0.0.1:4173',
 ];
@@ -59,12 +61,13 @@ export default {
     }
 
     const url = new URL(request.url);
+    const pathname = url.pathname.replace(/\/+$/, '') || '/';
 
-    if (url.pathname === '/health' && request.method === 'GET') {
+    if (pathname === '/health' && request.method === 'GET') {
       return json({ ok: true, service: 'boomerang-meta' }, request, env);
     }
 
-    if (url.pathname === '/ws' && request.method === 'GET') {
+    if (pathname === '/ws' && request.method === 'GET') {
       const upgrade = request.headers.get('Upgrade');
       if (upgrade?.toLowerCase() !== 'websocket') {
         return new Response('Upgrade Required', { status: 426, headers: corsHeaders(request, env) });
