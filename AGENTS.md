@@ -229,3 +229,40 @@ Don't run the chain for any of these — just do the work directly
 - The chain can run long. If context starts feeling thin mid-chain,
   flag it and suggest splitting into a fresh session at the next clean
   boundary (between slices is ideal).
+
+## Cursor Cloud specific instructions
+
+### Node.js
+
+This project requires **Node.js 22+** (for `--experimental-strip-types` in `news-feed` tests). The update script installs Node 22 via nodesource.
+
+### Quick reference
+
+| Action | Command |
+|---|---|
+| Install all deps | `make install` (runs `npm ci` in all 4 packages) |
+| Run all tests | `make test` |
+| Typecheck news-feed | `cd news-feed && npm run typecheck` |
+| Build news-feed | `npm run build` (from repo root) |
+| Dev server (frontend) | `make dev` → http://localhost:5173/ |
+| Dev server (rss-worker) | `make worker-rss` → http://127.0.0.1:8787 |
+| Dev server (sync-worker) | `make worker-sync` → http://127.0.0.1:8788 |
+| Dev server (meta-worker) | `make worker-meta` → http://127.0.0.1:8789 |
+
+### Environment setup
+
+Copy `news-feed/.env.example` → `news-feed/.env` before running the frontend dev server. The example already has correct local URLs for all three workers.
+
+### Running services for local dev
+
+- The **rss-worker** is required for the frontend to load articles (no fallback exists).
+- **sync-worker** and **meta-worker** are optional — the app works without them, but sync/metadata features will be unavailable.
+- Workers run via `wrangler dev` and don't need Cloudflare API tokens for local use.
+- Each worker test suite (`vitest run`) uses `@cloudflare/vitest-pool-workers` and does NOT require running worker dev servers.
+
+### Gotchas
+
+- There is no root `package-lock.json`. Each sub-package has its own lockfile; install them individually or via `make install`.
+- The `npm run build` from root runs `npm ci --prefix news-feed` which reinstalls news-feed deps. If you've already installed, `cd news-feed && npm run build` is faster.
+- `punycode` deprecation warnings in worker tests are harmless noise from wrangler internals.
+- The `news-feed` test command uses Node's built-in test runner (not Vitest), while the three workers use Vitest with the Cloudflare pool.
