@@ -28,12 +28,17 @@ function formatRelativeMinutes(date: Date): string {
   return mins < 1 ? 'just now' : `${mins}m ago`;
 }
 
+function formatCooldownLabel(remainingMs: number): string {
+  return `Cooldown ${Math.max(1, Math.ceil(remainingMs / 1000))}s`;
+}
+
 function syncIndicatorState(
   syncActive: boolean,
   syncStatus: SyncStatus,
   syncedAt: Date | null,
   syncError: string | null,
   syncEnvError: string | null,
+  cooldownMs: number,
 ): { state: SyncIndicatorState; label: string; title: string } {
   if (syncError || syncStatus === 'error') {
     return { state: 'error', label: 'Sync error', title: syncError ?? 'Sync failed' };
@@ -41,9 +46,16 @@ function syncIndicatorState(
   if (syncStatus === 'syncing') {
     return { state: 'syncing', label: 'Syncing...', title: 'Pulling or pushing sync data' };
   }
+  if (cooldownMs > 0) {
+    return {
+      state: 'active',
+      label: formatCooldownLabel(cooldownMs),
+      title: `Sync cooldown active (${Math.ceil(cooldownMs / 1000)}s remaining)`,
+    };
+  }
   if (syncActive) {
     const label = syncedAt ? `Synced ${formatRelativeMinutes(syncedAt)}` : 'Sync on';
-    return { state: 'active', label, title: 'Sync is active. Open Settings for details.' };
+    return { state: 'active', label, title: 'Sync is active.' };
   }
   if (syncEnvError) {
     return { state: 'setup', label: 'Sync setup', title: syncEnvError };
@@ -69,7 +81,9 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 export default function App() {
   // Meta hook runs first: useFeed needs its callbacks + live tag map from the worker.
   const [articleIds, setArticleIds] = useState<string[]>([]);
-  const { metaTagsMap, feedTaggedArticle, endTaggingPass, forceMetaSync, metaStatus, metaError, metaEnvError } = useMetaWorker(articleIds);
+  const {
+    metaTagsMap, feedTaggedArticle, endTaggingPass, forceMetaSync, metaStatus, metaError, metaEnvError, metaSyncCooldownMs,
+  } = useMetaWorker(articleIds);
 
   const {
     visibleArticles, savedArticles, hasMore, totalLoaded,
@@ -83,7 +97,7 @@ export default function App() {
     onRemoteSync,
   } = useFeed({ metaCallbacks: { feedTaggedArticle, endTaggingPass }, metaTagsMap });
 
-  const { syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError, forceSync, generateLink, revoke } =
+  const { syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError, syncCooldownMs, forceSync, generateLink, revoke } =
     useSyncWorker(prefs, articleTags, labelHits, savedArticles, onRemoteSync);
 
   const [view, setView] = useState<FeedView>('feed');
@@ -91,15 +105,25 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [pullProgress, setPullProgress] = useState(0); // 0–1
   const canUseBrowserAi = isPromptApiAvailable();
-  const syncIndicator = syncIndicatorState(syncActive, syncStatus, syncedAt, syncError, syncEnvError);
+  const combinedSyncCooldownMs = Math.max(syncCooldownMs, metaSyncCooldownMs);
+  const syncIndicator = syncIndicatorState(
+    syncActive,
+    syncStatus,
+    syncedAt,
+    syncError,
+    syncEnvError,
+    combinedSyncCooldownMs,
+  );
   const onMainSyncClick = useCallback(() => {
+    void forceSync();
     void forceMetaSync();
-  }, [forceMetaSync]);
+  }, [forceMetaSync, forceSync]);
   const onManualRefresh = useCallback(() => {
     onRefresh();
     void forceMetaSync();
     void forceSync();
   }, [onRefresh, forceMetaSync, forceSync]);
+  const initialSyncDoneRef = useRef(false);
 
   // Drive metadata sync target ids in useMetaWorker. `visibleArticles` is a fresh array every
   // render (useFeed does `allArticles.slice(0, visibleCount)`), so comparing by value and
@@ -108,6 +132,25 @@ export default function App() {
     const nextIds = visibleArticles.map(a => a.id);
     setArticleIds(prev => (sameIdsInOrder(prev, nextIds) ? prev : nextIds));
   }, [visibleArticles]);
+
+  // On initial load, run the same combined sync action as the main sync button.
+  useEffect(() => {
+    if (initialSyncDoneRef.current) return;
+    if (!syncActive) return;
+    initialSyncDoneRef.current = true;
+    onMainSyncClick();
+  }, [syncActive, onMainSyncClick]);
+
+  // Match manual sync behavior whenever the app becomes active/visible.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && syncActive) {
+        onMainSyncClick();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [syncActive, onMainSyncClick]);
 
   // Keep a stable ref so the touch handlers always call the latest refresh handler
   const onRefreshRef = useRef(onManualRefresh);
@@ -238,8 +281,9 @@ export default function App() {
             type="button"
             className={`sync-indicator ${syncIndicator.state}`}
             onClick={onMainSyncClick}
-            title={`${syncIndicator.title} Click to sync shared tags now.`}
-            aria-label={`Sync status: ${syncIndicator.label}. Click to sync shared tags now.`}
+            disabled={combinedSyncCooldownMs > 0}
+            title={syncIndicator.title}
+            aria-label="Sync now"
           >
             <span className="sync-indicator-dot" aria-hidden="true" />
             <span>{syncIndicator.label}</span>

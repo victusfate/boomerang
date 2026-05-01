@@ -3,6 +3,7 @@ import { workerUrlFromEnv, missingWorkerEnvMessage } from '../config/workerEnv';
 import { fetchMetaTags, submitMetaTags } from '../services/metaWorker.ts';
 
 const WORKER_BASE = workerUrlFromEnv(import.meta.env.VITE_META_WORKER_URL);
+const MANUAL_META_SYNC_COOLDOWN_MS = 15_000;
 const BACKOFF_BASE_MS = 30_000;
 const BACKOFF_MAX_MS = 10 * 60_000;
 const MAX_CONSECUTIVE_ERRORS = 5;
@@ -15,6 +16,7 @@ export interface UseMetaWorkerResult {
   feedTaggedArticle: (articleId: string, tags: string[]) => void;
   endTaggingPass: () => void;
   forceMetaSync: () => Promise<void>;
+  metaSyncCooldownMs: number;
   metaStatus: MetaStatus;
   metaError: string | null;
   /** Set when `VITE_META_WORKER_URL` is missing at build time */
@@ -28,7 +30,9 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
   const [metaTagsMap, setMetaTagsMap] = useState<MetaTagsMap>(new Map());
   const [metaStatus, setMetaStatus] = useState<MetaStatus>(() => (WORKER_BASE ? 'active' : 'disabled'));
   const [metaError, setMetaError] = useState<string | null>(null);
+  const [metaSyncCooldownMs, setMetaSyncCooldownMs] = useState(0);
   const circuitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const syncInFlightRef = useRef(false);
   const consecutiveErrorsRef = useRef(0);
   const blockedUntilRef = useRef(0);
@@ -72,7 +76,19 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
 
   const syncNow = useCallback(async () => {
     if (!WORKER_BASE || syncInFlightRef.current) return;
+    if (metaSyncCooldownMs > 0) return;
     if (blockedUntilRef.current && Date.now() < blockedUntilRef.current) return;
+    const cooldownUntil = Date.now() + MANUAL_META_SYNC_COOLDOWN_MS;
+    setMetaSyncCooldownMs(MANUAL_META_SYNC_COOLDOWN_MS);
+    if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+    cooldownTimerRef.current = setInterval(() => {
+      const remaining = Math.max(0, cooldownUntil - Date.now());
+      setMetaSyncCooldownMs(remaining);
+      if (remaining <= 0 && cooldownTimerRef.current) {
+        clearInterval(cooldownTimerRef.current);
+        cooldownTimerRef.current = null;
+      }
+    }, 500);
     syncInFlightRef.current = true;
     setMetaStatus('syncing');
     try {
@@ -90,7 +106,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
     } finally {
       syncInFlightRef.current = false;
     }
-  }, [registerFailure, resetFailures]);
+  }, [metaSyncCooldownMs, registerFailure, resetFailures]);
 
   const flush = useCallback(() => {
     if (pendingBufferRef.current.length === 0) return;
@@ -137,6 +153,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
 
   useEffect(() => () => {
     if (circuitTimerRef.current) clearTimeout(circuitTimerRef.current);
+    if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
     if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
   }, []);
 
@@ -145,6 +162,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
     feedTaggedArticle,
     endTaggingPass,
     forceMetaSync: syncNow,
+    metaSyncCooldownMs,
     metaStatus,
     metaError,
     metaEnvError,

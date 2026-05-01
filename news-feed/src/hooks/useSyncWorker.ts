@@ -9,6 +9,7 @@ import {
 import { workerUrlFromEnv, missingWorkerEnvMessage } from '../config/workerEnv';
 
 const SYNC_WORKER_BASE = workerUrlFromEnv(import.meta.env.VITE_SYNC_WORKER_URL);
+const MANUAL_SYNC_COOLDOWN_MS = 15_000;
 
 export type SyncStatus = 'idle' | 'active' | 'syncing' | 'error';
 
@@ -18,6 +19,7 @@ export interface UseSyncWorkerResult {
   syncedAt: Date | null;
   syncError: string | null;
   syncUrl: string | null;
+  syncCooldownMs: number;
   forceSync: () => Promise<void>;
   generateLink: () => Promise<void>;
   revoke: () => Promise<void>;
@@ -42,9 +44,12 @@ export function useSyncWorker(
   const [syncedAt, setSyncedAt] = useState<Date | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncUrl, setSyncUrl]   = useState<string | null>(null);
+  const [syncCooldownMs, setSyncCooldownMs] = useState(0);
 
   const etagRef         = useRef<string>('');
   const lastPushedRef   = useRef<string>('');
+  const syncInFlightRef = useRef(false);
+  const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const roomRef = useRef<SyncRoom | null>(null);
   // Keep in sync with `room` on every render; `activate` also sets the ref immediately so
   // `doPoll()` can run in the same tick as `activate` (before React commits `setRoom`).
@@ -133,9 +138,27 @@ export function useSyncWorker(
 
   const forceSync = useCallback(async () => {
     if (!roomRef.current) return;
-    await doPoll();
-    await doPush();
-  }, [doPoll, doPush]);
+    if (syncInFlightRef.current) return;
+    if (syncCooldownMs > 0) return;
+    const cooldownUntil = Date.now() + MANUAL_SYNC_COOLDOWN_MS;
+    setSyncCooldownMs(MANUAL_SYNC_COOLDOWN_MS);
+    if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+    cooldownTimerRef.current = setInterval(() => {
+      const remaining = Math.max(0, cooldownUntil - Date.now());
+      setSyncCooldownMs(remaining);
+      if (remaining <= 0 && cooldownTimerRef.current) {
+        clearInterval(cooldownTimerRef.current);
+        cooldownTimerRef.current = null;
+      }
+    }, 500);
+    syncInFlightRef.current = true;
+    try {
+      await doPoll();
+      await doPush();
+    } finally {
+      syncInFlightRef.current = false;
+    }
+  }, [doPoll, doPush, syncCooldownMs]);
 
   // Activate sync with a room
   const activate = useCallback((r: SyncRoom) => {
@@ -211,7 +234,19 @@ export function useSyncWorker(
     setSyncStatus('idle');
     setSyncedAt(null);
     setSyncError(null);
+    setSyncCooldownMs(0);
     etagRef.current = '';
+    if (cooldownTimerRef.current) {
+      clearInterval(cooldownTimerRef.current);
+      cooldownTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => {
+    if (cooldownTimerRef.current) {
+      clearInterval(cooldownTimerRef.current);
+      cooldownTimerRef.current = null;
+    }
   }, []);
 
   return {
@@ -220,6 +255,7 @@ export function useSyncWorker(
     syncedAt,
     syncError,
     syncUrl,
+    syncCooldownMs,
     forceSync,
     generateLink,
     revoke,
