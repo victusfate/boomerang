@@ -132,7 +132,8 @@ export function useSyncWorker(
         onMergeRef.current(merged);
       }
       setSyncedAt(new Date());
-      setSyncStatus('active');
+      // During a full manual sync, keep status in "syncing" until push completes.
+      if (!syncInFlightRef.current) setSyncStatus('active');
       setSyncError(null);
       rateLimitBackoffStepRef.current = 0;
       return 'ok';
@@ -146,6 +147,7 @@ export function useSyncWorker(
   const doPush = useCallback(async (): Promise<'ok' | 'blocked' | 'rate_limited'> => {
     const r = roomRef.current;
     if (!r) return 'blocked';
+    setSyncStatus('syncing');
     const payload = buildPayload(prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current);
     const payloadJson = JSON.stringify(payload);
     if (payloadJson === lastPushedRef.current) return 'ok'; // nothing changed since last push
@@ -171,6 +173,7 @@ export function useSyncWorker(
       return 'blocked';
     }
     lastPushedRef.current = payloadJson;
+    setSyncStatus('active');
     setSyncError(null);
     rateLimitBackoffStepRef.current = 0;
     return 'ok';

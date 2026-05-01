@@ -50,6 +50,13 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
     articleIdsRef.current = articleIds;
   }, [articleIds]);
 
+  const formatMetaSyncError = useCallback((e: unknown, fallback: string): string => {
+    if (e instanceof TypeError && /Failed to fetch/i.test(e.message)) {
+      return 'Could not reach shared metadata service (network/CORS).';
+    }
+    return e instanceof Error ? e.message : fallback;
+  }, []);
+
   const registerFailure = useCallback((message: string) => {
     consecutiveErrorsRef.current += 1;
     setMetaStatus('error');
@@ -129,13 +136,13 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
         rateLimited = true;
         applyRateLimitBackoff(e.retryAfterMs);
       } else {
-        registerFailure(e instanceof Error ? e.message : 'Meta sync failed');
+        registerFailure(formatMetaSyncError(e, 'Meta sync failed'));
       }
     } finally {
       syncInFlightRef.current = false;
       if (!rateLimited) startMetaSyncCooldown();
     }
-  }, [applyRateLimitBackoff, metaSyncCooldownMs, registerFailure, resetFailures, startMetaSyncCooldown]);
+  }, [applyRateLimitBackoff, formatMetaSyncError, metaSyncCooldownMs, registerFailure, resetFailures, startMetaSyncCooldown]);
 
   const flush = useCallback(() => {
     if (pendingBufferRef.current.length === 0) return;
@@ -153,14 +160,14 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
           applyRateLimitBackoff(e.retryAfterMs);
           return;
         }
-        registerFailure(e instanceof Error ? e.message : 'Meta submit failed');
+        registerFailure(formatMetaSyncError(e, 'Meta submit failed'));
       })
       .finally(() => {
         if (pendingBufferRef.current.length > 0) {
           flushTimerRef.current = setTimeout(flush, FLUSH_INTERVAL_MS);
         }
       });
-  }, [applyRateLimitBackoff, registerFailure, resetFailures]);
+  }, [applyRateLimitBackoff, formatMetaSyncError, registerFailure, resetFailures]);
 
   const stopFlushTimer = useCallback(() => {
     if (flushTimerRef.current) {
