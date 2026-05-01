@@ -1,0 +1,33 @@
+{
+	"name": "boomerang-meta",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-04-09",
+	"observability": {
+		"enabled": true
+	},
+	"kv_namespaces": [
+		{
+			"binding": "ARTICLE_META",
+			"id": "3357ba71982a42d3af3e5ceb7413781e"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "META_DO",
+				"class_name": "MetaDO"
+			}
+		]
+	},
+	"triggers": {
+		"crons": ["0 * * * *"]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"MetaDO"
+			]
+		}
+	]
+}

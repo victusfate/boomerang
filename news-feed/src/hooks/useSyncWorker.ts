@@ -6,12 +6,11 @@ import {
   buildSyncUrl, buildPayload, mergePayload,
   type SyncRoom,
 } from '../services/syncWorker';
+import { workerUrlFromEnv, missingWorkerEnvMessage } from '../config/workerEnv';
 
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = 300_000; // 5 minutes — tab visibilitychange still fires immediately on focus
 const PUSH_DEBOUNCE_MS = 2_000;
-const DEFAULT_BOOMERANG_SYNC_URL = 'https://boomerang-sync.boomerang.workers.dev';
-const envSyncWorker = import.meta.env.VITE_SYNC_WORKER_URL?.replace(/\/$/, '') ?? '';
-const WORKER_URL = envSyncWorker || (import.meta.env.PROD ? DEFAULT_BOOMERANG_SYNC_URL : undefined);
+const SYNC_WORKER_BASE = workerUrlFromEnv(import.meta.env.VITE_SYNC_WORKER_URL);
 
 export type SyncStatus = 'idle' | 'active' | 'syncing' | 'error';
 
@@ -21,8 +20,11 @@ export interface UseSyncWorkerResult {
   syncedAt: Date | null;
   syncError: string | null;
   syncUrl: string | null;
+  forceSync: () => Promise<void>;
   generateLink: () => Promise<void>;
   revoke: () => Promise<void>;
+  /** Non-null when `VITE_SYNC_WORKER_URL` is missing — needed to create new rooms; existing fragment/storage rooms still work */
+  syncEnvError: string | null;
 }
 
 export function useSyncWorker(
@@ -43,11 +45,15 @@ export function useSyncWorker(
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncUrl, setSyncUrl]   = useState<string | null>(null);
 
-  const etagRef    = useRef<string>('');
+  const etagRef         = useRef<string>('');
+  const lastPushedRef   = useRef<string>('');
+  const hasPulledRef    = useRef(false);
   const pushTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollTimer  = useRef<ReturnType<typeof setInterval> | null>(null);
-  const roomRef    = useRef<SyncRoom | null>(null);
-  roomRef.current  = room;
+  const roomRef = useRef<SyncRoom | null>(null);
+  // Keep in sync with `room` on every render; `activate` also sets the ref immediately so
+  // `doPoll()` can run in the same tick as `activate` (before React commits `setRoom`).
+  roomRef.current = room;
 
   // Keep latest state in refs so poll/push callbacks don't go stale
   const prefsRef        = useRef(prefs);
@@ -69,12 +75,27 @@ export function useSyncWorker(
       const remote = await fetchMeta(r);
       if (remote) {
         etagRef.current = remote.etag;
-        const merged = mergePayload(
-          { prefs: prefsRef.current, articleTags: articleTagsRef.current, labelHits: labelHitsRef.current, savedArticles: savedRef.current },
-          remote.payload,
+        const local = { prefs: prefsRef.current, articleTags: articleTagsRef.current, labelHits: labelHitsRef.current, savedArticles: savedRef.current };
+        const merged = mergePayload(local, remote.payload);
+
+        const newTags = merged.articleTags.filter(
+          t => !local.articleTags.some(l => l.articleId === t.articleId && l.tags.join() === t.tags.join()),
         );
+        const newSaved = merged.savedArticles.filter(
+          a => !local.savedArticles.some(l => l.id === a.id),
+        );
+        const newSavedIds = merged.prefs.savedIds.filter(id => !local.prefs.savedIds.includes(id));
+        console.info('[sync:sync-worker] poll merged', {
+          newTaggedArticles: newTags.length,
+          newSavedArticles: newSaved.length,
+          newSavedIds: newSavedIds.length,
+          newTagsSample: newTags.slice(0, 3).map(t => ({ articleId: t.articleId, tags: t.tags })),
+          newSavedSample: newSaved.slice(0, 3).map(a => ({ id: a.id, title: a.title })),
+        });
+
         onMergeRef.current(merged);
       }
+      hasPulledRef.current = true;
       setSyncedAt(new Date());
       setSyncStatus('active');
       setSyncError(null);
@@ -88,27 +109,50 @@ export function useSyncWorker(
     const r = roomRef.current;
     if (!r) return;
     const payload = buildPayload(prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current);
+    const payloadJson = JSON.stringify(payload);
+    if (payloadJson === lastPushedRef.current) return; // nothing changed since last push
     const result = await pushMeta(r, payload, etagRef.current || undefined);
     if (result.conflict) {
       // Remote is ahead — pull first, then push again after a short delay
       await doPoll();
       setTimeout(() => void doPush(), 500);
+      return; // don't mark as pushed — retry will re-check
     }
+    if (!result.ok) {
+      setSyncStatus('error');
+      setSyncError('Could not upload changes to sync (PUT failed). Check the Network tab for /meta.');
+      return;
+    }
+    lastPushedRef.current = payloadJson;
+    setSyncError(null);
   }, [doPoll]);
 
   const schedulePush = useCallback(() => {
     if (!roomRef.current) return;
+    if (!hasPulledRef.current) return;
     if (pushTimer.current) clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(() => void doPush(), PUSH_DEBOUNCE_MS);
   }, [doPush]);
 
+  const forceSync = useCallback(async () => {
+    if (!roomRef.current) return;
+    if (pushTimer.current) {
+      clearTimeout(pushTimer.current);
+      pushTimer.current = null;
+    }
+    await doPoll();
+    await doPush();
+  }, [doPoll, doPush]);
+
   // Activate sync with a room
   const activate = useCallback((r: SyncRoom) => {
+    roomRef.current = r;
+    hasPulledRef.current = false;
     setRoom(r);
     saveSyncRoom(r);
     setSyncStatus('active');
     setSyncError(null);
-    if (WORKER_URL || r.workerUrl) {
+    if (SYNC_WORKER_BASE || r.workerUrl) {
       setSyncUrl(buildSyncUrl(r.workerUrl, r.roomId, r.token));
     }
   }, []);
@@ -120,19 +164,17 @@ export function useSyncWorker(
       activate(fromFragment);
       // Clean fragment from URL without reload
       history.replaceState(null, '', location.pathname + location.search);
-      void doPoll();
       return;
     }
     const stored = loadSyncRoom();
-    if (stored) {
-      activate(stored);
-      void doPoll();
-    }
+    if (stored) activate(stored);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll on interval and on visibility change
   useEffect(() => {
     if (!room) return;
+
+    void doPoll();
 
     pollTimer.current = setInterval(() => {
       if (document.visibilityState === 'visible') void doPoll();
@@ -154,15 +196,24 @@ export function useSyncWorker(
   }, [prefs, articleTags, labelHits, savedArticles, room, schedulePush]);
 
   const generateLink = useCallback(async () => {
-    const workerUrl = WORKER_URL;
-    if (!workerUrl) { setSyncError('VITE_SYNC_WORKER_URL not configured'); return; }
+    const workerUrl = SYNC_WORKER_BASE;
+    if (!workerUrl) {
+      setSyncError(missingWorkerEnvMessage('VITE_SYNC_WORKER_URL'));
+      return;
+    }
     try {
       setSyncStatus('syncing');
       const r = await createSyncRoom(workerUrl);
       activate(r);
       // Push current state immediately so second device gets data on first poll
       const payload = buildPayload(prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current);
-      await pushMeta(r, payload);
+      const put = await pushMeta(r, payload);
+      if (!put.ok && !put.conflict) {
+        setSyncStatus('error');
+        setSyncError('Initial sync upload failed. Try Generate sync link again.');
+        return;
+      }
+      hasPulledRef.current = true;
       setSyncStatus('active');
     } catch (e) {
       setSyncStatus('error');
@@ -176,6 +227,8 @@ export function useSyncWorker(
       try { await deleteRoom(r); } catch { /* best effort */ }
     }
     clearSyncRoom();
+    roomRef.current = null;
+    hasPulledRef.current = false;
     setRoom(null);
     setSyncUrl(null);
     setSyncStatus('idle');
@@ -192,7 +245,9 @@ export function useSyncWorker(
     syncedAt,
     syncError,
     syncUrl,
+    forceSync,
     generateLink,
     revoke,
+    syncEnvError: SYNC_WORKER_BASE ? null : missingWorkerEnvMessage('VITE_SYNC_WORKER_URL'),
   };
 }

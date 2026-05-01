@@ -73,7 +73,7 @@ html, body {
 }
 
 .header-left { display: flex; align-items: baseline; gap: 8px; }
-.header-right { display: flex; gap: 4px; }
+.header-right { display: flex; align-items: center; gap: 4px; }
 
 .app-title {
   font-size: 1.25rem;
@@ -85,6 +85,50 @@ html, body {
   font-size: 0.75rem;
   color: var(--sub);
 }
+
+.sync-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 132px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--sub);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.sync-indicator:hover {
+  background: var(--border);
+  color: var(--text);
+}
+.sync-indicator span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sync-indicator-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--sub);
+}
+.sync-indicator.active .sync-indicator-dot { background: #22c55e; }
+.sync-indicator.syncing .sync-indicator-dot {
+  background: var(--accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+.sync-indicator.error {
+  border-color: #ef4444;
+  color: #fecaca;
+}
+.sync-indicator.error .sync-indicator-dot { background: #ef4444; }
+.sync-indicator.setup .sync-indicator-dot { background: #f59e0b; }
 
 .icon-btn {
   background: none;
@@ -104,6 +148,7 @@ html, body {
 .icon-btn:disabled { opacity: 0.4; cursor: default; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 50% { opacity: 0.35; } }
 
 /* ── View tabs ───────────────────────────────────────────────── */
 .view-tabs {
@@ -231,6 +276,15 @@ html, body {
   50% { opacity: 0.3; }
 }
 
+.card-tagging-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: pulse 0.9s ease-in-out infinite;
+}
+
 .topic-overflow-panel {
   display: flex;
   flex-wrap: wrap;
@@ -248,6 +302,9 @@ html, body {
 }
 
 .label-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-size: 0.7rem;
   font-weight: 600;
   padding: 2px 7px;
@@ -255,6 +312,49 @@ html, body {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
   color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  letter-spacing: 0.02em;
+}
+
+.label-badge-remove {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  font-size: 0.85rem;
+  line-height: 1;
+  opacity: 0.6;
+  display: inline-flex;
+  align-items: center;
+}
+.label-badge-remove:hover { opacity: 1; }
+
+.label-badge-add {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent);
+  background: none;
+  color: color-mix(in srgb, var(--accent) 70%, transparent);
+  cursor: pointer;
+  line-height: 1;
+}
+.label-badge-add:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+
+.label-badge-input {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  outline: none;
+  width: 80px;
   letter-spacing: 0.02em;
 }
 

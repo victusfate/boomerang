@@ -1,8 +1,29 @@
 import assert from 'node:assert/strict';
 import { test, describe } from 'node:test';
-import { buildSyncFragment, parseSyncFragment, buildPayload, mergePayload } from './syncWorker.ts';
-import type { UserPrefs } from '../types.ts';
+import {
+  buildSyncFragment,
+  parseSyncFragment,
+  buildPayload,
+  mergePayload,
+  mergeSavedArticleSnapshots,
+  materializeSavedArticlesForSync,
+  SYNC_PLACEHOLDER_SOURCE_ID,
+} from './syncWorker.ts';
+import type { Article, UserPrefs } from '../types.ts';
 import { DEFAULT_PREFS } from './storage.ts';
+
+function article(id: string, sourceId = 'src'): Article {
+  return {
+    id,
+    title: `Title ${id}`,
+    url: 'https://example.com/article',
+    description: '',
+    publishedAt: new Date('2026-01-01'),
+    source: 's',
+    sourceId,
+    topics: ['general'],
+  };
+}
 
 const WORKER_URL = 'https://boomerang-sync.example.workers.dev';
 
@@ -45,6 +66,30 @@ describe('buildPayload / mergePayload', () => {
     );
     assert.ok(merged.prefs.savedIds.includes('a'));
     assert.ok(merged.prefs.savedIds.includes('b'));
+  });
+
+  test('buildPayload includes one savedArticles row per savedId (placeholders when unknown)', () => {
+    const prefs: UserPrefs = { ...DEFAULT_PREFS, savedIds: ['a', 'b', 'c'] };
+    const known: Article[] = [article('a')];
+    const payload = buildPayload(prefs, [], [], known);
+    assert.equal(payload.savedArticles.length, 3);
+    const bodies = payload.savedArticles;
+    const a = bodies.find(s => s.id === 'a');
+    const b = bodies.find(s => s.id === 'b');
+    assert.ok(a && a.sourceId === 'src');
+    assert.ok(b && b.sourceId === SYNC_PLACEHOLDER_SOURCE_ID);
+  });
+
+  test('mergeSavedArticleSnapshots keeps local article when remote is placeholder', () => {
+    const local = [article('x', 'bbc')];
+    const remote = materializeSavedArticlesForSync(
+      { ...DEFAULT_PREFS, savedIds: ['x'] },
+      [],
+    );
+    assert.equal(remote[0].sourceId, SYNC_PLACEHOLDER_SOURCE_ID);
+    const merged = mergeSavedArticleSnapshots(remote, local);
+    assert.equal(merged.length, 1);
+    assert.equal(merged[0].sourceId, 'bbc');
   });
 
   test('mergePayload deduplicates articleTags by articleId (newer wins)', () => {

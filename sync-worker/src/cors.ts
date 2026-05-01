@@ -1,11 +1,12 @@
+/** Production + Vite dev (:5173) + GH Pages preview (:4173). Any http localhost port allowed via `isAllowedOrigin`. */
 const ALLOWED_ORIGINS = [
   'https://victusfate.github.io',
   'https://boomerang-news.com',
   'https://www.boomerang-news.com',
-  'http://localhost:4173',
-  'http://127.0.0.1:4173',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173',
 ];
 
 export function isAllowedOrigin(origin: string, env: Env): boolean {

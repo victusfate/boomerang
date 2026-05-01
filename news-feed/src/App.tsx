@@ -1,6 +1,8 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { useFeed } from './hooks/useFeed';
-import { useSyncWorker } from './hooks/useSyncWorker';
+import { useSyncWorker, type SyncStatus } from './hooks/useSyncWorker';
+import { useMetaWorker } from './hooks/useMetaWorker';
+import { useOGImageBatch } from './hooks/useOGImageBatch';
 import { ArticleCard } from './components/ArticleCard';
 import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
@@ -9,6 +11,45 @@ import { isPromptApiAvailable } from './services/labelClassifier';
 import type { ActiveFilter, FeedView } from './types';
 
 const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
+
+type SyncIndicatorState = 'idle' | 'setup' | 'active' | 'syncing' | 'error';
+
+/** Same length and same id at each index (order matters — feed order). */
+function sameIdsInOrder(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function formatRelativeMinutes(date: Date): string {
+  const mins = Math.floor((Date.now() - date.getTime()) / 60000);
+  return mins < 1 ? 'just now' : `${mins}m ago`;
+}
+
+function syncIndicatorState(
+  syncActive: boolean,
+  syncStatus: SyncStatus,
+  syncedAt: Date | null,
+  syncError: string | null,
+  syncEnvError: string | null,
+): { state: SyncIndicatorState; label: string; title: string } {
+  if (syncError || syncStatus === 'error') {
+    return { state: 'error', label: 'Sync error', title: syncError ?? 'Sync failed' };
+  }
+  if (syncStatus === 'syncing') {
+    return { state: 'syncing', label: 'Syncing...', title: 'Pulling or pushing sync data' };
+  }
+  if (syncActive) {
+    const label = syncedAt ? `Synced ${formatRelativeMinutes(syncedAt)}` : 'Sync on';
+    return { state: 'active', label, title: 'Sync is active. Open Settings for details.' };
+  }
+  if (syncEnvError) {
+    return { state: 'setup', label: 'Sync setup', title: syncEnvError };
+  }
+  return { state: 'idle', label: 'Sync off', title: 'Sync is not active. Open Settings to generate a link.' };
+}
 
 function RefreshIcon({ spinning }: { spinning: boolean }) {
   return (
@@ -26,6 +67,10 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 }
 
 export default function App() {
+  // Meta hook runs first: useFeed needs its callbacks + live tag map from the worker.
+  const [articleIds, setArticleIds] = useState<string[]>([]);
+  const { metaTagsMap, feedTaggedArticle, endTaggingPass, metaEnvError } = useMetaWorker(articleIds);
+
   const {
     visibleArticles, savedArticles, hasMore, totalLoaded,
     loading, refreshing, fetching, error, prefs, lastRefresh, feedEnterIds,
@@ -33,27 +78,28 @@ export default function App() {
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
-    articleTagsMap, classificationStatus, aiTaggingStarted, onStartAiTagging, onAddLabel, onDeleteLabel,
-    labelHits, articleTags, onToggleAiBar,
-  } = useFeed();
+    articleTagsMap, classificationStatus, aiTaggingStarted, taggingArticleId, onStartAiTagging, onAddLabel, onDeleteLabel,
+    labelHits, articleTags, onToggleAiBar, onAddManualTag, onRemoveManualTag,
+    onRemoteSync,
+  } = useFeed({ metaCallbacks: { feedTaggedArticle, endTaggingPass }, metaTagsMap });
 
-  const handleSyncMerge = useCallback((_merged: {
-    prefs: import('./types').UserPrefs;
-    articleTags: import('./types').ArticleTag[];
-    labelHits: import('./types').LabelHit[];
-    savedArticles: import('./types').Article[];
-  }) => {
-    // Merge wiring into Fireproof handled as follow-up; hook is wired for when worker is deployed.
-  }, []);
-
-  const { syncActive, syncStatus, syncedAt, syncError, syncUrl, generateLink, revoke } =
-    useSyncWorker(prefs, articleTags, labelHits, savedArticles, handleSyncMerge);
+  const { syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError, forceSync, generateLink, revoke } =
+    useSyncWorker(prefs, articleTags, labelHits, savedArticles, onRemoteSync);
 
   const [view, setView] = useState<FeedView>('feed');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [pullProgress, setPullProgress] = useState(0); // 0–1
   const canUseBrowserAi = isPromptApiAvailable();
+  const syncIndicator = syncIndicatorState(syncActive, syncStatus, syncedAt, syncError, syncEnvError);
+
+  // Drive WebSocket `subscribe` in useMetaWorker. `visibleArticles` is a fresh array every
+  // render (useFeed does `allArticles.slice(0, visibleCount)`), so comparing by value and
+  // returning `prev` avoids setState → render → setState loops.
+  useEffect(() => {
+    const nextIds = visibleArticles.map(a => a.id);
+    setArticleIds(prev => (sameIdsInOrder(prev, nextIds) ? prev : nextIds));
+  }, [visibleArticles]);
 
   // Keep a stable ref so the touch handlers always call the latest onRefresh
   const onRefreshRef = useRef(onRefresh);
@@ -146,7 +192,7 @@ export default function App() {
     if (activeFilter?.kind === 'topic') list = list.filter(a => a.topics.includes(activeFilter.value));
     if (activeFilter?.kind === 'label') {
       const labelName = (prefs.userLabels ?? []).find(l => l.id === activeFilter.value)?.name?.toLowerCase() ?? '';
-      list = list.filter(a => (articleTagsMap.get(a.id) ?? []).some(t => t.includes(labelName) || labelName.includes(t)));
+      list = list.filter(a => (articleTagsMap.get(a.id) ?? []).some((t: string) => t.includes(labelName) || labelName.includes(t)));
     }
     return list;
   }, [visibleArticles, savedArticles, view, activeFilter, articleTagsMap, prefs.userLabels]);
@@ -158,6 +204,9 @@ export default function App() {
     if (fetching || loading || !hasMore) return;
     if (filteredArticles.length === 0) onLoadMore();
   }, [activeFilter, view, fetching, loading, hasMore, filteredArticles.length, onLoadMore]);
+
+  const { ogMap, sentinelRef: ogSentinelRef, fetchedUpTo: ogFetchedUpTo } =
+    useOGImageBatch(filteredArticles, 10);
 
   function formatLastRefresh() {
     if (!lastRefresh) return '';
@@ -177,6 +226,16 @@ export default function App() {
           )}
         </div>
         <div className="header-right">
+          <button
+            type="button"
+            className={`sync-indicator ${syncIndicator.state}`}
+            onClick={() => setShowSettings(true)}
+            title={syncIndicator.title}
+            aria-label={`Sync status: ${syncIndicator.label}. Open sync settings.`}
+          >
+            <span className="sync-indicator-dot" aria-hidden="true" />
+            <span>{syncIndicator.label}</span>
+          </button>
           <button
             className="icon-btn"
             onClick={onRefresh}
@@ -268,10 +327,15 @@ export default function App() {
       )}
 
       <main className="feed">
-        {error && (
+        {(error || metaEnvError) && (
           <div className="feed-error">
-            <p>{error}</p>
-            <button onClick={onRefresh} className="btn-retry">Try again</button>
+            {error && (
+              <>
+                <p>{error}</p>
+                <button onClick={onRefresh} className="btn-retry">Try again</button>
+              </>
+            )}
+            {metaEnvError && <p>{metaEnvError}</p>}
           </div>
         )}
 
@@ -285,19 +349,27 @@ export default function App() {
         )}
 
         {filteredArticles.map((article, index) => (
-          <ArticleCard
-            key={article.id}
-            article={article}
-            prefs={prefs}
-            animateEnter={feedEnterIds.includes(article.id)}
-            priority={index === 0}
-            articleLabelNames={articleTagsMap.get(article.id) ?? []}
-            onOpen={onOpen}
-            onSave={onSave}
-            onUpvote={onUpvote}
-            onDownvote={onDownvote}
-            onSeen={onSeen}
-          />
+          <Fragment key={article.id}>
+            <ArticleCard
+              article={article}
+              prefs={prefs}
+              animateEnter={feedEnterIds.includes(article.id)}
+              priority={index === 0}
+              ogImageUrl={ogMap.get(article.id)}
+              articleLabelNames={articleTagsMap.get(article.id) ?? []}
+              isTagging={taggingArticleId === article.id}
+              onOpen={onOpen}
+              onSave={onSave}
+              onUpvote={onUpvote}
+              onDownvote={onDownvote}
+              onSeen={onSeen}
+              onAddManualTag={onAddManualTag}
+              onRemoveManualTag={onRemoveManualTag}
+            />
+            {index === Math.min(ogFetchedUpTo, filteredArticles.length) - 1 && (
+              <div ref={ogSentinelRef} aria-hidden="true" />
+            )}
+          </Fragment>
         ))}
 
         {/* Sentinel — IntersectionObserver target */}
@@ -312,7 +384,7 @@ export default function App() {
           </div>
         )}
 
-        {!loading && !fetching && filteredArticles.length === 0 && !error && (
+        {!loading && !fetching && filteredArticles.length === 0 && !error && !metaEnvError && (
           <div className="feed-empty">
             {view === 'saved' ? (
               prefs.savedIds.length > 0
@@ -347,6 +419,8 @@ export default function App() {
           syncedAt={syncedAt}
           syncError={syncError}
           syncUrl={syncUrl}
+          syncEnvError={syncEnvError}
+          onForceSync={forceSync}
           onGenerateLink={generateLink}
           onRevoke={revoke}
           onToggleAiBar={onToggleAiBar}

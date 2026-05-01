@@ -1,17 +1,9 @@
 import type { Article, CustomSource, NewsSource } from '../types';
+import { missingWorkerEnvMessage, workerUrlFromEnv } from '../config/workerEnv';
 import { partitionSourcesForSplitFetch } from './feedPartition';
 import rssSourcesJson from '../../../shared/rss-sources.json';
 
-/**
- * Production default — same Worker the repo deploys (`rss-worker/wrangler.jsonc` name + account subdomain).
- * Set `VITE_RSS_WORKER_URL` at build time to override (e.g. GitHub Actions variable).
- * Without this fallback, a missing env yields an empty string and no `/bundle` requests are made.
- */
-const DEFAULT_RSS_WORKER_URL = 'https://boomerang-rss.boomerang.workers.dev';
-
-const envWorker = import.meta.env.VITE_RSS_WORKER_URL?.replace(/\/$/, '') ?? '';
-const RSS_WORKER_URL =
-  envWorker || (import.meta.env.PROD ? DEFAULT_RSS_WORKER_URL : '');
+const RSS_WORKER_URL = workerUrlFromEnv(import.meta.env.VITE_RSS_WORKER_URL);
 
 // Built-in sources: single source of truth in `shared/rss-sources.json` (priority 1 = first batch; 2 = background).
 export const DEFAULT_SOURCES: NewsSource[] = rssSourcesJson as NewsSource[];
@@ -31,12 +23,11 @@ function tagFetchTier(articles: Article[], tier: 'fast' | 'background'): Article
   return articles.map(a => ({ ...a, fetchTier: tier }));
 }
 
-const MISSING_WORKER_MSG =
-  'RSS is served only via the Cloudflare Worker. Set VITE_RSS_WORKER_URL (e.g. https://boomerang-rss.boomerang.workers.dev or http://127.0.0.1:8787 for wrangler dev) and rebuild.';
+const MISSING_RSS_ENV_MSG = missingWorkerEnvMessage('VITE_RSS_WORKER_URL');
 
 /** Worker origin (bundle + `/og-image`). Throws if env is unset — same as `fetchAllSources`. */
 export function getRssWorkerBaseUrl(): string {
-  if (!RSS_WORKER_URL) throw new Error(MISSING_WORKER_MSG);
+  if (!RSS_WORKER_URL) throw new Error(MISSING_RSS_ENV_MSG);
   return RSS_WORKER_URL;
 }
 
@@ -157,7 +148,7 @@ export async function fetchAllSources(
   onBatch?: (articles: Article[]) => void,
 ): Promise<Article[]> {
   if (!RSS_WORKER_URL) {
-    throw new Error(MISSING_WORKER_MSG);
+    throw new Error(MISSING_RSS_ENV_MSG);
   }
   if (sources.length === 0 && customSources.length === 0) return [];
   return fetchAllSourcesSplit(sources, customSources, onBatch);

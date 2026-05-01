@@ -37,6 +37,8 @@ interface Props {
   syncedAt: Date | null;
   syncError: string | null;
   syncUrl: string | null;
+  syncEnvError: string | null;
+  onForceSync: () => Promise<void>;
   onGenerateLink: () => Promise<void>;
   onRevoke: () => Promise<void>;
   onToggleAiBar: () => void;
@@ -46,9 +48,9 @@ export function Settings({
   prefs, onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onClose,
   onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
   onExportBookmarks, onImportBookmarks,
-  onAddLabel, onDeleteLabel, onSuggestLabels,
-  syncActive, syncStatus, syncedAt, syncError, syncUrl,
-  onGenerateLink, onRevoke, onToggleAiBar,
+  onAddLabel, onDeleteLabel,   onSuggestLabels,
+  syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError,
+  onForceSync, onGenerateLink, onRevoke, onToggleAiBar,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
@@ -446,6 +448,9 @@ export function Settings({
         {/* ── Sync across devices ──────────────────────────────────────── */}
         <section className="settings-section">
           <h3>Sync across devices</h3>
+          {!syncActive && syncEnvError && (
+            <p className="sync-error" role="alert">{syncEnvError}</p>
+          )}
           {!syncActive ? (
             <>
               <p className="settings-hint">
@@ -477,6 +482,14 @@ export function Settings({
                   <img src={qrDataUrl} alt="QR code for device sync" className="sync-qr" />
                 </div>
               )}
+              <button
+                type="button"
+                className="btn-add-source"
+                onClick={() => void onForceSync()}
+                disabled={syncStatus === 'syncing'}
+              >
+                {syncStatus === 'syncing' ? 'Syncing…' : 'Sync now'}
+              </button>
               {syncUrl && (
                 <div className="sync-url-row">
                   <input

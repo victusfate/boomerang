@@ -2,11 +2,13 @@ import { DEFAULT_SOURCES, SOURCE_BY_ID, type NewsSource } from './sources';
 import { fetchFeedsStaggered } from './rssFetch';
 import { extractOgImageFromHtml, isAllowedOgFetchUrl } from './ogImage';
 
-/** Production + explicit dev URLs. Local Vite may use any port — see `isAllowedOrigin`. */
+/** Production + explicit dev URLs (Vite `make` default :5173; GH Pages preview :4173). Any `http` localhost port is also allowed — see `isAllowedOrigin`. */
 const ALLOWED_ORIGINS = [
   'https://victusfate.github.io',
   'https://boomerang-news.com',
   'https://www.boomerang-news.com',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
   'http://localhost:4173',
   'http://127.0.0.1:4173',
 ];
@@ -53,10 +55,10 @@ function corsHeaders(request: Request, env: Env): Headers {
   return h;
 }
 
-function json(data: unknown, request: Request, env: Env, init?: ResponseInit): Response {
+function json(data: unknown, request: Request, env: Env, init?: ResponseInit, ttl = BUNDLE_CACHE_TTL_SEC): Response {
   const headers = corsHeaders(request, env);
   headers.set('Content-Type', 'application/json; charset=utf-8');
-  headers.set('Cache-Control', `public, max-age=${BUNDLE_CACHE_TTL_SEC}`);
+  headers.set('Cache-Control', `public, max-age=${ttl}`);
   return new Response(JSON.stringify(data), { ...init, headers });
 }
 
@@ -107,6 +109,21 @@ function resolveCustomSources(searchParams: URLSearchParams): NewsSource[] {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    try {
+      return await rssWorkerFetch(request, env, ctx);
+    } catch (err) {
+      console.error('Unhandled error in rss-worker fetch:', err);
+      return json(
+        { ok: false, message: 'Internal server error', articles: [], errors: [], fetchedAt: Date.now() },
+        request,
+        env,
+        { status: 500 },
+      );
+    }
+  },
+} satisfies ExportedHandler<Env>;
+
+async function rssWorkerFetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders(request, env) });
     }
@@ -192,7 +209,7 @@ export default {
           },
         });
         if (!upstream.ok) {
-          return json({ imageUrl: null }, request, env, { status: 502 });
+          return json({ imageUrl: null }, request, env, { status: 404 });
         }
         const cl = parseInt(upstream.headers.get('Content-Length') ?? '0', 10);
         if (cl > MAX_HTML_BYTES) return json({ imageUrl: null }, request, env, { status: 413 });
@@ -200,12 +217,12 @@ export default {
         if (buf.byteLength > MAX_HTML_BYTES) return json({ imageUrl: null }, request, env, { status: 413 });
         html = new TextDecoder().decode(buf);
       } catch {
-        return json({ imageUrl: null }, request, env, { status: 502 });
+        return json({ imageUrl: null }, request, env, { status: 404 });
       }
 
       const resolved = extractOgImageFromHtml(html, target);
       const body = { imageUrl: resolved ?? null };
-      const response = json(body, request, env);
+      const response = json(body, request, env, undefined, IMAGE_PROXY_CACHE_TTL_SEC);
       ctx.waitUntil(
         cache.put(cacheKey, response.clone()).catch(() => {
           /* ignore — dev / quota / transient cache failures */
@@ -275,5 +292,4 @@ export default {
     }
 
     return new Response('Not Found', { status: 404, headers: corsHeaders(request, env) });
-  },
-} satisfies ExportedHandler<Env>;
+}

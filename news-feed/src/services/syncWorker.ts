@@ -1,5 +1,8 @@
 import type { Article, ArticleTag, LabelHit, UserPrefs } from '../types.ts';
-import { mergePrefs, mergeArticleTags, mergeLabelHits, mergeArticlesById, dehydrate, hydrate, type SyncPayloadV1 } from './syncShare.ts';
+import { mergePrefs, mergeArticleTags, mergeLabelHits, dehydrate, hydrate, type SyncPayloadV1 } from './syncShare.ts';
+
+/** `sourceId` for bookmark rows synthesized so sync payloads cover every `prefs.savedId`. */
+export const SYNC_PLACEHOLDER_SOURCE_ID = 'boomerang-sync-placeholder';
 
 export const SYNC_STORAGE_KEY = 'BOOMERANG_SYNC';
 const FRAGMENT_PREFIX = '#sync-room=';
@@ -111,8 +114,64 @@ export function mergePayload(
     prefs: mergePrefs(local.prefs, remote.prefs),
     articleTags: mergeArticleTags(local.articleTags, remote.articleTags ?? []),
     labelHits: mergeLabelHits(local.labelHits, remote.labelHits ?? []),
-    savedArticles: mergeArticlesById(local.savedArticles, hydrate(remote.savedArticles ?? [])),
+    savedArticles: mergeSavedArticleSnapshots(hydrate(remote.savedArticles ?? []), local.savedArticles),
   };
+}
+
+// ── Payload materialization (every savedId → one savedArticles row) ─────────────
+
+function placeholderSavedArticle(id: string): Article {
+  return {
+    id,
+    title: 'Saved article',
+    url: 'https://example.com/',
+    description:
+      'This bookmark was saved on another device before full article metadata was synced. Refresh the feed or open it where you saved it to restore the link.',
+    publishedAt: new Date(0),
+    source: 'Sync',
+    sourceId: SYNC_PLACEHOLDER_SOURCE_ID,
+    topics: ['general'],
+  };
+}
+
+/**
+ * One dehydrated row per `prefs.savedIds` entry, using known article bodies when available.
+ * Prevents remote clients from showing fewer saved cards than `savedIds.length`.
+ */
+export function materializeSavedArticlesForSync(prefs: UserPrefs, known: Article[]): Article[] {
+  const byId = new Map<string, Article>();
+  for (const a of known) {
+    byId.set(a.id, a);
+  }
+  return prefs.savedIds.map(id => byId.get(id) ?? placeholderSavedArticle(id));
+}
+
+/**
+ * Merge hydrated bookmark rows from a sync pull. Prefers a non-placeholder row when one side
+ * only has a placeholder for the same `id` (see `materializeSavedArticlesForSync`).
+ */
+export function mergeSavedArticleSnapshots(fromRemote: Article[], fromLocal: Article[]): Article[] {
+  const map = new Map<string, Article>();
+  for (const r of fromRemote) {
+    map.set(r.id, r);
+  }
+  for (const l of fromLocal) {
+    const prev = map.get(l.id);
+    if (prev === undefined) {
+      map.set(l.id, l);
+      continue;
+    }
+    const prevPh = prev.sourceId === SYNC_PLACEHOLDER_SOURCE_ID;
+    const lPh = l.sourceId === SYNC_PLACEHOLDER_SOURCE_ID;
+    if (prevPh && !lPh) {
+      map.set(l.id, l);
+    } else if (!prevPh && lPh) {
+      // keep prev
+    } else {
+      map.set(l.id, l);
+    }
+  }
+  return Array.from(map.values());
 }
 
 export function buildPayload(
@@ -121,5 +180,6 @@ export function buildPayload(
   labelHits: LabelHit[],
   savedArticles: Article[],
 ): SyncPayloadV1 {
-  return { v: 1, prefs, articleTags, labelHits, savedArticles: dehydrate(savedArticles) };
+  const materialized = materializeSavedArticlesForSync(prefs, savedArticles);
+  return { v: 1, prefs, articleTags, labelHits, savedArticles: dehydrate(materialized) };
 }

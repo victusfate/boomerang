@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFireproof } from 'use-fireproof';
 import { fetchAllSources, DEFAULT_SOURCES } from '../services/newsService';
 import { rankFeed } from '../services/algorithm';
@@ -16,13 +16,13 @@ import {
   dehydrate,
   hydrate,
   mergeArticleTags,
-  mergeArticlesById,
   mergeLabelHits,
   mergePrefs,
   parseSyncHash,
   SYNC_LOG,
   type StoredArticle,
 } from '../services/syncShare';
+import { mergeSavedArticleSnapshots } from '../services/syncWorker';
 import type { Article, ArticleTag, CustomSource, LabelHit, Topic, UserLabel, UserPrefs } from '../types';
 
 const PAGE_SIZE          = 5;
@@ -38,7 +38,18 @@ interface ArticleTagsDoc      { _id: string; hits: ArticleTag[] }
 type PrefsDoc = UserPrefs & { _id: string };
 
 
-export function useFeed() {
+export interface UseFeedMetaCallbacks {
+  feedTaggedArticle: (articleId: string, tags: string[]) => void;
+  endTaggingPass: () => void;
+}
+
+export interface UseFeedOptions {
+  metaCallbacks?: UseFeedMetaCallbacks;
+  metaTagsMap?: Map<string, string[]>;
+}
+
+export function useFeed(options?: UseFeedOptions) {
+  const { metaCallbacks, metaTagsMap } = options ?? {};
   const { database } = useFireproof('boomerang-news');
 
   const [prefs, setPrefsState]      = useState<UserPrefs>(DEFAULT_PREFS);
@@ -89,6 +100,7 @@ export function useFeed() {
 
   const [classificationStatus, setClassificationStatus] = useState('');
   const [aiTaggingStarted, setAiTaggingStarted] = useState(false);
+  const [taggingArticleId, setTaggingArticleId] = useState<string | null>(null);
   const aiModelPollTimerRef = useRef<number | null>(null);
 
   // ── URL hash sync import ──────────────────────────────────────────────────────
@@ -122,8 +134,8 @@ export function useFeed() {
       if (availability === 'available') {
         stopAiModelPolling();
         setClassificationStatus('Chrome AI model ready — starting tagging…');
-        if (articlePoolRef.current.length > 0) {
-          schedulePassRef.current(articlePoolRef.current);
+        if (allArticlesRef.current.length > 0) {
+          schedulePassRef.current([...allArticlesRef.current]);
         }
       } else if (availability === 'downloading') {
         setClassificationStatus('Chrome AI model downloading…');
@@ -139,6 +151,7 @@ export function useFeed() {
   }, [stopAiModelPolling]);
 
   // ── Tagging pass (Chrome 138+ Prompt API, no-op elsewhere) ──────────────────
+  /** `articles` should be feed **display order** (e.g. `allArticles`): top cards are tagged first. */
   const scheduleTaggingPass = useCallback((articles: Article[]) => {
     if (!isPromptApiAvailable()) {
       console.info('[AI Tags] schedule skipped — LanguageModel not available');
@@ -152,33 +165,42 @@ export function useFeed() {
     schedule(() => {
       void (async () => {
         const idleT0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        console.info('[AI Tags] idle run start', { inputArticles: articles.length });
+
+        // Tag in feed display order — visible/high-ranked cards first
+        const rankMap = new Map(allArticlesRef.current.map((a, i) => [a.id, i]));
+        const sortedArticles = [...articles].sort((a, b) => {
+          const ra = rankMap.get(a.id) ?? Infinity;
+          const rb = rankMap.get(b.id) ?? Infinity;
+          return ra - rb;
+        });
+
+        console.info('[AI Tags] idle run start', { inputArticles: sortedArticles.length });
 
         const existing = articleTagsRef.current;
-        const toTag = articles.filter(a => !existing.some(t => t.articleId === a.id));
+        const toTag = sortedArticles.filter(a => !existing.some(t => t.articleId === a.id));
         if (toTag.length === 0) {
           console.info('[AI Tags] skip — nothing new to tag', {
-            inputArticles: articles.length,
+            inputArticles: sortedArticles.length,
             storedTagRows: existing.length,
           });
+          setTaggingArticleId(null);
           setClassificationStatus('');
           return;
         }
         setClassificationStatus(`Preparing on-device model… (${toTag.length} articles)`);
         let done = 0;
         try {
-          await runTaggingPass(articles, existing, (tag) => {
+          await runTaggingPass(sortedArticles, existing, (tag) => {
             done++;
             // Per-article logs + timings live in labelClassifier.runTaggingPass
             setClassificationStatus(`Tagging articles… ${done}/${toTag.length}`);
-            startTransition(() => {
-              setArticleTags(prev => {
-                const updated = [...prev, tag];
-                articleTagsRef.current = updated;
-                database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc)
-                  .catch(console.error);
-                return updated;
-              });
+            metaCallbacks?.feedTaggedArticle(tag.articleId, tag.tags);
+            setArticleTags(prev => {
+              const updated = [...prev, tag];
+              articleTagsRef.current = updated;
+              database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc)
+                .catch(console.error);
+              return updated;
             });
           }, {
             onModelStatus: (status) => {
@@ -201,8 +223,9 @@ export function useFeed() {
               setAiTaggingStarted(true);
               setClassificationStatus(`Tagging articles… 0/${toTag.length}`);
             },
-            onArticleStart: (i, total) => {
+            onArticleStart: (i, total, articleId) => {
               setClassificationStatus(`Tagging article ${i}/${total}…`);
+              setTaggingArticleId(articleId ?? null);
             },
             onUnavailable: (availability, reason) => {
               setClassificationStatus(
@@ -223,9 +246,12 @@ export function useFeed() {
               '[AI Tags] On-device AI may be stopped or still downloading. Check chrome://on-device-internals, flags in https://developer.chrome.com/docs/ai/get-started — first create() may need a recent user gesture.',
             );
           }
+          setTaggingArticleId(null);
           setClassificationStatus('');
           return;
         }
+        setTaggingArticleId(null);
+        metaCallbacks?.endTaggingPass();
         const idleMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - idleT0);
         console.info('[AI Tags] idle run finished', {
           tagged: done,
@@ -243,11 +269,11 @@ export function useFeed() {
   schedulePassRef.current = scheduleTaggingPass;
 
   const handleStartAiTagging = useCallback(() => {
-    if (articlePoolRef.current.length === 0) {
+    if (allArticlesRef.current.length === 0) {
       setClassificationStatus('Load articles before starting Chrome AI tagging');
       return;
     }
-    schedulePassRef.current(articlePoolRef.current);
+    schedulePassRef.current([...allArticlesRef.current]);
   }, []);
 
   // ── Load prefs + cache from Fireproof on mount ────────────────────────────────
@@ -305,7 +331,7 @@ export function useFeed() {
         ? mergePrefs(loadedPrefs, syncPayload.prefs)
         : loadedPrefs;
       const syncedImported = syncPayload?.savedArticles?.length
-        ? mergeArticlesById(imported, hydrate(syncPayload.savedArticles))
+        ? mergeSavedArticleSnapshots(hydrate(syncPayload.savedArticles), imported)
         : imported;
       const syncedHits = syncPayload?.labelHits?.length
         ? mergeLabelHits(hits, syncPayload.labelHits)
@@ -341,7 +367,10 @@ export function useFeed() {
           .catch(e => console.error(SYNC_LOG, 'failed writing ai-article-tags', e));
       }
 
-      setPrefsState(syncedPrefs);
+      // Merge startup prefs into current React state. `useSyncWorker` may already have applied
+      // a poll (`applyRemoteSync`) using prefs from this same DB snapshot — that merge must not
+      // be clobbered by a second `setPrefsState` from the snapshot-only `syncedPrefs`.
+      setPrefsState(prev => mergePrefs(syncedPrefs, prev));
       if (syncedImported.length) {
         importedSavesRef.current = syncedImported;
         setImportedSaves(syncedImported);
@@ -360,7 +389,7 @@ export function useFeed() {
         articlePoolRef.current = cached.articles;
         setArticlePool(cached.articles);
 
-        const ranked = rankFeed(cached.articles, syncedPrefs);
+        const ranked = rankFeed(cached.articles, mergePrefs(syncedPrefs, prefsRef.current));
         allArticlesRef.current = ranked;
         setAllArticles(ranked);
         if (ranked.length) setLoading(false);
@@ -371,7 +400,7 @@ export function useFeed() {
         // Without this, `refresh()` never runs on cold start when cache exists — AI tagging
         // (and the status bar) only appeared after a manual refresh. Re-run the same pass as post-fetch.
         queueMicrotask(() => {
-          schedulePassRef.current(cached.articles);
+          schedulePassRef.current([...ranked]);
         });
       }
     });
@@ -475,7 +504,7 @@ export function useFeed() {
         applyRankedBatch(all);
         database.put({ _id: CACHE_ID, articles: dehydrate(all), fetchedAt: Date.now() })
           .catch(console.error);
-        schedulePassRef.current(all);
+        schedulePassRef.current([...allArticlesRef.current]);
       }
     } catch (e) {
       if (fetchIdRef.current === myFetchId) {
@@ -576,6 +605,40 @@ export function useFeed() {
   const handleRenameLabel = useCallback((labelId: string, name: string) => {
     updatePrefs(renameUserLabel(labelId, name, prefsRef.current));
   }, [updatePrefs]);
+
+  const handleAddManualTag = useCallback((articleId: string, raw: string) => {
+    const tag = raw.trim().toLowerCase();
+    if (!tag) return;
+    setArticleTags(prev => {
+      const existing = prev.find(t => t.articleId === articleId);
+      let updated: ArticleTag[];
+      if (existing) {
+        if (existing.tags.includes(tag)) return prev;
+        updated = prev.map(t =>
+          t.articleId === articleId ? { ...t, tags: [...t.tags, tag], taggedAt: Date.now() } : t
+        );
+      } else {
+        updated = [...prev, { articleId, tags: [tag], taggedAt: Date.now() }];
+      }
+      articleTagsRef.current = updated;
+      database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc).catch(console.error);
+      return updated;
+    });
+  }, [database]);
+
+  const handleRemoveManualTag = useCallback((articleId: string, tag: string) => {
+    setArticleTags(prev => {
+      const existing = prev.find(t => t.articleId === articleId);
+      if (!existing) return prev;
+      const newTags = existing.tags.filter(t => t !== tag);
+      const updated = newTags.length > 0
+        ? prev.map(t => t.articleId === articleId ? { ...t, tags: newTags, taggedAt: Date.now() } : t)
+        : prev.filter(t => t.articleId !== articleId);
+      articleTagsRef.current = updated;
+      database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc).catch(console.error);
+      return updated;
+    });
+  }, [database]);
 
   const handleToggleAiBar = useCallback(() => {
     updatePrefs({ ...prefsRef.current, hideAiBar: !prefsRef.current.hideAiBar });
@@ -692,6 +755,47 @@ export function useFeed() {
     return true;
   }, [updatePrefs, refresh]);
 
+  // ── Live remote sync merge (sync-worker poll) ────────────────────────────────
+  // Called by useSyncWorker whenever a poll returns merged remote data.
+  const applyRemoteSync = useCallback((payload: {
+    prefs: UserPrefs;
+    articleTags: ArticleTag[];
+    labelHits: LabelHit[];
+    savedArticles: Article[];
+  }) => {
+    // Merge prefs (includes savedIds, topic weights, etc.)
+    const mergedPrefs = mergePrefs(prefsRef.current, payload.prefs);
+    updatePrefs(mergedPrefs);
+
+    // Merge saved articles into importedSaves — only non-RSS-pool articles are
+    // persisted here; pool articles show up via prefs.savedIds automatically.
+    const poolIds = new Set(articlePoolRef.current.map(a => a.id));
+    const remoteNonPool = payload.savedArticles.filter(a => !poolIds.has(a.id));
+    const mergedImported = mergeSavedArticleSnapshots(remoteNonPool, importedSavesRef.current);
+    importedSavesRef.current = mergedImported;
+    setImportedSaves(mergedImported);
+    database.put({ _id: IMPORTED_SAVES_ID, articles: dehydrate(mergedImported) } as ImportedSavesDoc)
+      .catch(console.error);
+
+    // Merge label hits
+    const mergedHits = mergeLabelHits(labelHitsRef.current, payload.labelHits);
+    if (mergedHits.length !== labelHitsRef.current.length) {
+      labelHitsRef.current = mergedHits;
+      setLabelHits(mergedHits);
+      database.put({ _id: CLASSIFICATIONS_ID, hits: mergedHits } as ClassificationsDoc)
+        .catch(console.error);
+    }
+
+    // Merge article tags
+    const mergedTags = mergeArticleTags(articleTagsRef.current, payload.articleTags);
+    if (mergedTags.length !== articleTagsRef.current.length) {
+      articleTagsRef.current = mergedTags;
+      setArticleTags(mergedTags);
+      database.put({ _id: ARTICLE_TAGS_ID, hits: mergedTags } as ArticleTagsDoc)
+        .catch(console.error);
+    }
+  }, [database, updatePrefs]);
+
   // Auto-fetch on startup only when there is no cached feed to show.
   // After that, all refreshes are explicit (refresh button or pull-to-refresh).
   useEffect(() => {
@@ -709,7 +813,21 @@ export function useFeed() {
     ...importedSaves.filter(a => savedIds.has(a.id) && !poolIds.has(a.id)),
   ];
 
-  const articleTagsMap = new Map(articleTags.map(t => [t.articleId, t.tags]));
+  const articleTagsMap = useMemo(() => {
+    const map = new Map<string, string[]>(articleTags.map(t => [t.articleId, t.tags]));
+    if (metaTagsMap) {
+      for (const [id, metaTags] of metaTagsMap) {
+        const local = map.get(id);
+        if (local) {
+          const merged = [...new Set([...local, ...metaTags])];
+          map.set(id, merged);
+        } else {
+          map.set(id, metaTags);
+        }
+      }
+    }
+    return map;
+  }, [articleTags, metaTagsMap]);
 
   return {
     visibleArticles: allArticles.slice(0, visibleCount),
@@ -745,10 +863,14 @@ export function useFeed() {
     articleTagsMap,
     classificationStatus,
     aiTaggingStarted,
+    taggingArticleId,
     onStartAiTagging: handleStartAiTagging,
     onAddLabel:    handleAddLabel,
     onDeleteLabel: handleDeleteLabel,
     onRenameLabel: handleRenameLabel,
+    onAddManualTag:    handleAddManualTag,
+    onRemoveManualTag: handleRemoveManualTag,
     feedEnterIds,
+    onRemoteSync: applyRemoteSync,
   };
 }
