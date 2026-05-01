@@ -99,7 +99,7 @@ export default function App() {
   } = useFeed({ metaCallbacks: { feedTaggedArticle, endTaggingPass }, metaTagsMap });
 
   const { syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError, syncCooldownMs, forceSync, generateLink, revoke } =
-    useSyncWorker(prefs, articleTags, labelHits, savedArticles, onRemoteSync);
+    useSyncWorker(prefs, articleTags, labelHits, savedArticles, onRemoteSync, syncReady);
 
   const [view, setView] = useState<FeedView>('feed');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>(null);
@@ -116,22 +116,9 @@ export default function App() {
     syncEnvError,
     combinedSyncCooldownMs,
   );
-  useEffect(() => {
-    console.info('[sync:ui-indicator]', {
-      indicator: syncIndicator.state,
-      label: syncIndicator.label,
-      syncStatus,
-      metaStatus,
-      combinedSyncCooldownMs,
-      syncError,
-      metaError,
-    });
-  }, [syncIndicator.state, syncIndicator.label, syncStatus, metaStatus, combinedSyncCooldownMs, syncError, metaError]);
   const onMainSyncClick = useCallback(() => {
     if (syncReady) {
       void forceSync();
-    } else {
-      console.info('[sync:status]', 'skip forceSync until feed syncReady');
     }
     void forceMetaSync();
   }, [forceMetaSync, forceSync, syncReady]);
@@ -140,8 +127,6 @@ export default function App() {
     void forceMetaSync();
     if (syncReady) {
       void forceSync();
-    } else {
-      console.info('[sync:status]', 'skip forceSync on refresh until feed syncReady');
     }
   }, [onRefresh, forceMetaSync, forceSync, syncReady]);
   const initialSyncDoneRef = useRef(false);

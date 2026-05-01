@@ -10,9 +10,9 @@ import { workerUrlFromEnv, missingWorkerEnvMessage } from '../config/workerEnv';
 
 const SYNC_WORKER_BASE = workerUrlFromEnv(import.meta.env.VITE_SYNC_WORKER_URL);
 const MANUAL_SYNC_COOLDOWN_MS = 15_000;
+const DIRTY_SYNC_DEBOUNCE_MS = 1_000;
 const RATE_LIMIT_BACKOFF_BASE_MS = 2_000;
 const RATE_LIMIT_BACKOFF_MAX_MS = 5 * 60_000;
-const SYNC_STATUS_LOG = '[sync:status]';
 
 export type SyncStatus = 'idle' | 'active' | 'syncing' | 'error';
 
@@ -41,6 +41,7 @@ export function useSyncWorker(
     labelHits: LabelHit[];
     savedArticles: Article[];
   }) => void,
+  syncReady = true,
 ): UseSyncWorkerResult {
   const [room, setRoom]         = useState<SyncRoom | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
@@ -48,11 +49,13 @@ export function useSyncWorker(
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncUrl, setSyncUrl]   = useState<string | null>(null);
   const [syncCooldownMs, setSyncCooldownMs] = useState(0);
+  const [hasDirtyData, setHasDirtyData] = useState(false);
 
   const etagRef         = useRef<string>('');
   const lastPushedRef   = useRef<string>('');
   const syncInFlightRef = useRef(false);
   const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const dirtyDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rateLimitBackoffStepRef = useRef(0);
   const roomRef = useRef<SyncRoom | null>(null);
   // Keep in sync with `room` on every render; `activate` also sets the ref immediately so
@@ -72,7 +75,6 @@ export function useSyncWorker(
   onMergeRef.current     = onMerge;
 
   const startSyncCooldown = useCallback((durationMs = MANUAL_SYNC_COOLDOWN_MS) => {
-    console.info(SYNC_STATUS_LOG, 'cooldown:start', { durationMs });
     const cooldownUntil = Date.now() + durationMs;
     setSyncCooldownMs(durationMs);
     if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
@@ -91,7 +93,6 @@ export function useSyncWorker(
     const expBackoffMs = Math.min(RATE_LIMIT_BACKOFF_BASE_MS * 2 ** step, RATE_LIMIT_BACKOFF_MAX_MS);
     const backoffMs = Math.max(retryAfterMs ?? 0, expBackoffMs);
     rateLimitBackoffStepRef.current = Math.min(step + 1, 20);
-    console.info(SYNC_STATUS_LOG, 'rate-limit:backoff', { step, retryAfterMs, backoffMs });
     startSyncCooldown(backoffMs);
     setSyncStatus('active');
     setSyncError(`Sync rate limited. Retrying allowed in ${Math.max(1, Math.ceil(backoffMs / 1000))}s.`);
@@ -101,30 +102,18 @@ export function useSyncWorker(
     const r = roomRef.current;
     if (!r) return 'blocked';
     try {
-      console.info(SYNC_STATUS_LOG, 'poll:start', { roomId: r.roomId });
       setSyncStatus('syncing');
       const remote = await fetchMeta(r);
       if (remote?.unauthorized) {
-        console.info(SYNC_STATUS_LOG, 'poll:unauthorized');
         setSyncStatus('error');
         setSyncError('Sync room credentials are invalid or expired. Revoke sync and generate a new link.');
         return 'blocked';
       }
       if (remote?.rateLimited) {
-        console.info(SYNC_STATUS_LOG, 'poll:rate-limited', { retryAfterMs: remote.retryAfterMs });
         applyRateLimitBackoff(remote.retryAfterMs);
         return 'rate_limited';
       }
       if (remote) {
-        console.info(SYNC_STATUS_LOG, 'poll:remote-payload', {
-          roomId: r.roomId,
-          etag: remote.etag,
-          savedIds: remote.payload.prefs?.savedIds?.length ?? 0,
-          savedArticles: remote.payload.savedArticles?.length ?? 0,
-          articleTags: remote.payload.articleTags?.length ?? 0,
-          labelHits: remote.payload.labelHits?.length ?? 0,
-          payload: remote.payload,
-        });
         etagRef.current = remote.etag;
         const local = { prefs: prefsRef.current, articleTags: articleTagsRef.current, labelHits: labelHitsRef.current, savedArticles: savedRef.current };
         const merged = mergePayload(local, remote.payload);
@@ -136,24 +125,6 @@ export function useSyncWorker(
           a => !local.savedArticles.some(l => l.id === a.id),
         );
         const newSavedIds = merged.prefs.savedIds.filter(id => !local.prefs.savedIds.includes(id));
-        console.info('[sync:sync-worker] poll merged', {
-          newTaggedArticles: newTags.length,
-          newSavedArticles: newSaved.length,
-          newSavedIds: newSavedIds.length,
-          newTagsSample: newTags.slice(0, 3).map(t => ({ articleId: t.articleId, tags: t.tags })),
-          newSavedSample: newSaved.slice(0, 3).map(a => ({ id: a.id, title: a.title })),
-          mergedSavedIds: merged.prefs.savedIds.length,
-          mergedSavedArticles: merged.savedArticles.length,
-          mergedArticleTags: merged.articleTags.length,
-          mergedLabelHits: merged.labelHits.length,
-          mergedPayload: {
-            prefs: merged.prefs,
-            articleTags: merged.articleTags,
-            labelHits: merged.labelHits,
-            savedArticles: merged.savedArticles,
-          },
-        });
-
         onMergeRef.current(merged);
       }
       setSyncedAt(new Date());
@@ -161,10 +132,8 @@ export function useSyncWorker(
       if (!syncInFlightRef.current) setSyncStatus('active');
       setSyncError(null);
       rateLimitBackoffStepRef.current = 0;
-      console.info(SYNC_STATUS_LOG, 'poll:done', { keptSyncingForFlow: syncInFlightRef.current });
       return 'ok';
     } catch (e) {
-      console.info(SYNC_STATUS_LOG, 'poll:error', { message: e instanceof Error ? e.message : String(e) });
       setSyncStatus('error');
       setSyncError(e instanceof Error ? e.message : 'Sync failed');
       return 'blocked';
@@ -177,40 +146,28 @@ export function useSyncWorker(
     const payload = buildPayload(prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current);
     const payloadJson = JSON.stringify(payload);
     if (payloadJson === lastPushedRef.current) {
-      console.info(SYNC_STATUS_LOG, 'push:skip-noop');
+      setSyncStatus('active');
+      setHasDirtyData(false);
       return 'ok'; // nothing changed since last push
     }
     setSyncStatus('syncing');
-    console.info(SYNC_STATUS_LOG, 'push:start', {
-      roomId: r.roomId,
-      ifMatch: etagRef.current || undefined,
-      savedIds: payload.prefs.savedIds.length,
-      savedArticles: payload.savedArticles.length,
-      articleTags: payload.articleTags.length,
-      labelHits: payload.labelHits.length,
-      payload,
-    });
     const result = await pushMeta(r, payload, etagRef.current || undefined);
     if (result.conflict) {
-      console.info(SYNC_STATUS_LOG, 'push:conflict');
       // Remote is ahead — pull first, then push again after a short delay
       const pollResult = await doPoll();
       if (pollResult === 'ok') setTimeout(() => void doPush(), 500);
       return 'blocked'; // don't mark as pushed — retry will re-check
     }
     if (result.unauthorized) {
-      console.info(SYNC_STATUS_LOG, 'push:unauthorized');
       setSyncStatus('error');
       setSyncError('Sync room credentials are invalid or expired. Revoke sync and generate a new link.');
       return 'blocked';
     }
     if (result.rateLimited) {
-      console.info(SYNC_STATUS_LOG, 'push:rate-limited', { retryAfterMs: result.retryAfterMs });
       applyRateLimitBackoff(result.retryAfterMs);
       return 'rate_limited';
     }
     if (!result.ok) {
-      console.info(SYNC_STATUS_LOG, 'push:error');
       setSyncStatus('error');
       setSyncError('Could not upload changes to sync (PUT failed). Check the Network tab for /meta.');
       return 'blocked';
@@ -218,22 +175,15 @@ export function useSyncWorker(
     lastPushedRef.current = payloadJson;
     setSyncStatus('active');
     setSyncError(null);
+    setHasDirtyData(false);
     rateLimitBackoffStepRef.current = 0;
-    console.info(SYNC_STATUS_LOG, 'push:done');
     return 'ok';
   }, [applyRateLimitBackoff, doPoll]);
 
   const forceSync = useCallback(async () => {
     if (!roomRef.current) return;
-    if (syncInFlightRef.current) {
-      console.info(SYNC_STATUS_LOG, 'forceSync:skip-in-flight');
-      return;
-    }
-    if (syncCooldownMs > 0) {
-      console.info(SYNC_STATUS_LOG, 'forceSync:skip-cooldown', { remainingMs: syncCooldownMs });
-      return;
-    }
-    console.info(SYNC_STATUS_LOG, 'forceSync:start');
+    if (syncInFlightRef.current) return;
+    if (syncCooldownMs > 0) return;
     syncInFlightRef.current = true;
     let rateLimited = false;
     try {
@@ -252,7 +202,6 @@ export function useSyncWorker(
     } finally {
       syncInFlightRef.current = false;
       if (!rateLimited) startSyncCooldown();
-      console.info(SYNC_STATUS_LOG, 'forceSync:done', { rateLimited });
     }
   }, [doPoll, doPush, startSyncCooldown, syncCooldownMs]);
 
@@ -287,6 +236,31 @@ export function useSyncWorker(
     void doPoll();
     return undefined;
   }, [room, doPoll]);
+
+  // Track local data mutations and mark sync as dirty with a short debounce.
+  useEffect(() => {
+    if (!room || !syncReady) return;
+    if (dirtyDebounceRef.current) clearTimeout(dirtyDebounceRef.current);
+    dirtyDebounceRef.current = setTimeout(() => {
+      const payload = buildPayload(prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current);
+      const payloadJson = JSON.stringify(payload);
+      const dirty = payloadJson !== lastPushedRef.current;
+      setHasDirtyData(dirty);
+    }, DIRTY_SYNC_DEBOUNCE_MS);
+    return () => {
+      if (dirtyDebounceRef.current) {
+        clearTimeout(dirtyDebounceRef.current);
+        dirtyDebounceRef.current = null;
+      }
+    };
+  }, [room, syncReady, prefs, articleTags, labelHits, savedArticles]);
+
+  // Auto-fire one sync run when there is dirty data and blockout clears.
+  useEffect(() => {
+    if (!room || !syncReady || !hasDirtyData) return;
+    if (syncInFlightRef.current || syncStatus === 'syncing' || syncCooldownMs > 0) return;
+    void forceSync();
+  }, [room, syncReady, hasDirtyData, syncStatus, syncCooldownMs, forceSync]);
 
   const generateLink = useCallback(async () => {
     const workerUrl = SYNC_WORKER_BASE;
@@ -331,6 +305,7 @@ export function useSyncWorker(
     setSyncedAt(null);
     setSyncError(null);
     setSyncCooldownMs(0);
+    setHasDirtyData(false);
     etagRef.current = '';
     if (cooldownTimerRef.current) {
       clearInterval(cooldownTimerRef.current);
@@ -342,6 +317,10 @@ export function useSyncWorker(
     if (cooldownTimerRef.current) {
       clearInterval(cooldownTimerRef.current);
       cooldownTimerRef.current = null;
+    }
+    if (dirtyDebounceRef.current) {
+      clearTimeout(dirtyDebounceRef.current);
+      dirtyDebounceRef.current = null;
     }
   }, []);
 
