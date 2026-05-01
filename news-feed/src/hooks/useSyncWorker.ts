@@ -8,8 +8,6 @@ import {
 } from '../services/syncWorker';
 import { workerUrlFromEnv, missingWorkerEnvMessage } from '../config/workerEnv';
 
-const POLL_INTERVAL_MS = 300_000; // 5 minutes — tab visibilitychange still fires immediately on focus
-const PUSH_DEBOUNCE_MS = 2_000;
 const SYNC_WORKER_BASE = workerUrlFromEnv(import.meta.env.VITE_SYNC_WORKER_URL);
 
 export type SyncStatus = 'idle' | 'active' | 'syncing' | 'error';
@@ -47,9 +45,6 @@ export function useSyncWorker(
 
   const etagRef         = useRef<string>('');
   const lastPushedRef   = useRef<string>('');
-  const hasPulledRef    = useRef(false);
-  const pushTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollTimer  = useRef<ReturnType<typeof setInterval> | null>(null);
   const roomRef = useRef<SyncRoom | null>(null);
   // Keep in sync with `room` on every render; `activate` also sets the ref immediately so
   // `doPoll()` can run in the same tick as `activate` (before React commits `setRoom`).
@@ -73,6 +68,11 @@ export function useSyncWorker(
     try {
       setSyncStatus('syncing');
       const remote = await fetchMeta(r);
+      if (remote?.unauthorized) {
+        setSyncStatus('error');
+        setSyncError('Sync room credentials are invalid or expired. Revoke sync and generate a new link.');
+        return;
+      }
       if (remote) {
         etagRef.current = remote.etag;
         const local = { prefs: prefsRef.current, articleTags: articleTagsRef.current, labelHits: labelHitsRef.current, savedArticles: savedRef.current };
@@ -95,7 +95,6 @@ export function useSyncWorker(
 
         onMergeRef.current(merged);
       }
-      hasPulledRef.current = true;
       setSyncedAt(new Date());
       setSyncStatus('active');
       setSyncError(null);
@@ -118,6 +117,11 @@ export function useSyncWorker(
       setTimeout(() => void doPush(), 500);
       return; // don't mark as pushed — retry will re-check
     }
+    if (result.unauthorized) {
+      setSyncStatus('error');
+      setSyncError('Sync room credentials are invalid or expired. Revoke sync and generate a new link.');
+      return;
+    }
     if (!result.ok) {
       setSyncStatus('error');
       setSyncError('Could not upload changes to sync (PUT failed). Check the Network tab for /meta.');
@@ -127,19 +131,8 @@ export function useSyncWorker(
     setSyncError(null);
   }, [doPoll]);
 
-  const schedulePush = useCallback(() => {
-    if (!roomRef.current) return;
-    if (!hasPulledRef.current) return;
-    if (pushTimer.current) clearTimeout(pushTimer.current);
-    pushTimer.current = setTimeout(() => void doPush(), PUSH_DEBOUNCE_MS);
-  }, [doPush]);
-
   const forceSync = useCallback(async () => {
     if (!roomRef.current) return;
-    if (pushTimer.current) {
-      clearTimeout(pushTimer.current);
-      pushTimer.current = null;
-    }
     await doPoll();
     await doPush();
   }, [doPoll, doPush]);
@@ -147,7 +140,6 @@ export function useSyncWorker(
   // Activate sync with a room
   const activate = useCallback((r: SyncRoom) => {
     roomRef.current = r;
-    hasPulledRef.current = false;
     setRoom(r);
     saveSyncRoom(r);
     setSyncStatus('active');
@@ -170,30 +162,12 @@ export function useSyncWorker(
     if (stored) activate(stored);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll on interval and on visibility change
+  // Pull once when a room is activated.
   useEffect(() => {
     if (!room) return;
-
     void doPoll();
-
-    pollTimer.current = setInterval(() => {
-      if (document.visibilityState === 'visible') void doPoll();
-    }, POLL_INTERVAL_MS);
-
-    const onVisible = () => { if (document.visibilityState === 'visible') void doPoll(); };
-    document.addEventListener('visibilitychange', onVisible);
-
-    return () => {
-      if (pollTimer.current) clearInterval(pollTimer.current);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
+    return undefined;
   }, [room, doPoll]);
-
-  // Push on state change (debounced)
-  useEffect(() => {
-    if (!room) return;
-    schedulePush();
-  }, [prefs, articleTags, labelHits, savedArticles, room, schedulePush]);
 
   const generateLink = useCallback(async () => {
     const workerUrl = SYNC_WORKER_BASE;
@@ -208,12 +182,16 @@ export function useSyncWorker(
       // Push current state immediately so second device gets data on first poll
       const payload = buildPayload(prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current);
       const put = await pushMeta(r, payload);
+      if (put.unauthorized) {
+        setSyncStatus('error');
+        setSyncError('Sync room credentials are invalid or expired. Revoke sync and generate a new link.');
+        return;
+      }
       if (!put.ok && !put.conflict) {
         setSyncStatus('error');
         setSyncError('Initial sync upload failed. Try Generate sync link again.');
         return;
       }
-      hasPulledRef.current = true;
       setSyncStatus('active');
     } catch (e) {
       setSyncStatus('error');
@@ -228,15 +206,12 @@ export function useSyncWorker(
     }
     clearSyncRoom();
     roomRef.current = null;
-    hasPulledRef.current = false;
     setRoom(null);
     setSyncUrl(null);
     setSyncStatus('idle');
     setSyncedAt(null);
     setSyncError(null);
     etagRef.current = '';
-    if (pollTimer.current) clearInterval(pollTimer.current);
-    if (pushTimer.current) clearTimeout(pushTimer.current);
   }, []);
 
   return {

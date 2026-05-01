@@ -4,6 +4,7 @@ import { DEFAULT_SOURCES } from '../services/newsService';
 import { isSourceEnabled, isTopicEnabled } from '../services/storage';
 import { isPromptApiAvailable } from '../services/labelClassifier';
 import type { Article, CustomSource, Topic, UserLabel, UserPrefs } from '../types';
+import type { MetaStatus } from '../hooks/useMetaWorker';
 import { TOPIC_META } from './TopicFilter';
 
 const ALL_TOPICS = (Object.keys(TOPIC_META) as Topic[]).filter(t => t !== 'general');
@@ -38,6 +39,11 @@ interface Props {
   syncError: string | null;
   syncUrl: string | null;
   syncEnvError: string | null;
+  // Shared article metadata
+  metaStatus: MetaStatus;
+  metaError: string | null;
+  metaEnvError: string | null;
+  onForceMetaSync: () => Promise<void>;
   onForceSync: () => Promise<void>;
   onGenerateLink: () => Promise<void>;
   onRevoke: () => Promise<void>;
@@ -50,7 +56,8 @@ export function Settings({
   onExportBookmarks, onImportBookmarks,
   onAddLabel, onDeleteLabel,   onSuggestLabels,
   syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError,
-  onForceSync, onGenerateLink, onRevoke, onToggleAiBar,
+  metaStatus, metaError, metaEnvError,
+  onForceMetaSync, onForceSync, onGenerateLink, onRevoke, onToggleAiBar,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
@@ -445,6 +452,38 @@ export function Settings({
           )}
         </section>
 
+        {/* ── Shared metadata ──────────────────────────────────────────── */}
+        <section className="settings-section">
+          <h3>Shared metadata</h3>
+          <p className="settings-hint">
+            Shared tags sync manually. Tap <strong>Sync shared tags now</strong> or use the main refresh action.
+          </p>
+          {metaEnvError ? (
+            <p className="sync-error" role="alert">{metaEnvError}</p>
+          ) : (
+            <>
+              <div className="sync-status-row">
+                <span className={`sync-dot sync-dot--${metaStatus === 'disabled' ? 'idle' : metaStatus}`} />
+                <span className="sync-status-label">
+                  {metaStatus === 'syncing' && 'Updating shared tags…'}
+                  {metaStatus === 'active' && 'Shared tags active'}
+                  {metaStatus === 'error' && 'Shared tags offline'}
+                  {metaStatus === 'disabled' && 'Shared tags disabled'}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn-add-source"
+                onClick={() => void onForceMetaSync()}
+                disabled={metaStatus === 'syncing'}
+              >
+                {metaStatus === 'syncing' ? 'Syncing tags…' : 'Sync shared tags now'}
+              </button>
+              {metaError && <p className="sync-error">{metaError}</p>}
+            </>
+          )}
+        </section>
+
         {/* ── Sync across devices ──────────────────────────────────────── */}
         <section className="settings-section">
           <h3>Sync across devices</h3>
@@ -468,6 +507,9 @@ export function Settings({
             </>
           ) : (
             <>
+              <p className="settings-hint">
+                Sync is manual. Tap <strong>Sync now</strong> or use the main refresh action to pull and push updates.
+              </p>
               <div className="sync-status-row">
                 <span className={`sync-dot sync-dot--${syncStatus}`} />
                 <span className="sync-status-label">

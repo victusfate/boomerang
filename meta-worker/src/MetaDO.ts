@@ -87,7 +87,8 @@ export class MetaDO implements DurableObject {
       session.msgWindowStart = now;
     }
     session.msgCount++;
-    if (session.msgCount > MAX_MSG_PER_MIN) return;
+    // Drop at the threshold to keep a hard cap per connection.
+    if (session.msgCount >= MAX_MSG_PER_MIN) return;
 
     let msg: Record<string, unknown>;
     try {

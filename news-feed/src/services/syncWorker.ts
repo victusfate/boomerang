@@ -64,11 +64,13 @@ export async function createSyncRoom(workerUrl: string): Promise<SyncRoom> {
 export interface MetaResponse {
   payload: SyncPayloadV1;
   etag: string;
+  unauthorized?: boolean;
 }
 
 export async function fetchMeta(room: SyncRoom): Promise<MetaResponse | null> {
   const res = await fetch(`${room.workerUrl}/sync/${room.roomId}/meta`);
   if (res.status === 404) return null;
+  if (res.status === 401) return { payload: {} as SyncPayloadV1, etag: '', unauthorized: true };
   if (!res.ok) throw new Error(`fetchMeta failed: ${res.status}`);
   const etag = res.headers.get('ETag') ?? '';
   const payload = await res.json() as SyncPayloadV1;
@@ -79,7 +81,7 @@ export async function pushMeta(
   room: SyncRoom,
   payload: SyncPayloadV1,
   etag?: string,
-): Promise<{ ok: boolean; conflict: boolean }> {
+): Promise<{ ok: boolean; conflict: boolean; unauthorized: boolean }> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${room.token}`,
@@ -92,9 +94,10 @@ export async function pushMeta(
     body: JSON.stringify(payload),
   });
 
-  if (res.status === 412) return { ok: false, conflict: true };
-  if (!res.ok) return { ok: false, conflict: false };
-  return { ok: true, conflict: false };
+  if (res.status === 412) return { ok: false, conflict: true, unauthorized: false };
+  if (res.status === 401) return { ok: false, conflict: false, unauthorized: true };
+  if (!res.ok) return { ok: false, conflict: false, unauthorized: false };
+  return { ok: true, conflict: false, unauthorized: false };
 }
 
 export async function deleteRoom(room: SyncRoom): Promise<void> {

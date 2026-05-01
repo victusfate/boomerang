@@ -1,18 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { workerUrlFromEnv, missingWorkerEnvMessage } from '../config/workerEnv';
-import { metaWorkerWsUrl, parseServerMsg, type ClientMsg } from '../services/metaWorker.ts';
+import { fetchMetaTags, submitMetaTags } from '../services/metaWorker.ts';
 
 const WORKER_BASE = workerUrlFromEnv(import.meta.env.VITE_META_WORKER_URL);
-
-const RECONNECT_DELAY_MS = 3_000;
-const MAX_RECONNECT_DELAY_MS = 30_000;
+const BACKOFF_BASE_MS = 30_000;
+const BACKOFF_MAX_MS = 10 * 60_000;
+const MAX_CONSECUTIVE_ERRORS = 5;
 
 export type MetaTagsMap = Map<string, string[]>;
+export type MetaStatus = 'disabled' | 'active' | 'syncing' | 'error';
 
 export interface UseMetaWorkerResult {
   metaTagsMap: MetaTagsMap;
   feedTaggedArticle: (articleId: string, tags: string[]) => void;
   endTaggingPass: () => void;
+  forceMetaSync: () => Promise<void>;
+  metaStatus: MetaStatus;
+  metaError: string | null;
   /** Set when `VITE_META_WORKER_URL` is missing at build time */
   metaEnvError: string | null;
 }
@@ -22,42 +26,91 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
     WORKER_BASE ? null : missingWorkerEnvMessage('VITE_META_WORKER_URL'),
   );
   const [metaTagsMap, setMetaTagsMap] = useState<MetaTagsMap>(new Map());
-  const wsRef = useRef<WebSocket | null>(null);
-  const lastTagsAtRef = useRef<number>(0);
-  const catchUpSinceRef = useRef<number>(0); // stable across paginated catchUp requests
-  const reconnectDelayRef = useRef<number>(RECONNECT_DELAY_MS);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [metaStatus, setMetaStatus] = useState<MetaStatus>(() => (WORKER_BASE ? 'active' : 'disabled'));
+  const [metaError, setMetaError] = useState<string | null>(null);
+  const circuitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncInFlightRef = useRef(false);
+  const consecutiveErrorsRef = useRef(0);
+  const blockedUntilRef = useRef(0);
   const articleIdsRef = useRef<string[]>(articleIds);
   const pendingBufferRef = useRef<Array<{ articleId: string; tags: string[] }>>([]);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const FLUSH_INTERVAL_MS = 20_000;
   const MAX_BATCH = 200;
 
-  // Keep articleIds ref current and re-subscribe so the DO broadcasts for newly visible articles
+  // Keep visible article ids current for manual metadata pulls.
   useEffect(() => {
     articleIdsRef.current = articleIds;
-    const ws = wsRef.current;
-    if (ws?.readyState === WebSocket.OPEN && articleIds.length > 0) {
-      ws.send(JSON.stringify({ type: 'subscribe', articleIds }));
-    }
   }, [articleIds]);
 
-  const send = useCallback((msg: ClientMsg) => {
-    const ws = wsRef.current;
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(msg));
+  const registerFailure = useCallback((message: string) => {
+    consecutiveErrorsRef.current += 1;
+    setMetaStatus('error');
+    setMetaError(message);
+    if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_ERRORS) {
+      const backoff = Math.min(
+        BACKOFF_BASE_MS * 2 ** (consecutiveErrorsRef.current - MAX_CONSECUTIVE_ERRORS),
+        BACKOFF_MAX_MS,
+      );
+      blockedUntilRef.current = Date.now() + backoff;
+      if (circuitTimerRef.current) clearTimeout(circuitTimerRef.current);
+      circuitTimerRef.current = setTimeout(() => {
+        blockedUntilRef.current = 0;
+      }, backoff);
     }
   }, []);
+
+  const resetFailures = useCallback(() => {
+    consecutiveErrorsRef.current = 0;
+    blockedUntilRef.current = 0;
+    if (circuitTimerRef.current) {
+      clearTimeout(circuitTimerRef.current);
+      circuitTimerRef.current = null;
+    }
+    setMetaError(null);
+  }, []);
+
+  const syncNow = useCallback(async () => {
+    if (!WORKER_BASE || syncInFlightRef.current) return;
+    if (blockedUntilRef.current && Date.now() < blockedUntilRef.current) return;
+    syncInFlightRef.current = true;
+    setMetaStatus('syncing');
+    try {
+      const updates = await fetchMetaTags(WORKER_BASE, articleIdsRef.current);
+      setMetaTagsMap(prev => {
+        if (updates.length === 0) return prev;
+        const next = new Map(prev);
+        for (const u of updates) next.set(u.articleId, u.tags);
+        return next;
+      });
+      resetFailures();
+      setMetaStatus('active');
+    } catch (e) {
+      registerFailure(e instanceof Error ? e.message : 'Meta sync failed');
+    } finally {
+      syncInFlightRef.current = false;
+    }
+  }, [registerFailure, resetFailures]);
 
   const flush = useCallback(() => {
     if (pendingBufferRef.current.length === 0) return;
     const batch = pendingBufferRef.current.splice(0, MAX_BATCH);
-    send({ type: 'submitTags', articles: batch });
-    if (pendingBufferRef.current.length > 0) {
-      // More pending — schedule next flush immediately
-      flushTimerRef.current = setTimeout(flush, 0);
-    }
-  }, [send]);
+    if (!WORKER_BASE) return;
+    void submitMetaTags(WORKER_BASE, batch)
+      .then(() => {
+        resetFailures();
+        setMetaStatus('active');
+      })
+      .catch((e) => {
+        pendingBufferRef.current.unshift(...batch);
+        registerFailure(e instanceof Error ? e.message : 'Meta submit failed');
+      })
+      .finally(() => {
+        if (pendingBufferRef.current.length > 0) {
+          flushTimerRef.current = setTimeout(flush, FLUSH_INTERVAL_MS);
+        }
+      });
+  }, [registerFailure, resetFailures]);
 
   const stopFlushTimer = useCallback(() => {
     if (flushTimerRef.current) {
@@ -82,96 +135,18 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
     flush();
   }, [flush, stopFlushTimer]);
 
-  const connect = useCallback(() => {
-    if (!WORKER_BASE) return;
+  useEffect(() => () => {
+    if (circuitTimerRef.current) clearTimeout(circuitTimerRef.current);
+    if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+  }, []);
 
-    const ws = new WebSocket(metaWorkerWsUrl(WORKER_BASE));
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      reconnectDelayRef.current = RECONNECT_DELAY_MS;
-      const ids = articleIdsRef.current;
-      const since = lastTagsAtRef.current;
-      if (ids.length > 0) {
-        ws.send(JSON.stringify({ type: 'subscribe', articleIds: ids }));
-      }
-      // Always catch up — since=0 fetches all stored tags for other browsers on first connect
-      catchUpSinceRef.current = since;
-      ws.send(JSON.stringify({ type: 'catchUp', since }));
-    };
-
-    ws.onmessage = (e) => {
-      const msg = parseServerMsg(e.data as string);
-      if (!msg) return;
-
-      if (msg.type === 'ping') {
-        send({ type: 'pong' });
-        return;
-      }
-
-      if (msg.type === 'tags') {
-        lastTagsAtRef.current = Math.max(lastTagsAtRef.current, msg.updatedAt);
-        console.info('[sync:meta-worker] broadcast', {
-          articleId: msg.articleId,
-          tags: msg.tags,
-          updatedAt: new Date(msg.updatedAt).toISOString(),
-        });
-        setMetaTagsMap(prev => {
-          const next = new Map(prev);
-          next.set(msg.articleId, msg.tags);
-          return next;
-        });
-        return;
-      }
-
-      if (msg.type === 'catchUp') {
-        console.info('[sync:meta-worker] catchUp', {
-          updates: msg.updates.length,
-          hasMore: msg.hasMore ?? false,
-          cursor: msg.cursor,
-          sample: msg.updates.slice(0, 3).map(u => ({ articleId: u.articleId, tags: u.tags })),
-        });
-        setMetaTagsMap(prev => {
-          const next = new Map(prev);
-          for (const u of msg.updates) {
-            next.set(u.articleId, u.tags);
-            lastTagsAtRef.current = Math.max(lastTagsAtRef.current, u.updatedAt);
-          }
-          return next;
-        });
-        // Fetch next page if more results available
-        if (msg.hasMore && msg.cursor !== undefined) {
-          send({ type: 'catchUp', since: catchUpSinceRef.current, before: msg.cursor });
-        }
-        return;
-      }
-    };
-
-    ws.onclose = () => {
-      wsRef.current = null;
-      const delay = reconnectDelayRef.current;
-      reconnectDelayRef.current = Math.min(delay * 2, MAX_RECONNECT_DELAY_MS);
-      reconnectTimerRef.current = setTimeout(connect, delay);
-    };
-
-    ws.onerror = () => ws.close();
-  }, [send]);
-
-  // Connect on mount; reconnect when tab becomes visible
-  useEffect(() => {
-    connect();
-
-    const onVisible = () => {
-      if (document.visibilityState === 'visible' && !wsRef.current) connect();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-
-    return () => {
-      document.removeEventListener('visibilitychange', onVisible);
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-      wsRef.current?.close();
-    };
-  }, [connect]);
-
-  return { metaTagsMap, feedTaggedArticle, endTaggingPass, metaEnvError };
+  return {
+    metaTagsMap,
+    feedTaggedArticle,
+    endTaggingPass,
+    forceMetaSync: syncNow,
+    metaStatus,
+    metaError,
+    metaEnvError,
+  };
 }

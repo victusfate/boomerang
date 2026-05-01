@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from 'react';
 import { useFeed } from './hooks/useFeed';
 import { useSyncWorker, type SyncStatus } from './hooks/useSyncWorker';
 import { useMetaWorker } from './hooks/useMetaWorker';
@@ -69,7 +69,7 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
 export default function App() {
   // Meta hook runs first: useFeed needs its callbacks + live tag map from the worker.
   const [articleIds, setArticleIds] = useState<string[]>([]);
-  const { metaTagsMap, feedTaggedArticle, endTaggingPass, metaEnvError } = useMetaWorker(articleIds);
+  const { metaTagsMap, feedTaggedArticle, endTaggingPass, forceMetaSync, metaStatus, metaError, metaEnvError } = useMetaWorker(articleIds);
 
   const {
     visibleArticles, savedArticles, hasMore, totalLoaded,
@@ -92,8 +92,16 @@ export default function App() {
   const [pullProgress, setPullProgress] = useState(0); // 0–1
   const canUseBrowserAi = isPromptApiAvailable();
   const syncIndicator = syncIndicatorState(syncActive, syncStatus, syncedAt, syncError, syncEnvError);
+  const onMainSyncClick = useCallback(() => {
+    void forceMetaSync();
+  }, [forceMetaSync]);
+  const onManualRefresh = useCallback(() => {
+    onRefresh();
+    void forceMetaSync();
+    void forceSync();
+  }, [onRefresh, forceMetaSync, forceSync]);
 
-  // Drive WebSocket `subscribe` in useMetaWorker. `visibleArticles` is a fresh array every
+  // Drive metadata sync target ids in useMetaWorker. `visibleArticles` is a fresh array every
   // render (useFeed does `allArticles.slice(0, visibleCount)`), so comparing by value and
   // returning `prev` avoids setState → render → setState loops.
   useEffect(() => {
@@ -101,9 +109,9 @@ export default function App() {
     setArticleIds(prev => (sameIdsInOrder(prev, nextIds) ? prev : nextIds));
   }, [visibleArticles]);
 
-  // Keep a stable ref so the touch handlers always call the latest onRefresh
-  const onRefreshRef = useRef(onRefresh);
-  onRefreshRef.current = onRefresh;
+  // Keep a stable ref so the touch handlers always call the latest refresh handler
+  const onRefreshRef = useRef(onManualRefresh);
+  onRefreshRef.current = onManualRefresh;
 
   // Gesture state stored in a ref to avoid re-renders during drag
   const pullGestureRef = useRef({ active: false, startY: 0, progress: 0 });
@@ -229,16 +237,16 @@ export default function App() {
           <button
             type="button"
             className={`sync-indicator ${syncIndicator.state}`}
-            onClick={() => setShowSettings(true)}
-            title={syncIndicator.title}
-            aria-label={`Sync status: ${syncIndicator.label}. Open sync settings.`}
+            onClick={onMainSyncClick}
+            title={`${syncIndicator.title} Click to sync shared tags now.`}
+            aria-label={`Sync status: ${syncIndicator.label}. Click to sync shared tags now.`}
           >
             <span className="sync-indicator-dot" aria-hidden="true" />
             <span>{syncIndicator.label}</span>
           </button>
           <button
             className="icon-btn"
-            onClick={onRefresh}
+            onClick={onManualRefresh}
             disabled={loading}
             aria-label="Refresh feed"
             title="Refresh"
@@ -327,15 +335,16 @@ export default function App() {
       )}
 
       <main className="feed">
-        {(error || metaEnvError) && (
+        {(error || metaEnvError || metaError) && (
           <div className="feed-error">
             {error && (
               <>
                 <p>{error}</p>
-                <button onClick={onRefresh} className="btn-retry">Try again</button>
+                <button onClick={onManualRefresh} className="btn-retry">Try again</button>
               </>
             )}
             {metaEnvError && <p>{metaEnvError}</p>}
+            {metaError && <p>Shared metadata: {metaError}</p>}
           </div>
         )}
 
@@ -380,7 +389,7 @@ export default function App() {
           <div className="feed-end">
             <span className="feed-end-icon">✓</span>
             <p>All caught up</p>
-            <button className="btn-retry" onClick={onRefresh}>Refresh for more</button>
+            <button className="btn-retry" onClick={onManualRefresh}>Refresh for more</button>
           </div>
         )}
 
@@ -420,6 +429,10 @@ export default function App() {
           syncError={syncError}
           syncUrl={syncUrl}
           syncEnvError={syncEnvError}
+          metaStatus={metaStatus}
+          metaError={metaError}
+          metaEnvError={metaEnvError}
+          onForceMetaSync={forceMetaSync}
           onForceSync={forceSync}
           onGenerateLink={generateLink}
           onRevoke={revoke}
