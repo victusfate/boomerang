@@ -9,6 +9,7 @@ const BACKOFF_MAX_MS = 10 * 60_000;
 const RATE_LIMIT_BACKOFF_BASE_MS = 2_000;
 const RATE_LIMIT_BACKOFF_MAX_MS = 5 * 60_000;
 const MAX_CONSECUTIVE_ERRORS = 5;
+const META_SYNC_STATUS_LOG = '[sync:meta-status]';
 
 export type MetaTagsMap = Map<string, string[]>;
 export type MetaStatus = 'disabled' | 'active' | 'syncing' | 'error';
@@ -85,6 +86,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
   }, []);
 
   const startMetaSyncCooldown = useCallback((durationMs = MANUAL_META_SYNC_COOLDOWN_MS) => {
+    console.info(META_SYNC_STATUS_LOG, 'cooldown:start', { durationMs });
     const cooldownUntil = Date.now() + durationMs;
     setMetaSyncCooldownMs(durationMs);
     if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
@@ -103,6 +105,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
     const expBackoffMs = Math.min(RATE_LIMIT_BACKOFF_BASE_MS * 2 ** step, RATE_LIMIT_BACKOFF_MAX_MS);
     const backoffMs = Math.max(retryAfterMs ?? 0, expBackoffMs);
     rateLimitBackoffStepRef.current = Math.min(step + 1, 20);
+    console.info(META_SYNC_STATUS_LOG, 'rate-limit:backoff', { step, retryAfterMs, backoffMs });
     blockedUntilRef.current = Date.now() + backoffMs;
     if (circuitTimerRef.current) clearTimeout(circuitTimerRef.current);
     circuitTimerRef.current = setTimeout(() => {
@@ -117,6 +120,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
     if (!WORKER_BASE || syncInFlightRef.current) return;
     if (metaSyncCooldownMs > 0) return;
     if (blockedUntilRef.current && Date.now() < blockedUntilRef.current) return;
+    console.info(META_SYNC_STATUS_LOG, 'sync:start', { articleCount: articleIdsRef.current.length });
     syncInFlightRef.current = true;
     let rateLimited = false;
     setMetaStatus('syncing');
@@ -131,11 +135,13 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
       resetFailures();
       rateLimitBackoffStepRef.current = 0;
       setMetaStatus('active');
+      console.info(META_SYNC_STATUS_LOG, 'sync:done');
     } catch (e) {
       if (e instanceof MetaRateLimitError) {
         rateLimited = true;
         applyRateLimitBackoff(e.retryAfterMs);
       } else {
+        console.info(META_SYNC_STATUS_LOG, 'sync:error', { message: e instanceof Error ? e.message : String(e) });
         registerFailure(formatMetaSyncError(e, 'Meta sync failed'));
       }
     } finally {

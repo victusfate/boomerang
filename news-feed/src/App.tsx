@@ -116,6 +116,17 @@ export default function App() {
     syncEnvError,
     combinedSyncCooldownMs,
   );
+  useEffect(() => {
+    console.info('[sync:ui-indicator]', {
+      indicator: syncIndicator.state,
+      label: syncIndicator.label,
+      syncStatus,
+      metaStatus,
+      combinedSyncCooldownMs,
+      syncError,
+      metaError,
+    });
+  }, [syncIndicator.state, syncIndicator.label, syncStatus, metaStatus, combinedSyncCooldownMs, syncError, metaError]);
   const onMainSyncClick = useCallback(() => {
     void forceSync();
     void forceMetaSync();
