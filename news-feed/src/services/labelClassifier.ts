@@ -120,11 +120,11 @@ export async function tagArticle(
   const input = `${context}Tag this article with 2-4 concise topic tags. Prefer existing tags when appropriate. Return only a comma-separated list, no explanation.\n\n${text}`;
   const response = await session.prompt(input);
   console.info(TAG_LOG, 'tagArticle prompt I/O', { articleId: article.id, input, output: response });
-  return response
+  return Array.from(new Set(response
     .split(',')
     .map(t => t.trim().toLowerCase().replace(/^["'\s]+|["'\s]+$/g, ''))
     .filter(t => t.length > 1 && t.length <= 40)
-    .slice(0, 4);
+    .slice(0, 4)));
 }
 
 export type TaggingPassHooks = {

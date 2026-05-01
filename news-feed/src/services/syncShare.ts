@@ -71,11 +71,16 @@ export function mergeArticlesById(left: Article[], right: Article[]): Article[] 
   return Array.from(new Map([...left, ...right].map(a => [a.id, a])).values());
 }
 
+function dedupeTagList(tags: string[]): string[] {
+  return Array.from(new Set(tags.map(t => t.trim().toLowerCase()).filter(Boolean)));
+}
+
 export function mergeArticleTags(left: ArticleTag[], right: ArticleTag[]): ArticleTag[] {
-  const byId = new Map(left.map(t => [t.articleId, t]));
+  const byId = new Map(left.map(t => [t.articleId, { ...t, tags: dedupeTagList(t.tags) }]));
   for (const tag of right) {
+    const normalized = { ...tag, tags: dedupeTagList(tag.tags) };
     const prev = byId.get(tag.articleId);
-    if (!prev || tag.taggedAt >= prev.taggedAt) byId.set(tag.articleId, tag);
+    if (!prev || normalized.taggedAt >= prev.taggedAt) byId.set(normalized.articleId, normalized);
   }
   return Array.from(byId.values());
 }

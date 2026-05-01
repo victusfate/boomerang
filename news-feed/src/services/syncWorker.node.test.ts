@@ -102,4 +102,14 @@ describe('buildPayload / mergePayload', () => {
     assert.equal(merged.articleTags.length, 1);
     assert.deepEqual(merged.articleTags[0].tags, ['new']);
   });
+
+  test('buildPayload normalizes duplicate/case-variant tags before sync push', () => {
+    const payload = buildPayload(
+      DEFAULT_PREFS,
+      [{ articleId: 'x', tags: ['Politics', 'politics', ' UK ', 'uk'], taggedAt: 1 }],
+      [],
+      [],
+    );
+    assert.deepEqual(payload.articleTags[0].tags, ['politics', 'uk']);
+  });
 });

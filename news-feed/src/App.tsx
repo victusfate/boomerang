@@ -95,7 +95,7 @@ export default function App() {
     onExportBookmarks, onImportBookmarks,
     articleTagsMap, classificationStatus, aiTaggingStarted, taggingArticleId, onStartAiTagging, onAddLabel, onDeleteLabel,
     labelHits, articleTags, onToggleAiBar, onAddManualTag, onRemoveManualTag,
-    onRemoteSync,
+    onRemoteSync, syncReady,
   } = useFeed({ metaCallbacks: { feedTaggedArticle, endTaggingPass }, metaTagsMap });
 
   const { syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError, syncCooldownMs, forceSync, generateLink, revoke } =
@@ -128,14 +128,22 @@ export default function App() {
     });
   }, [syncIndicator.state, syncIndicator.label, syncStatus, metaStatus, combinedSyncCooldownMs, syncError, metaError]);
   const onMainSyncClick = useCallback(() => {
-    void forceSync();
+    if (syncReady) {
+      void forceSync();
+    } else {
+      console.info('[sync:status]', 'skip forceSync until feed syncReady');
+    }
     void forceMetaSync();
-  }, [forceMetaSync, forceSync]);
+  }, [forceMetaSync, forceSync, syncReady]);
   const onManualRefresh = useCallback(() => {
     onRefresh();
     void forceMetaSync();
-    void forceSync();
-  }, [onRefresh, forceMetaSync, forceSync]);
+    if (syncReady) {
+      void forceSync();
+    } else {
+      console.info('[sync:status]', 'skip forceSync on refresh until feed syncReady');
+    }
+  }, [onRefresh, forceMetaSync, forceSync, syncReady]);
   const initialSyncDoneRef = useRef(false);
 
   // Drive metadata sync target ids in useMetaWorker. `visibleArticles` is a fresh array every
@@ -150,20 +158,22 @@ export default function App() {
   useEffect(() => {
     if (initialSyncDoneRef.current) return;
     if (!syncActive) return;
+    if (!syncReady) return;
     initialSyncDoneRef.current = true;
     onMainSyncClick();
-  }, [syncActive, onMainSyncClick]);
+  }, [syncActive, syncReady, onMainSyncClick]);
 
   // Match manual sync behavior whenever the app becomes active/visible.
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible' && syncActive) {
+        if (!syncReady) return;
         onMainSyncClick();
       }
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [syncActive, onMainSyncClick]);
+  }, [syncActive, syncReady, onMainSyncClick]);
 
   // Keep a stable ref so the touch handlers always call the latest refresh handler
   const onRefreshRef = useRef(onManualRefresh);

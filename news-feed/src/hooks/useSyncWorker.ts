@@ -116,6 +116,15 @@ export function useSyncWorker(
         return 'rate_limited';
       }
       if (remote) {
+        console.info(SYNC_STATUS_LOG, 'poll:remote-payload', {
+          roomId: r.roomId,
+          etag: remote.etag,
+          savedIds: remote.payload.prefs?.savedIds?.length ?? 0,
+          savedArticles: remote.payload.savedArticles?.length ?? 0,
+          articleTags: remote.payload.articleTags?.length ?? 0,
+          labelHits: remote.payload.labelHits?.length ?? 0,
+          payload: remote.payload,
+        });
         etagRef.current = remote.etag;
         const local = { prefs: prefsRef.current, articleTags: articleTagsRef.current, labelHits: labelHitsRef.current, savedArticles: savedRef.current };
         const merged = mergePayload(local, remote.payload);
@@ -133,6 +142,16 @@ export function useSyncWorker(
           newSavedIds: newSavedIds.length,
           newTagsSample: newTags.slice(0, 3).map(t => ({ articleId: t.articleId, tags: t.tags })),
           newSavedSample: newSaved.slice(0, 3).map(a => ({ id: a.id, title: a.title })),
+          mergedSavedIds: merged.prefs.savedIds.length,
+          mergedSavedArticles: merged.savedArticles.length,
+          mergedArticleTags: merged.articleTags.length,
+          mergedLabelHits: merged.labelHits.length,
+          mergedPayload: {
+            prefs: merged.prefs,
+            articleTags: merged.articleTags,
+            labelHits: merged.labelHits,
+            savedArticles: merged.savedArticles,
+          },
         });
 
         onMergeRef.current(merged);
@@ -162,7 +181,15 @@ export function useSyncWorker(
       return 'ok'; // nothing changed since last push
     }
     setSyncStatus('syncing');
-    console.info(SYNC_STATUS_LOG, 'push:start', { roomId: r.roomId });
+    console.info(SYNC_STATUS_LOG, 'push:start', {
+      roomId: r.roomId,
+      ifMatch: etagRef.current || undefined,
+      savedIds: payload.prefs.savedIds.length,
+      savedArticles: payload.savedArticles.length,
+      articleTags: payload.articleTags.length,
+      labelHits: payload.labelHits.length,
+      payload,
+    });
     const result = await pushMeta(r, payload, etagRef.current || undefined);
     if (result.conflict) {
       console.info(SYNC_STATUS_LOG, 'push:conflict');

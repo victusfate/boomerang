@@ -872,5 +872,6 @@ export function useFeed(options?: UseFeedOptions) {
     onRemoveManualTag: handleRemoveManualTag,
     feedEnterIds,
     onRemoteSync: applyRemoteSync,
+    syncReady: prefsReady,
   };
 }

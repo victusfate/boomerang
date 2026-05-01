@@ -6,6 +6,22 @@ export const SYNC_PLACEHOLDER_SOURCE_ID = 'boomerang-sync-placeholder';
 
 export const SYNC_STORAGE_KEY = 'BOOMERANG_SYNC';
 const FRAGMENT_PREFIX = '#sync-room=';
+const SYNC_FETCH_TIMEOUT_MS = 12_000;
+
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SYNC_FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new Error(`sync request timed out after ${Math.round(SYNC_FETCH_TIMEOUT_MS / 1000)}s`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 export interface SyncRoom {
   roomId: string;
@@ -55,7 +71,7 @@ export function clearSyncRoom(): void {
 // ── Worker API calls ───────────────────────────────────────────────────────────
 
 export async function createSyncRoom(workerUrl: string): Promise<SyncRoom> {
-  const res = await fetch(`${workerUrl}/sync/room`, { method: 'POST' });
+  const res = await fetchWithTimeout(`${workerUrl}/sync/room`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to create sync room: ${res.status}`);
   const { roomId, token } = await res.json() as { roomId: string; token: string };
   return { roomId, token, workerUrl };
@@ -80,7 +96,7 @@ function parseRetryAfterMs(res: Response): number | undefined {
 }
 
 export async function fetchMeta(room: SyncRoom): Promise<MetaResponse | null> {
-  const res = await fetch(`${room.workerUrl}/sync/${room.roomId}/meta`);
+  const res = await fetchWithTimeout(`${room.workerUrl}/sync/${room.roomId}/meta`);
   if (res.status === 404) return null;
   if (res.status === 401) return { payload: {} as SyncPayloadV1, etag: '', unauthorized: true };
   if (res.status === 429) {
@@ -108,7 +124,7 @@ export async function pushMeta(
   };
   if (etag) headers['If-Match'] = etag;
 
-  const res = await fetch(`${room.workerUrl}/sync/${room.roomId}/meta`, {
+  const res = await fetchWithTimeout(`${room.workerUrl}/sync/${room.roomId}/meta`, {
     method: 'PUT',
     headers,
     body: JSON.stringify(payload),
@@ -124,7 +140,7 @@ export async function pushMeta(
 }
 
 export async function deleteRoom(room: SyncRoom): Promise<void> {
-  await fetch(`${room.workerUrl}/sync/${room.roomId}`, {
+  await fetchWithTimeout(`${room.workerUrl}/sync/${room.roomId}`, {
     method: 'DELETE',
     headers: { 'Authorization': `Bearer ${room.token}` },
   });
@@ -207,5 +223,7 @@ export function buildPayload(
   savedArticles: Article[],
 ): SyncPayloadV1 {
   const materialized = materializeSavedArticlesForSync(prefs, savedArticles);
-  return { v: 1, prefs, articleTags, labelHits, savedArticles: dehydrate(materialized) };
+  // Normalize tags before sending so duplicate labels are never pushed.
+  const normalizedTags = mergeArticleTags([], articleTags);
+  return { v: 1, prefs, articleTags: normalizedTags, labelHits, savedArticles: dehydrate(materialized) };
 }

@@ -84,6 +84,10 @@ export function ArticleCard({
   const [addingTag, setAddingTag] = useState(false);
   const [newTagText, setNewTagText] = useState('');
   const tagInputRef = useRef<HTMLInputElement>(null);
+  const uniqueLabelNames = useMemo(
+    () => Array.from(new Set(articleLabelNames)),
+    [articleLabelNames],
+  );
 
   const commitNewTag = useCallback(() => {
     const v = newTagText.trim();
@@ -195,9 +199,9 @@ export function ArticleCard({
           </span>
         </div>
 
-        {(articleLabelNames.length > 0 || onAddManualTag) && (
+        {(uniqueLabelNames.length > 0 || onAddManualTag) && (
           <div className="label-badges">
-            {articleLabelNames.map(name => (
+            {uniqueLabelNames.map(name => (
               <span key={name} className="label-badge">
                 {name}
                 {onRemoveManualTag && (
