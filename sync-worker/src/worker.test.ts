@@ -1,4 +1,5 @@
-import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloudflare:test';
+import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
+import { env } from 'cloudflare:workers';
 import { describe, it, expect, beforeEach } from 'vitest';
 import worker from './index';
 
@@ -8,11 +9,13 @@ async function req(method: string, path: string, opts: {
   token?: string;
   ifMatch?: string;
   contentType?: string;
+  clientIp?: string;
 } = {}): Promise<Response> {
   const headers = new Headers({ Origin: 'http://localhost:5173' });
   if (opts.token) headers.set('Authorization', `Bearer ${opts.token}`);
   if (opts.ifMatch) headers.set('If-Match', opts.ifMatch);
   if (opts.contentType) headers.set('Content-Type', opts.contentType);
+  if (opts.clientIp) headers.set('CF-Connecting-IP', opts.clientIp);
 
   const request = new Request(`http://localhost${path}`, {
     method,
@@ -20,7 +23,7 @@ async function req(method: string, path: string, opts: {
     body: opts.body,
   });
   const ctx = createExecutionContext();
-  const response = await worker.fetch(request, env, ctx);
+  const response = await worker.fetch(request, env as Env, ctx);
   await waitOnExecutionContext(ctx);
   return response;
 }
@@ -182,5 +185,26 @@ describe('DELETE /sync/{roomId}', () => {
     const { roomId } = await (await req('POST', '/sync/room')).json() as { roomId: string };
     const res = await req('DELETE', `/sync/${roomId}`);
     expect(res.status).toBe(401);
+  });
+});
+
+describe('rate limiting', () => {
+  it('returns 429 after 30 requests/min for the same sync room (shared across clients)', async () => {
+    const created = await req('POST', '/sync/room', { clientIp: '203.0.113.10' });
+    const { roomId, token } = await created.json() as { roomId: string; token: string };
+    await req('PUT', `/sync/${roomId}/meta`, {
+      token,
+      body: JSON.stringify({ head: ['cid-a'] }),
+      contentType: 'application/json',
+      clientIp: '203.0.113.10',
+    });
+    for (let i = 0; i < 29; i += 1) {
+      const clientIp = i % 2 === 0 ? '203.0.113.10' : '203.0.113.11';
+      const res = await req('GET', `/sync/${roomId}/meta`, { clientIp });
+      expect(res.status).toBe(200);
+    }
+    const limited = await req('GET', `/sync/${roomId}/meta`, { clientIp: '203.0.113.11' });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('Retry-After')).toBeTruthy();
   });
 });

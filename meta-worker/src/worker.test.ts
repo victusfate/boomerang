@@ -2,8 +2,14 @@ import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:
 import { describe, it, expect } from 'vitest';
 import worker from './index';
 
-async function req(method: string, path: string, origin = 'https://victusfate.github.io'): Promise<Response> {
+async function req(
+  method: string,
+  path: string,
+  origin = 'https://victusfate.github.io',
+  clientIp?: string,
+): Promise<Response> {
   const headers = new Headers({ Origin: origin });
+  if (clientIp) headers.set('CF-Connecting-IP', clientIp);
   const request = new Request(`http://localhost${path}`, { method, headers });
   const ctx = createExecutionContext();
   const response = await worker.fetch(request, env, ctx);
@@ -37,8 +43,56 @@ describe('S1 — meta-worker scaffold', () => {
     expect(res.status).toBe(404);
   });
 
+  it('GET /meta returns empty updates for missing ids', async () => {
+    const res = await req('GET', '/meta?ids=missing-a,missing-b');
+    expect(res.status).toBe(200);
+    const body = await res.json() as { updates: unknown[] };
+    expect(body.updates).toEqual([]);
+  });
+
+  it('POST /meta/tags writes and GET /meta returns merged tags', async () => {
+    const post = await req('POST', '/meta/tags');
+    expect(post.status).toBe(400);
+
+    const writeReq = new Request('http://localhost/meta/tags', {
+      method: 'POST',
+      headers: new Headers({
+        Origin: 'https://victusfate.github.io',
+        'Content-Type': 'application/json',
+      }),
+      body: JSON.stringify({
+        articles: [
+          { articleId: 'a1', tags: ['AI', 'News'] },
+          { articleId: 'a1', tags: ['news', 'ML'] },
+        ],
+      }),
+    });
+    const ctx = createExecutionContext();
+    const writeRes = await worker.fetch(writeReq, env, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(writeRes.status).toBe(200);
+
+    const readRes = await req('GET', '/meta?ids=a1');
+    expect(readRes.status).toBe(200);
+    const body = await readRes.json() as { updates: Array<{ articleId: string; tags: string[] }> };
+    expect(body.updates).toHaveLength(1);
+    expect(body.updates[0].articleId).toBe('a1');
+    expect(body.updates[0].tags).toEqual(['ai', 'news', 'ml']);
+  });
+
   it('GET /ws/ (trailing slash) without Upgrade → 426 like /ws', async () => {
     const res = await req('GET', '/ws/');
     expect(res.status).toBe(426);
+  });
+
+  it('rate-limits /meta reads to 30 requests/min per client', async () => {
+    const clientIp = '203.0.113.11';
+    for (let i = 0; i < 30; i += 1) {
+      const res = await req('GET', '/meta?ids=a1', 'https://victusfate.github.io', clientIp);
+      expect(res.status).toBe(200);
+    }
+    const limited = await req('GET', '/meta?ids=a1', 'https://victusfate.github.io', clientIp);
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('Retry-After')).toBeTruthy();
   });
 });

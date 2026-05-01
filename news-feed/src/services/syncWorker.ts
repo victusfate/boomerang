@@ -6,6 +6,22 @@ export const SYNC_PLACEHOLDER_SOURCE_ID = 'boomerang-sync-placeholder';
 
 export const SYNC_STORAGE_KEY = 'BOOMERANG_SYNC';
 const FRAGMENT_PREFIX = '#sync-room=';
+const SYNC_FETCH_TIMEOUT_MS = 12_000;
+
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SYNC_FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new Error(`sync request timed out after ${Math.round(SYNC_FETCH_TIMEOUT_MS / 1000)}s`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 export interface SyncRoom {
   roomId: string;
@@ -55,7 +71,7 @@ export function clearSyncRoom(): void {
 // ── Worker API calls ───────────────────────────────────────────────────────────
 
 export async function createSyncRoom(workerUrl: string): Promise<SyncRoom> {
-  const res = await fetch(`${workerUrl}/sync/room`, { method: 'POST' });
+  const res = await fetchWithTimeout(`${workerUrl}/sync/room`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to create sync room: ${res.status}`);
   const { roomId, token } = await res.json() as { roomId: string; token: string };
   return { roomId, token, workerUrl };
@@ -64,11 +80,33 @@ export async function createSyncRoom(workerUrl: string): Promise<SyncRoom> {
 export interface MetaResponse {
   payload: SyncPayloadV1;
   etag: string;
+  unauthorized?: boolean;
+  rateLimited?: boolean;
+  retryAfterMs?: number;
+}
+
+function parseRetryAfterMs(res: Response): number | undefined {
+  const raw = res.headers.get('Retry-After');
+  if (!raw) return undefined;
+  const asSeconds = Number(raw);
+  if (Number.isFinite(asSeconds)) return Math.max(0, Math.round(asSeconds * 1000));
+  const asDate = Date.parse(raw);
+  if (Number.isNaN(asDate)) return undefined;
+  return Math.max(0, asDate - Date.now());
 }
 
 export async function fetchMeta(room: SyncRoom): Promise<MetaResponse | null> {
-  const res = await fetch(`${room.workerUrl}/sync/${room.roomId}/meta`);
+  const res = await fetchWithTimeout(`${room.workerUrl}/sync/${room.roomId}/meta`);
   if (res.status === 404) return null;
+  if (res.status === 401) return { payload: {} as SyncPayloadV1, etag: '', unauthorized: true };
+  if (res.status === 429) {
+    return {
+      payload: {} as SyncPayloadV1,
+      etag: '',
+      rateLimited: true,
+      retryAfterMs: parseRetryAfterMs(res),
+    };
+  }
   if (!res.ok) throw new Error(`fetchMeta failed: ${res.status}`);
   const etag = res.headers.get('ETag') ?? '';
   const payload = await res.json() as SyncPayloadV1;
@@ -79,26 +117,30 @@ export async function pushMeta(
   room: SyncRoom,
   payload: SyncPayloadV1,
   etag?: string,
-): Promise<{ ok: boolean; conflict: boolean }> {
+): Promise<{ ok: boolean; conflict: boolean; unauthorized: boolean; rateLimited: boolean; retryAfterMs?: number }> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${room.token}`,
   };
   if (etag) headers['If-Match'] = etag;
 
-  const res = await fetch(`${room.workerUrl}/sync/${room.roomId}/meta`, {
+  const res = await fetchWithTimeout(`${room.workerUrl}/sync/${room.roomId}/meta`, {
     method: 'PUT',
     headers,
     body: JSON.stringify(payload),
   });
 
-  if (res.status === 412) return { ok: false, conflict: true };
-  if (!res.ok) return { ok: false, conflict: false };
-  return { ok: true, conflict: false };
+  if (res.status === 412) return { ok: false, conflict: true, unauthorized: false, rateLimited: false, retryAfterMs: undefined };
+  if (res.status === 401) return { ok: false, conflict: false, unauthorized: true, rateLimited: false, retryAfterMs: undefined };
+  if (res.status === 429) {
+    return { ok: false, conflict: false, unauthorized: false, rateLimited: true, retryAfterMs: parseRetryAfterMs(res) };
+  }
+  if (!res.ok) return { ok: false, conflict: false, unauthorized: false, rateLimited: false, retryAfterMs: undefined };
+  return { ok: true, conflict: false, unauthorized: false, rateLimited: false, retryAfterMs: undefined };
 }
 
 export async function deleteRoom(room: SyncRoom): Promise<void> {
-  await fetch(`${room.workerUrl}/sync/${room.roomId}`, {
+  await fetchWithTimeout(`${room.workerUrl}/sync/${room.roomId}`, {
     method: 'DELETE',
     headers: { 'Authorization': `Bearer ${room.token}` },
   });
@@ -181,5 +223,40 @@ export function buildPayload(
   savedArticles: Article[],
 ): SyncPayloadV1 {
   const materialized = materializeSavedArticlesForSync(prefs, savedArticles);
-  return { v: 1, prefs, articleTags, labelHits, savedArticles: dehydrate(materialized) };
+  // Normalize tags before sending so duplicate labels are never pushed.
+  const normalizedTags = mergeArticleTags([], articleTags);
+  return { v: 1, prefs, articleTags: normalizedTags, labelHits, savedArticles: dehydrate(materialized) };
+}
+
+/**
+ * Auto-sync dirty / noop detection ignores high-churn browse fields (`seenIds`, `readIds`)
+ * so scrolling the feed does not constantly push. Full prefs (including those arrays)
+ * are still merged and sent when something else changes or on manual sync.
+ */
+function normalizePayloadForAutoSyncCompare(payload: SyncPayloadV1): string {
+  return JSON.stringify({
+    ...payload,
+    prefs: { ...payload.prefs, seenIds: [], readIds: [] },
+  });
+}
+
+export function autoSyncCompareKey(
+  prefs: UserPrefs,
+  articleTags: ArticleTag[],
+  labelHits: LabelHit[],
+  savedArticles: Article[],
+): string {
+  return normalizePayloadForAutoSyncCompare(
+    buildPayload(prefs, articleTags, labelHits, savedArticles),
+  );
+}
+
+export function autoSyncCompareKeyFromPushedJson(storedJson: string): string | null {
+  try {
+    const parsed = JSON.parse(storedJson) as SyncPayloadV1;
+    if (parsed?.v !== 1) return null;
+    return normalizePayloadForAutoSyncCompare(parsed);
+  } catch {
+    return null;
+  }
 }
