@@ -16,6 +16,8 @@ const MANUAL_SYNC_COOLDOWN_MS = 15_000;
 const DIRTY_SYNC_DEBOUNCE_MS = 1_000;
 const RATE_LIMIT_BACKOFF_BASE_MS = 2_000;
 const RATE_LIMIT_BACKOFF_MAX_MS = 5 * 60_000;
+const RELINK_REQUIRED_MESSAGE =
+  'Sync link expired or is invalid. Local sync was disabled to stop retries. Generate a new sync link.';
 
 export type SyncStatus = 'idle' | 'active' | 'syncing' | 'error';
 
@@ -103,6 +105,25 @@ export function useSyncWorker(
     setSyncError(`Sync rate limited. Retrying allowed in ${Math.max(1, Math.ceil(backoffMs / 1000))}s.`);
   }, [startSyncCooldown]);
 
+  const disableLocalSyncRoom = useCallback((message: string) => {
+    clearSyncRoom();
+    roomRef.current = null;
+    setRoom(null);
+    setSyncUrl(null);
+    setSyncStatus('error');
+    setSyncedAt(null);
+    setSyncError(message);
+    setSyncCooldownMs(0);
+    setHasDirtyData(false);
+    etagRef.current = '';
+    lastPushedRef.current = '';
+    syncInFlightRef.current = false;
+    if (cooldownTimerRef.current) {
+      clearInterval(cooldownTimerRef.current);
+      cooldownTimerRef.current = null;
+    }
+  }, []);
+
   const doPoll = useCallback(async (): Promise<'ok' | 'blocked' | 'rate_limited'> => {
     const r = roomRef.current;
     if (!r) return 'blocked';
@@ -112,8 +133,7 @@ export function useSyncWorker(
       const remote = await fetchMeta(r);
       if (remote?.unauthorized) {
         syncDebugLog('saved', 'poll:unauthorized', { roomId: r.roomId });
-        setSyncStatus('error');
-        setSyncError('Sync room credentials are invalid or expired. Revoke sync and generate a new link.');
+        disableLocalSyncRoom(RELINK_REQUIRED_MESSAGE);
         return 'blocked';
       }
       if (remote?.rateLimited) {
@@ -187,8 +207,7 @@ export function useSyncWorker(
     }
     if (result.unauthorized) {
       syncDebugLog('saved', 'push:unauthorized', { roomId: r.roomId });
-      setSyncStatus('error');
-      setSyncError('Sync room credentials are invalid or expired. Revoke sync and generate a new link.');
+      disableLocalSyncRoom(RELINK_REQUIRED_MESSAGE);
       return 'blocked';
     }
     if (result.rateLimited) {
@@ -209,7 +228,7 @@ export function useSyncWorker(
     rateLimitBackoffStepRef.current = 0;
     syncDebugLog('saved', 'push:done', { roomId: r.roomId });
     return 'ok';
-  }, [applyRateLimitBackoff, doPoll]);
+  }, [applyRateLimitBackoff, disableLocalSyncRoom, doPoll]);
 
   const forceSync = useCallback(async () => {
     if (!roomRef.current) {
@@ -343,8 +362,7 @@ export function useSyncWorker(
       const payload = buildPayload(prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current);
       const put = await pushMeta(r, payload);
       if (put.unauthorized) {
-        setSyncStatus('error');
-        setSyncError('Sync room credentials are invalid or expired. Revoke sync and generate a new link.');
+        disableLocalSyncRoom(RELINK_REQUIRED_MESSAGE);
         return;
       }
       if (!put.ok && !put.conflict) {
@@ -361,7 +379,7 @@ export function useSyncWorker(
       setSyncStatus('error');
       setSyncError(e instanceof Error ? e.message : 'Failed to create sync room');
     }
-  }, [activate]);
+  }, [activate, disableLocalSyncRoom]);
 
   const revoke = useCallback(async () => {
     const r = roomRef.current;
