@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { workerUrlFromEnv, missingWorkerEnvMessage } from '../config/workerEnv';
 import { fetchMetaTags, submitMetaTags, MetaRateLimitError } from '../services/metaWorker.ts';
+import { syncDebugLog } from '../config/debugSync';
 
 const WORKER_BASE = workerUrlFromEnv(import.meta.env.VITE_META_WORKER_URL);
 const MANUAL_META_SYNC_COOLDOWN_MS = 15_000;
@@ -86,6 +87,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
 
   const startMetaSyncCooldown = useCallback((durationMs = MANUAL_META_SYNC_COOLDOWN_MS) => {
     const cooldownUntil = Date.now() + durationMs;
+    syncDebugLog('meta', 'cooldown:start', { durationMs });
     setMetaSyncCooldownMs(durationMs);
     if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
     cooldownTimerRef.current = setInterval(() => {
@@ -102,6 +104,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
     const step = rateLimitBackoffStepRef.current;
     const expBackoffMs = Math.min(RATE_LIMIT_BACKOFF_BASE_MS * 2 ** step, RATE_LIMIT_BACKOFF_MAX_MS);
     const backoffMs = Math.max(retryAfterMs ?? 0, expBackoffMs);
+    syncDebugLog('meta', 'rate-limit:backoff', { retryAfterMs, backoffMs, step });
     rateLimitBackoffStepRef.current = Math.min(step + 1, 20);
     blockedUntilRef.current = Date.now() + backoffMs;
     if (circuitTimerRef.current) clearTimeout(circuitTimerRef.current);
@@ -120,6 +123,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
     syncInFlightRef.current = true;
     let rateLimited = false;
     setMetaStatus('syncing');
+    syncDebugLog('meta', 'pull:start', { articleCount: articleIdsRef.current.length });
     try {
       const updates = await fetchMetaTags(WORKER_BASE, articleIdsRef.current);
       setMetaTagsMap(prev => {
@@ -131,11 +135,16 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
       resetFailures();
       rateLimitBackoffStepRef.current = 0;
       setMetaStatus('active');
+      syncDebugLog('meta', 'pull:done', { updates: updates.length });
     } catch (e) {
       if (e instanceof MetaRateLimitError) {
         rateLimited = true;
+        syncDebugLog('meta', 'pull:rate-limited', { retryAfterMs: e.retryAfterMs });
         applyRateLimitBackoff(e.retryAfterMs);
       } else {
+        syncDebugLog('meta', 'pull:error', {
+          error: e instanceof Error ? e.message : String(e),
+        });
         registerFailure(formatMetaSyncError(e, 'Meta sync failed'));
       }
     } finally {
@@ -148,18 +157,25 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
     if (pendingBufferRef.current.length === 0) return;
     const batch = pendingBufferRef.current.splice(0, MAX_BATCH);
     if (!WORKER_BASE) return;
+    syncDebugLog('meta', 'push:start', { batchSize: batch.length });
     void submitMetaTags(WORKER_BASE, batch)
       .then(() => {
         resetFailures();
         rateLimitBackoffStepRef.current = 0;
         setMetaStatus('active');
+        syncDebugLog('meta', 'push:done', { batchSize: batch.length });
       })
       .catch((e) => {
         pendingBufferRef.current.unshift(...batch);
         if (e instanceof MetaRateLimitError) {
+          syncDebugLog('meta', 'push:rate-limited', { retryAfterMs: e.retryAfterMs });
           applyRateLimitBackoff(e.retryAfterMs);
           return;
         }
+        syncDebugLog('meta', 'push:error', {
+          error: e instanceof Error ? e.message : String(e),
+          batchSize: batch.length,
+        });
         registerFailure(formatMetaSyncError(e, 'Meta submit failed'));
       })
       .finally(() => {
