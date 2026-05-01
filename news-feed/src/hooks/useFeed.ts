@@ -367,7 +367,10 @@ export function useFeed(options?: UseFeedOptions) {
           .catch(e => console.error(SYNC_LOG, 'failed writing ai-article-tags', e));
       }
 
-      setPrefsState(syncedPrefs);
+      // Merge startup prefs into current React state. `useSyncWorker` may already have applied
+      // a poll (`applyRemoteSync`) using prefs from this same DB snapshot — that merge must not
+      // be clobbered by a second `setPrefsState` from the snapshot-only `syncedPrefs`.
+      setPrefsState(prev => mergePrefs(syncedPrefs, prev));
       if (syncedImported.length) {
         importedSavesRef.current = syncedImported;
         setImportedSaves(syncedImported);
@@ -386,7 +389,7 @@ export function useFeed(options?: UseFeedOptions) {
         articlePoolRef.current = cached.articles;
         setArticlePool(cached.articles);
 
-        const ranked = rankFeed(cached.articles, syncedPrefs);
+        const ranked = rankFeed(cached.articles, mergePrefs(syncedPrefs, prefsRef.current));
         allArticlesRef.current = ranked;
         setAllArticles(ranked);
         if (ranked.length) setLoading(false);

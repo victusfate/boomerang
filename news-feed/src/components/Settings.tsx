@@ -38,6 +38,7 @@ interface Props {
   syncError: string | null;
   syncUrl: string | null;
   syncEnvError: string | null;
+  onForceSync: () => Promise<void>;
   onGenerateLink: () => Promise<void>;
   onRevoke: () => Promise<void>;
   onToggleAiBar: () => void;
@@ -49,7 +50,7 @@ export function Settings({
   onExportBookmarks, onImportBookmarks,
   onAddLabel, onDeleteLabel,   onSuggestLabels,
   syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError,
-  onGenerateLink, onRevoke, onToggleAiBar,
+  onForceSync, onGenerateLink, onRevoke, onToggleAiBar,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
@@ -481,6 +482,14 @@ export function Settings({
                   <img src={qrDataUrl} alt="QR code for device sync" className="sync-qr" />
                 </div>
               )}
+              <button
+                type="button"
+                className="btn-add-source"
+                onClick={() => void onForceSync()}
+                disabled={syncStatus === 'syncing'}
+              >
+                {syncStatus === 'syncing' ? 'Syncing…' : 'Sync now'}
+              </button>
               {syncUrl && (
                 <div className="sync-url-row">
                   <input

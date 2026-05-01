@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { useFeed } from './hooks/useFeed';
-import { useSyncWorker } from './hooks/useSyncWorker';
+import { useSyncWorker, type SyncStatus } from './hooks/useSyncWorker';
 import { useMetaWorker } from './hooks/useMetaWorker';
 import { useOGImageBatch } from './hooks/useOGImageBatch';
 import { ArticleCard } from './components/ArticleCard';
@@ -12,6 +12,8 @@ import type { ActiveFilter, FeedView } from './types';
 
 const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
 
+type SyncIndicatorState = 'idle' | 'setup' | 'active' | 'syncing' | 'error';
+
 /** Same length and same id at each index (order matters — feed order). */
 function sameIdsInOrder(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false;
@@ -19,6 +21,34 @@ function sameIdsInOrder(a: readonly string[], b: readonly string[]): boolean {
     if (a[i] !== b[i]) return false;
   }
   return true;
+}
+
+function formatRelativeMinutes(date: Date): string {
+  const mins = Math.floor((Date.now() - date.getTime()) / 60000);
+  return mins < 1 ? 'just now' : `${mins}m ago`;
+}
+
+function syncIndicatorState(
+  syncActive: boolean,
+  syncStatus: SyncStatus,
+  syncedAt: Date | null,
+  syncError: string | null,
+  syncEnvError: string | null,
+): { state: SyncIndicatorState; label: string; title: string } {
+  if (syncError || syncStatus === 'error') {
+    return { state: 'error', label: 'Sync error', title: syncError ?? 'Sync failed' };
+  }
+  if (syncStatus === 'syncing') {
+    return { state: 'syncing', label: 'Syncing...', title: 'Pulling or pushing sync data' };
+  }
+  if (syncActive) {
+    const label = syncedAt ? `Synced ${formatRelativeMinutes(syncedAt)}` : 'Sync on';
+    return { state: 'active', label, title: 'Sync is active. Open Settings for details.' };
+  }
+  if (syncEnvError) {
+    return { state: 'setup', label: 'Sync setup', title: syncEnvError };
+  }
+  return { state: 'idle', label: 'Sync off', title: 'Sync is not active. Open Settings to generate a link.' };
 }
 
 function RefreshIcon({ spinning }: { spinning: boolean }) {
@@ -53,7 +83,7 @@ export default function App() {
     onRemoteSync,
   } = useFeed({ metaCallbacks: { feedTaggedArticle, endTaggingPass }, metaTagsMap });
 
-  const { syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError, generateLink, revoke } =
+  const { syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError, forceSync, generateLink, revoke } =
     useSyncWorker(prefs, articleTags, labelHits, savedArticles, onRemoteSync);
 
   const [view, setView] = useState<FeedView>('feed');
@@ -61,6 +91,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [pullProgress, setPullProgress] = useState(0); // 0–1
   const canUseBrowserAi = isPromptApiAvailable();
+  const syncIndicator = syncIndicatorState(syncActive, syncStatus, syncedAt, syncError, syncEnvError);
 
   // Drive WebSocket `subscribe` in useMetaWorker. `visibleArticles` is a fresh array every
   // render (useFeed does `allArticles.slice(0, visibleCount)`), so comparing by value and
@@ -195,6 +226,16 @@ export default function App() {
           )}
         </div>
         <div className="header-right">
+          <button
+            type="button"
+            className={`sync-indicator ${syncIndicator.state}`}
+            onClick={() => setShowSettings(true)}
+            title={syncIndicator.title}
+            aria-label={`Sync status: ${syncIndicator.label}. Open sync settings.`}
+          >
+            <span className="sync-indicator-dot" aria-hidden="true" />
+            <span>{syncIndicator.label}</span>
+          </button>
           <button
             className="icon-btn"
             onClick={onRefresh}
@@ -379,6 +420,7 @@ export default function App() {
           syncError={syncError}
           syncUrl={syncUrl}
           syncEnvError={syncEnvError}
+          onForceSync={forceSync}
           onGenerateLink={generateLink}
           onRevoke={revoke}
           onToggleAiBar={onToggleAiBar}

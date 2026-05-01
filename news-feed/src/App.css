@@ -73,7 +73,7 @@ html, body {
 }
 
 .header-left { display: flex; align-items: baseline; gap: 8px; }
-.header-right { display: flex; gap: 4px; }
+.header-right { display: flex; align-items: center; gap: 4px; }
 
 .app-title {
   font-size: 1.25rem;
@@ -85,6 +85,50 @@ html, body {
   font-size: 0.75rem;
   color: var(--sub);
 }
+
+.sync-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 132px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--sub);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.sync-indicator:hover {
+  background: var(--border);
+  color: var(--text);
+}
+.sync-indicator span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sync-indicator-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--sub);
+}
+.sync-indicator.active .sync-indicator-dot { background: #22c55e; }
+.sync-indicator.syncing .sync-indicator-dot {
+  background: var(--accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+.sync-indicator.error {
+  border-color: #ef4444;
+  color: #fecaca;
+}
+.sync-indicator.error .sync-indicator-dot { background: #ef4444; }
+.sync-indicator.setup .sync-indicator-dot { background: #f59e0b; }
 
 .icon-btn {
   background: none;
@@ -104,6 +148,7 @@ html, body {
 .icon-btn:disabled { opacity: 0.4; cursor: default; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 50% { opacity: 0.35; } }
 
 /* ── View tabs ───────────────────────────────────────────────── */
 .view-tabs {

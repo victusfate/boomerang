@@ -20,6 +20,7 @@ export interface UseSyncWorkerResult {
   syncedAt: Date | null;
   syncError: string | null;
   syncUrl: string | null;
+  forceSync: () => Promise<void>;
   generateLink: () => Promise<void>;
   revoke: () => Promise<void>;
   /** Non-null when `VITE_SYNC_WORKER_URL` is missing — needed to create new rooms; existing fragment/storage rooms still work */
@@ -46,10 +47,13 @@ export function useSyncWorker(
 
   const etagRef         = useRef<string>('');
   const lastPushedRef   = useRef<string>('');
+  const hasPulledRef    = useRef(false);
   const pushTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollTimer  = useRef<ReturnType<typeof setInterval> | null>(null);
-  const roomRef    = useRef<SyncRoom | null>(null);
-  roomRef.current  = room;
+  const roomRef = useRef<SyncRoom | null>(null);
+  // Keep in sync with `room` on every render; `activate` also sets the ref immediately so
+  // `doPoll()` can run in the same tick as `activate` (before React commits `setRoom`).
+  roomRef.current = room;
 
   // Keep latest state in refs so poll/push callbacks don't go stale
   const prefsRef        = useRef(prefs);
@@ -91,6 +95,7 @@ export function useSyncWorker(
 
         onMergeRef.current(merged);
       }
+      hasPulledRef.current = true;
       setSyncedAt(new Date());
       setSyncStatus('active');
       setSyncError(null);
@@ -124,12 +129,25 @@ export function useSyncWorker(
 
   const schedulePush = useCallback(() => {
     if (!roomRef.current) return;
+    if (!hasPulledRef.current) return;
     if (pushTimer.current) clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(() => void doPush(), PUSH_DEBOUNCE_MS);
   }, [doPush]);
 
+  const forceSync = useCallback(async () => {
+    if (!roomRef.current) return;
+    if (pushTimer.current) {
+      clearTimeout(pushTimer.current);
+      pushTimer.current = null;
+    }
+    await doPoll();
+    await doPush();
+  }, [doPoll, doPush]);
+
   // Activate sync with a room
   const activate = useCallback((r: SyncRoom) => {
+    roomRef.current = r;
+    hasPulledRef.current = false;
     setRoom(r);
     saveSyncRoom(r);
     setSyncStatus('active');
@@ -146,19 +164,17 @@ export function useSyncWorker(
       activate(fromFragment);
       // Clean fragment from URL without reload
       history.replaceState(null, '', location.pathname + location.search);
-      void doPoll();
       return;
     }
     const stored = loadSyncRoom();
-    if (stored) {
-      activate(stored);
-      void doPoll();
-    }
+    if (stored) activate(stored);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll on interval and on visibility change
   useEffect(() => {
     if (!room) return;
+
+    void doPoll();
 
     pollTimer.current = setInterval(() => {
       if (document.visibilityState === 'visible') void doPoll();
@@ -197,6 +213,7 @@ export function useSyncWorker(
         setSyncError('Initial sync upload failed. Try Generate sync link again.');
         return;
       }
+      hasPulledRef.current = true;
       setSyncStatus('active');
     } catch (e) {
       setSyncStatus('error');
@@ -210,6 +227,8 @@ export function useSyncWorker(
       try { await deleteRoom(r); } catch { /* best effort */ }
     }
     clearSyncRoom();
+    roomRef.current = null;
+    hasPulledRef.current = false;
     setRoom(null);
     setSyncUrl(null);
     setSyncStatus('idle');
@@ -226,6 +245,7 @@ export function useSyncWorker(
     syncedAt,
     syncError,
     syncUrl,
+    forceSync,
     generateLink,
     revoke,
     syncEnvError: SYNC_WORKER_BASE ? null : missingWorkerEnvMessage('VITE_SYNC_WORKER_URL'),
