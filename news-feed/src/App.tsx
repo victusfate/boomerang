@@ -8,20 +8,12 @@ import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
 import { suggestLabels } from './services/labelSuggester';
 import { isPromptApiAvailable } from './services/labelClassifier';
+import { sameIdsInOrder } from './services/metaSyncTrigger';
 import type { ActiveFilter, FeedView } from './types';
 
 const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
 
 type SyncIndicatorState = 'idle' | 'setup' | 'active' | 'syncing' | 'error';
-
-/** Same length and same id at each index (order matters — feed order). */
-function sameIdsInOrder(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
 
 function formatRelativeMinutes(date: Date): string {
   const mins = Math.floor((Date.now() - date.getTime()) / 60000);
@@ -138,6 +130,12 @@ export default function App() {
     const nextIds = visibleArticles.map(a => a.id);
     setArticleIds(prev => (sameIdsInOrder(prev, nextIds) ? prev : nextIds));
   }, [visibleArticles]);
+
+  // Pull shared metadata for visible cards even when sync-worker is not enabled.
+  useEffect(() => {
+    if (articleIds.length === 0) return;
+    void forceMetaSync();
+  }, [articleIds, forceMetaSync]);
 
   // On initial load, run the same combined sync action as the main sync button.
   useEffect(() => {
