@@ -140,26 +140,28 @@ export default function App() {
     void forceMetaSyncRef.current();
   }, [articleIds]);
 
-  // On initial load, run the same combined sync action as the main sync button.
+  // On initial load, trigger sync-worker pull+push for sync users.
+  // Meta tags for all users are already pulled by the articleIds effect above.
   useEffect(() => {
     if (initialSyncDoneRef.current) return;
     if (!syncActive) return;
     if (!syncReady) return;
     initialSyncDoneRef.current = true;
-    onMainSyncClick();
-  }, [syncActive, syncReady, onMainSyncClick]);
+    void forceSync();
+  }, [syncActive, syncReady, forceSync]);
 
-  // Match manual sync behavior whenever the app becomes active/visible.
+  // Re-fetch shared metadata for all users (and full sync for sync users) whenever the
+  // tab becomes active again. Uses forceMetaSyncRef to avoid dep churn from the 500ms
+  // cooldown ticker that recreates forceMetaSync on every tick.
   useEffect(() => {
     const onVisible = () => {
-      if (document.visibilityState === 'visible' && syncActive) {
-        if (!syncReady) return;
-        onMainSyncClick();
-      }
+      if (document.visibilityState !== 'visible') return;
+      void forceMetaSyncRef.current();
+      if (syncActive && syncReady) void forceSync();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [syncActive, syncReady, onMainSyncClick]);
+  }, [forceSync, syncActive, syncReady]);
 
   // Keep a stable ref so the touch handlers always call the latest refresh handler
   const onRefreshRef = useRef(onManualRefresh);
