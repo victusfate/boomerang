@@ -1,3 +1,26 @@
 {
-  "prUrlTemplate": "https://github.com/victusfate/boomerang/pull/26"
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/read-once/hook.sh"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/read-once/compact.sh"
+          }
+        ]
+      }
+    ]
+  }
 }
