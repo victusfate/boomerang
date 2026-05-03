@@ -131,11 +131,14 @@ export default function App() {
     setArticleIds(prev => (sameIdsInOrder(prev, nextIds) ? prev : nextIds));
   }, [visibleArticles]);
 
+  const forceMetaSyncRef = useRef(forceMetaSync);
+  forceMetaSyncRef.current = forceMetaSync;
+
   // Pull shared metadata for visible cards even when sync-worker is not enabled.
   useEffect(() => {
     if (articleIds.length === 0) return;
-    void forceMetaSync();
-  }, [articleIds, forceMetaSync]);
+    void forceMetaSyncRef.current();
+  }, [articleIds]);
 
   // On initial load, run the same combined sync action as the main sync button.
   useEffect(() => {
