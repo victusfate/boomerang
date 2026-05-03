@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFireproof } from 'use-fireproof';
+import { kvGet, kvSet } from '../services/kvStore';
 import { fetchAllSources, DEFAULT_SOURCES } from '../services/newsService';
 import { rankFeed } from '../services/algorithm';
 import {
@@ -31,11 +31,10 @@ const CACHE_ID           = 'feed-cache';
 const IMPORTED_SAVES_ID  = 'imported-saves';
 const CLASSIFICATIONS_ID = 'ai-classifications';
 const ARTICLE_TAGS_ID    = 'ai-article-tags';
-interface FeedCacheDoc        { _id: string; articles: StoredArticle[]; fetchedAt: number }
-interface ImportedSavesDoc    { _id: string; articles: StoredArticle[] }
-interface ClassificationsDoc  { _id: string; hits: LabelHit[] }
-interface ArticleTagsDoc      { _id: string; hits: ArticleTag[] }
-type PrefsDoc = UserPrefs & { _id: string };
+interface FeedCacheDoc        { articles: StoredArticle[]; fetchedAt: number }
+interface ImportedSavesDoc    { articles: StoredArticle[] }
+interface ClassificationsDoc  { hits: LabelHit[] }
+interface ArticleTagsDoc      { hits: ArticleTag[] }
 
 
 export interface UseFeedMetaCallbacks {
@@ -50,7 +49,6 @@ export interface UseFeedOptions {
 
 export function useFeed(options?: UseFeedOptions) {
   const { metaCallbacks, metaTagsMap } = options ?? {};
-  const { database } = useFireproof('boomerang-news');
 
   const [prefs, setPrefsState]      = useState<UserPrefs>(DEFAULT_PREFS);
   const [prefsReady, setPrefsReady] = useState(false);
@@ -117,8 +115,8 @@ export function useFeed(options?: UseFeedOptions) {
   // ── Persist prefs ────────────────────────────────────────────────────────────
   const updatePrefs = useCallback((next: UserPrefs) => {
     setPrefsState(next);
-    database.put({ _id: PREFS_ID, ...next } as PrefsDoc).catch(console.error);
-  }, [database]);
+    kvSet(PREFS_ID, next).catch(console.error);
+  }, []);
 
   const stopAiModelPolling = useCallback(() => {
     if (aiModelPollTimerRef.current) {
@@ -198,8 +196,7 @@ export function useFeed(options?: UseFeedOptions) {
             setArticleTags(prev => {
               const updated = [...prev, tag];
               articleTagsRef.current = updated;
-              database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc)
-                .catch(console.error);
+              kvSet(ARTICLE_TAGS_ID, { hits: updated }).catch(console.error);
               return updated;
             });
           }, {
@@ -263,7 +260,7 @@ export function useFeed(options?: UseFeedOptions) {
         }
       })();
     });
-  }, [database, startAiModelPolling]);
+  }, [startAiModelPolling]);
 
   const schedulePassRef = useRef(scheduleTaggingPass);
   schedulePassRef.current = scheduleTaggingPass;
@@ -278,7 +275,7 @@ export function useFeed(options?: UseFeedOptions) {
 
   // ── Load prefs + cache from Fireproof on mount ────────────────────────────────
   useEffect(() => {
-    const prefsPromise = database.get<PrefsDoc>(PREFS_ID)
+    const prefsPromise = kvGet<UserPrefs>(PREFS_ID)
       .then(doc => {
         let merged: UserPrefs = { ...DEFAULT_PREFS, ...doc };
         // One-time migration: old whitelist `enabledSources` → blacklist `disabledSourceIds`
@@ -293,28 +290,28 @@ export function useFeed(options?: UseFeedOptions) {
         const decayed = applyDecay(merged);
         setPrefsState(decayed);
         if (decayed !== merged) {
-          database.put({ _id: PREFS_ID, ...decayed } as PrefsDoc).catch(console.error);
+          kvSet(PREFS_ID, decayed).catch(console.error);
         }
         return decayed;
       })
       .catch(() => DEFAULT_PREFS);
 
-    const cachePromise = database.get<FeedCacheDoc>(CACHE_ID)
-      .then(cache => cache.articles?.length
+    const cachePromise = kvGet<FeedCacheDoc>(CACHE_ID)
+      .then(cache => cache?.articles?.length
         ? { articles: hydrate(cache.articles), fetchedAt: cache.fetchedAt }
         : null)
       .catch(() => null);
 
-    const importedSavesPromise = database.get<ImportedSavesDoc>(IMPORTED_SAVES_ID)
-      .then(doc => doc.articles?.length ? hydrate(doc.articles) : [])
+    const importedSavesPromise = kvGet<ImportedSavesDoc>(IMPORTED_SAVES_ID)
+      .then(doc => doc?.articles?.length ? hydrate(doc.articles) : [])
       .catch(() => [] as Article[]);
 
-    const classificationsPromise = database.get<ClassificationsDoc>(CLASSIFICATIONS_ID)
-      .then(doc => doc.hits ?? [])
+    const classificationsPromise = kvGet<ClassificationsDoc>(CLASSIFICATIONS_ID)
+      .then(doc => doc?.hits ?? [])
       .catch(() => [] as LabelHit[]);
 
-    const articleTagsPromise = database.get<ArticleTagsDoc>(ARTICLE_TAGS_ID)
-      .then(doc => doc.hits ?? [])
+    const articleTagsPromise = kvGet<ArticleTagsDoc>(ARTICLE_TAGS_ID)
+      .then(doc => doc?.hits ?? [])
       .catch(() => [] as ArticleTag[]);
 
     Promise.all([prefsPromise, cachePromise, importedSavesPromise, classificationsPromise, articleTagsPromise]).then(([loadedPrefs, cached, imported, hits, tags]) => {
@@ -353,16 +350,16 @@ export function useFeed(options?: UseFeedOptions) {
           userLabelsBefore: loadedPrefs.userLabels.length,
           userLabelsAfter: syncedPrefs.userLabels.length,
         });
-        database.put({ _id: PREFS_ID, ...syncedPrefs } as PrefsDoc)
+        kvSet(PREFS_ID, syncedPrefs)
           .then(() => console.info(SYNC_LOG, 'wrote user-prefs'))
           .catch(e => console.error(SYNC_LOG, 'failed writing user-prefs', e));
-        database.put({ _id: IMPORTED_SAVES_ID, articles: dehydrate(syncedImported) } as ImportedSavesDoc)
+        kvSet(IMPORTED_SAVES_ID, { articles: dehydrate(syncedImported) })
           .then(() => console.info(SYNC_LOG, 'wrote imported-saves', { count: syncedImported.length }))
           .catch(e => console.error(SYNC_LOG, 'failed writing imported-saves', e));
-        database.put({ _id: CLASSIFICATIONS_ID, hits: syncedHits } as ClassificationsDoc)
+        kvSet(CLASSIFICATIONS_ID, { hits: syncedHits })
           .then(() => console.info(SYNC_LOG, 'wrote ai-classifications', { count: syncedHits.length }))
           .catch(e => console.error(SYNC_LOG, 'failed writing ai-classifications', e));
-        database.put({ _id: ARTICLE_TAGS_ID, hits: syncedTags } as ArticleTagsDoc)
+        kvSet(ARTICLE_TAGS_ID, { hits: syncedTags })
           .then(() => console.info(SYNC_LOG, 'wrote ai-article-tags', { count: syncedTags.length }))
           .catch(e => console.error(SYNC_LOG, 'failed writing ai-article-tags', e));
       }
@@ -404,7 +401,7 @@ export function useFeed(options?: UseFeedOptions) {
         });
       }
     });
-  }, [database]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => {
     if (feedEnterClearTimerRef.current) clearTimeout(feedEnterClearTimerRef.current);
@@ -502,8 +499,7 @@ export function useFeed(options?: UseFeedOptions) {
         articlePoolRef.current = all;
         setArticlePool(all);
         applyRankedBatch(all);
-        database.put({ _id: CACHE_ID, articles: dehydrate(all), fetchedAt: Date.now() })
-          .catch(console.error);
+        kvSet(CACHE_ID, { articles: dehydrate(all), fetchedAt: Date.now() }).catch(console.error);
         schedulePassRef.current([...allArticlesRef.current]);
       }
     } catch (e) {
@@ -529,7 +525,7 @@ export function useFeed(options?: UseFeedOptions) {
         fetchingRef.current = false;
       }
     }
-  }, [database]); // stable — does not depend on volatile state
+  }, []); // stable — does not depend on volatile state
 
   // ── Mark a single article as seen after the user has dwelt on it ─────────────
   // Called by ArticleCard via IntersectionObserver + dwell timer (see ArticleCard.tsx).
@@ -538,10 +534,10 @@ export function useFeed(options?: UseFeedOptions) {
     markedSeenRef.current.add(id);
     setPrefsState(prev => {
       const next = markSeen([id], prev);
-      database.put({ _id: PREFS_ID, ...next } as PrefsDoc).catch(console.error);
+      kvSet(PREFS_ID, next).catch(console.error);
       return next;
     });
-  }, [database]);
+  }, []);
 
   // ── Pagination ────────────────────────────────────────────────────────────────
   const loadMore = useCallback(() => {
@@ -596,11 +592,10 @@ export function useFeed(options?: UseFeedOptions) {
     setLabelHits(prev => {
       const filtered = prev.filter(h => h.labelId !== labelId);
       labelHitsRef.current = filtered;
-      database.put({ _id: CLASSIFICATIONS_ID, hits: filtered } as ClassificationsDoc)
-        .catch(console.error);
+      kvSet(CLASSIFICATIONS_ID, { hits: filtered }).catch(console.error);
       return filtered;
     });
-  }, [database, updatePrefs]);
+  }, [updatePrefs]);
 
   const handleRenameLabel = useCallback((labelId: string, name: string) => {
     updatePrefs(renameUserLabel(labelId, name, prefsRef.current));
@@ -621,10 +616,10 @@ export function useFeed(options?: UseFeedOptions) {
         updated = [...prev, { articleId, tags: [tag], taggedAt: Date.now() }];
       }
       articleTagsRef.current = updated;
-      database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc).catch(console.error);
+      kvSet(ARTICLE_TAGS_ID, { hits: updated }).catch(console.error);
       return updated;
     });
-  }, [database]);
+  }, []);
 
   const handleRemoveManualTag = useCallback((articleId: string, tag: string) => {
     setArticleTags(prev => {
@@ -635,10 +630,10 @@ export function useFeed(options?: UseFeedOptions) {
         ? prev.map(t => t.articleId === articleId ? { ...t, tags: newTags, taggedAt: Date.now() } : t)
         : prev.filter(t => t.articleId !== articleId);
       articleTagsRef.current = updated;
-      database.put({ _id: ARTICLE_TAGS_ID, hits: updated } as ArticleTagsDoc).catch(console.error);
+      kvSet(ARTICLE_TAGS_ID, { hits: updated }).catch(console.error);
       return updated;
     });
-  }, [database]);
+  }, []);
 
   const handleToggleAiBar = useCallback(() => {
     updatePrefs({ ...prefsRef.current, hideAiBar: !prefsRef.current.hideAiBar });
@@ -714,8 +709,7 @@ export function useFeed(options?: UseFeedOptions) {
     const merged = Array.from(existing.values());
     importedSavesRef.current = merged;
     setImportedSaves(merged);
-    database.put({ _id: IMPORTED_SAVES_ID, articles: dehydrate(merged) } as ImportedSavesDoc)
-      .catch(console.error);
+    kvSet(IMPORTED_SAVES_ID, { articles: dehydrate(merged) }).catch(console.error);
     // Add all imported IDs to savedIds
     const existingSaved = new Set(prefsRef.current.savedIds);
     const newIds = parsed.map(a => a.id).filter(id => !existingSaved.has(id));
@@ -723,7 +717,7 @@ export function useFeed(options?: UseFeedOptions) {
       updatePrefs({ ...prefsRef.current, savedIds: [...prefsRef.current.savedIds, ...newIds] });
     }
     return true;
-  }, [database, updatePrefs]);
+  }, [updatePrefs]);
 
   // ── OPML export / import ──────────────────────────────────────────────────────
   const handleExportOPML = useCallback(() => {
@@ -774,16 +768,14 @@ export function useFeed(options?: UseFeedOptions) {
     const mergedImported = mergeSavedArticleSnapshots(remoteNonPool, importedSavesRef.current);
     importedSavesRef.current = mergedImported;
     setImportedSaves(mergedImported);
-    database.put({ _id: IMPORTED_SAVES_ID, articles: dehydrate(mergedImported) } as ImportedSavesDoc)
-      .catch(console.error);
+    kvSet(IMPORTED_SAVES_ID, { articles: dehydrate(mergedImported) }).catch(console.error);
 
     // Merge label hits
     const mergedHits = mergeLabelHits(labelHitsRef.current, payload.labelHits);
     if (mergedHits.length !== labelHitsRef.current.length) {
       labelHitsRef.current = mergedHits;
       setLabelHits(mergedHits);
-      database.put({ _id: CLASSIFICATIONS_ID, hits: mergedHits } as ClassificationsDoc)
-        .catch(console.error);
+      kvSet(CLASSIFICATIONS_ID, { hits: mergedHits }).catch(console.error);
     }
 
     // Merge article tags
@@ -791,10 +783,9 @@ export function useFeed(options?: UseFeedOptions) {
     if (mergedTags.length !== articleTagsRef.current.length) {
       articleTagsRef.current = mergedTags;
       setArticleTags(mergedTags);
-      database.put({ _id: ARTICLE_TAGS_ID, hits: mergedTags } as ArticleTagsDoc)
-        .catch(console.error);
+      kvSet(ARTICLE_TAGS_ID, { hits: mergedTags }).catch(console.error);
     }
-  }, [database, updatePrefs]);
+  }, [updatePrefs]);
 
   // Auto-fetch on startup only when there is no cached feed to show.
   // After that, all refreshes are explicit (refresh button or pull-to-refresh).
