@@ -45,13 +45,23 @@ function mergeById<T extends { id: string }>(left: T[], right: T[]): T[] {
 }
 
 export function mergePrefs(left: UserPrefs, right: Partial<UserPrefs>): UserPrefs {
+  const mergedSavedIds = uniqueStrings(left.savedIds, right.savedIds);
+  const mergedSavedAtById: Record<string, number> = { ...(left.savedAtById ?? {}) };
+  for (const [id, ts] of Object.entries(right.savedAtById ?? {})) {
+    const prev = mergedSavedAtById[id] ?? 0;
+    mergedSavedAtById[id] = Math.max(prev, ts);
+  }
+  for (const id of Object.keys(mergedSavedAtById)) {
+    if (!mergedSavedIds.includes(id)) delete mergedSavedAtById[id];
+  }
   return {
     ...left,
     topicWeights:   { ...left.topicWeights, ...(right.topicWeights ?? {}) },
     sourceWeights:  { ...left.sourceWeights, ...(right.sourceWeights ?? {}) },
     keywordWeights: { ...left.keywordWeights, ...(right.keywordWeights ?? {}) },
     readIds:        uniqueStrings(left.readIds, right.readIds),
-    savedIds:       uniqueStrings(left.savedIds, right.savedIds),
+    savedIds:       mergedSavedIds,
+    savedAtById:    mergedSavedAtById,
     seenIds:        uniqueStrings(left.seenIds, right.seenIds),
     upvotedIds:     uniqueStrings(left.upvotedIds, right.upvotedIds),
     downvotedIds:   uniqueStrings(left.downvotedIds, right.downvotedIds),
