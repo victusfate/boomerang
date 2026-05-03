@@ -124,9 +124,12 @@ export function useSyncWorker(
     }
   }, []);
 
-  const doPoll = useCallback(async (): Promise<'ok' | 'blocked' | 'rate_limited'> => {
+  type MergedState = { prefs: UserPrefs; articleTags: ArticleTag[]; labelHits: LabelHit[]; savedArticles: Article[] };
+  type PollResult = { status: 'ok'; merged: MergedState | null } | { status: 'blocked' | 'rate_limited' };
+
+  const doPoll = useCallback(async (): Promise<PollResult> => {
     const r = roomRef.current;
-    if (!r) return 'blocked';
+    if (!r) return { status: 'blocked' };
     try {
       setSyncStatus('syncing');
       syncDebugLog('saved', 'poll:start', { roomId: r.roomId });
@@ -134,17 +137,18 @@ export function useSyncWorker(
       if (remote?.unauthorized) {
         syncDebugLog('saved', 'poll:unauthorized', { roomId: r.roomId });
         disableLocalSyncRoom(RELINK_REQUIRED_MESSAGE);
-        return 'blocked';
+        return { status: 'blocked' };
       }
       if (remote?.rateLimited) {
         syncDebugLog('saved', 'poll:rate-limited', { roomId: r.roomId, retryAfterMs: remote.retryAfterMs });
         applyRateLimitBackoff(remote.retryAfterMs);
-        return 'rate_limited';
+        return { status: 'rate_limited' };
       }
+      let merged: MergedState | null = null;
       if (remote) {
         etagRef.current = remote.etag;
-        const local = { prefs: prefsRef.current, articleTags: articleTagsRef.current, labelHits: labelHitsRef.current, savedArticles: savedRef.current };
-        const merged = mergePayload(local, remote.payload);
+        const local: MergedState = { prefs: prefsRef.current, articleTags: articleTagsRef.current, labelHits: labelHitsRef.current, savedArticles: savedRef.current };
+        merged = mergePayload(local, remote.payload);
 
         const newTags = merged.articleTags.filter(
           t => !local.articleTags.some(l => l.articleId === t.articleId && l.tags.join() === t.tags.join()),
@@ -168,7 +172,7 @@ export function useSyncWorker(
       setSyncError(null);
       rateLimitBackoffStepRef.current = 0;
       syncDebugLog('saved', 'poll:done', { roomId: r.roomId });
-      return 'ok';
+      return { status: 'ok', merged };
     } catch (e) {
       syncDebugLog('saved', 'poll:error', {
         roomId: r.roomId,
@@ -176,18 +180,22 @@ export function useSyncWorker(
       });
       setSyncStatus('error');
       setSyncError(e instanceof Error ? e.message : 'Sync failed');
-      return 'blocked';
+      return { status: 'blocked' };
     }
   }, [applyRateLimitBackoff]);
 
-  const doPush = useCallback(async (): Promise<'ok' | 'blocked' | 'rate_limited'> => {
+  // `data` is the already-merged state from doPoll; when provided, push that
+  // instead of the current refs (which may still be pre-re-render stale values).
+  const doPush = useCallback(async (data?: MergedState): Promise<'ok' | 'blocked' | 'rate_limited'> => {
     const r = roomRef.current;
     if (!r) return 'blocked';
-    const payload = buildPayload(prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current);
+    const prefs       = data?.prefs        ?? prefsRef.current;
+    const articleTags = data?.articleTags  ?? articleTagsRef.current;
+    const labelHits   = data?.labelHits    ?? labelHitsRef.current;
+    const savedArts   = data?.savedArticles ?? savedRef.current;
+    const payload = buildPayload(prefs, articleTags, labelHits, savedArts);
     const payloadJson = JSON.stringify(payload);
-    const compareKey = autoSyncCompareKey(
-      prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current,
-    );
+    const compareKey = autoSyncCompareKey(prefs, articleTags, labelHits, savedArts);
     const prevKey = lastPushedRef.current ? autoSyncCompareKeyFromPushedJson(lastPushedRef.current) : null;
     if (lastPushedRef.current && prevKey !== null && prevKey === compareKey) {
       syncDebugLog('saved', 'push:noop', { roomId: r.roomId });
@@ -202,7 +210,7 @@ export function useSyncWorker(
       syncDebugLog('saved', 'push:conflict', { roomId: r.roomId });
       // Remote is ahead — pull first, then push again after a short delay
       const pollResult = await doPoll();
-      if (pollResult === 'ok') setTimeout(() => void doPush(), 500);
+      if (pollResult.status === 'ok') setTimeout(() => void doPush(pollResult.merged ?? undefined), 500);
       return 'blocked'; // don't mark as pushed — retry will re-check
     }
     if (result.unauthorized) {
@@ -248,11 +256,13 @@ export function useSyncWorker(
     try {
       syncDebugLog('saved', 'force-sync:start');
       const pollResult = await doPoll();
-      if (pollResult !== 'ok') {
-        rateLimited = pollResult === 'rate_limited';
+      if (pollResult.status !== 'ok') {
+        rateLimited = pollResult.status === 'rate_limited';
         return;
       }
-      const pushResult = await doPush();
+      // Pass the merged state from poll directly to push so doPush uses the
+      // post-merge data instead of stale refs (React state updates are async).
+      const pushResult = await doPush(pollResult.merged ?? undefined);
       if (pushResult !== 'ok') {
         rateLimited = pushResult === 'rate_limited';
         return;
