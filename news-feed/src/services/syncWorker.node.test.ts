@@ -69,6 +69,46 @@ describe('buildPayload / mergePayload', () => {
     assert.ok(merged.prefs.savedIds.includes('b'));
   });
 
+  test('mergePayload keeps unsave when local unsavedAt is newer than remote savedAt', () => {
+    const localPrefs: UserPrefs = {
+      ...DEFAULT_PREFS,
+      savedIds: [],
+      savedAtById: {},
+      unsavedAtById: { x: 200 },
+    };
+    const remotePrefs: UserPrefs = {
+      ...DEFAULT_PREFS,
+      savedIds: ['x'],
+      savedAtById: { x: 100 },
+      unsavedAtById: {},
+    };
+    const merged = mergePayload(
+      { prefs: localPrefs, articleTags: [], labelHits: [], savedArticles: [] },
+      buildPayload(remotePrefs, [], [], []),
+    );
+    assert.equal(merged.prefs.savedIds.includes('x'), false);
+  });
+
+  test('mergePayload restores save when remote savedAt is newer than local unsavedAt', () => {
+    const localPrefs: UserPrefs = {
+      ...DEFAULT_PREFS,
+      savedIds: [],
+      savedAtById: {},
+      unsavedAtById: { x: 100 },
+    };
+    const remotePrefs: UserPrefs = {
+      ...DEFAULT_PREFS,
+      savedIds: ['x'],
+      savedAtById: { x: 200 },
+      unsavedAtById: {},
+    };
+    const merged = mergePayload(
+      { prefs: localPrefs, articleTags: [], labelHits: [], savedArticles: [] },
+      buildPayload(remotePrefs, [], [], []),
+    );
+    assert.equal(merged.prefs.savedIds.includes('x'), true);
+  });
+
   test('buildPayload includes one savedArticles row per savedId (placeholders when unknown)', () => {
     const prefs: UserPrefs = { ...DEFAULT_PREFS, savedIds: ['a', 'b', 'c'] };
     const known: Article[] = [article('a')];

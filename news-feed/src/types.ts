@@ -72,6 +72,8 @@ export interface UserPrefs {
   savedIds:       string[];
   /** Save timestamp per article id (epoch ms), used for cross-device saved ordering. */
   savedAtById?:   Record<string, number>;
+  /** Unsave tombstone timestamp per article id (epoch ms), for cross-device delete wins. */
+  unsavedAtById?: Record<string, number>;
   seenIds:        string[];           // articles shown in feed — filtered on next refresh
   upvotedIds:     string[];           // explicit likes
   downvotedIds:   string[];           // permanently hidden

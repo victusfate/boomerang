@@ -45,14 +45,38 @@ function mergeById<T extends { id: string }>(left: T[], right: T[]): T[] {
 }
 
 export function mergePrefs(left: UserPrefs, right: Partial<UserPrefs>): UserPrefs {
-  const mergedSavedIds = uniqueStrings(left.savedIds, right.savedIds);
   const mergedSavedAtById: Record<string, number> = { ...(left.savedAtById ?? {}) };
   for (const [id, ts] of Object.entries(right.savedAtById ?? {})) {
     const prev = mergedSavedAtById[id] ?? 0;
     mergedSavedAtById[id] = Math.max(prev, ts);
   }
-  for (const id of Object.keys(mergedSavedAtById)) {
-    if (!mergedSavedIds.includes(id)) delete mergedSavedAtById[id];
+  const mergedUnsavedAtById: Record<string, number> = { ...(left.unsavedAtById ?? {}) };
+  for (const [id, ts] of Object.entries(right.unsavedAtById ?? {})) {
+    const prev = mergedUnsavedAtById[id] ?? 0;
+    mergedUnsavedAtById[id] = Math.max(prev, ts);
+  }
+  const legacySavedIds = uniqueStrings(left.savedIds, right.savedIds);
+  const allIds = new Set<string>([
+    ...legacySavedIds,
+    ...Object.keys(mergedSavedAtById),
+    ...Object.keys(mergedUnsavedAtById),
+  ]);
+  const finalSavedIds: string[] = [];
+  const hasId = new Set<string>();
+  for (const id of legacySavedIds) {
+    const savedAt = mergedSavedAtById[id] ?? 0;
+    const unsavedAt = mergedUnsavedAtById[id] ?? 0;
+    const keepSaved = (savedAt === 0 && unsavedAt === 0) || savedAt > unsavedAt;
+    if (keepSaved && !hasId.has(id)) {
+      finalSavedIds.push(id);
+      hasId.add(id);
+    }
+    allIds.delete(id);
+  }
+  for (const id of allIds) {
+    const savedAt = mergedSavedAtById[id] ?? 0;
+    const unsavedAt = mergedUnsavedAtById[id] ?? 0;
+    if (savedAt > unsavedAt) finalSavedIds.push(id);
   }
   return {
     ...left,
@@ -60,8 +84,9 @@ export function mergePrefs(left: UserPrefs, right: Partial<UserPrefs>): UserPref
     sourceWeights:  { ...left.sourceWeights, ...(right.sourceWeights ?? {}) },
     keywordWeights: { ...left.keywordWeights, ...(right.keywordWeights ?? {}) },
     readIds:        uniqueStrings(left.readIds, right.readIds),
-    savedIds:       mergedSavedIds,
+    savedIds:       finalSavedIds,
     savedAtById:    mergedSavedAtById,
+    unsavedAtById:  mergedUnsavedAtById,
     seenIds:        uniqueStrings(left.seenIds, right.seenIds),
     upvotedIds:     uniqueStrings(left.upvotedIds, right.upvotedIds),
     downvotedIds:   uniqueStrings(left.downvotedIds, right.downvotedIds),
