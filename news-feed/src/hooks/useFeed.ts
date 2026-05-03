@@ -278,6 +278,7 @@ export function useFeed(options?: UseFeedOptions) {
     const prefsPromise = kvGet<UserPrefs>(PREFS_ID)
       .then(doc => {
         let merged: UserPrefs = { ...DEFAULT_PREFS, ...doc };
+        let shouldPersistPrefs = false;
         // One-time migration: old whitelist `enabledSources` → blacklist `disabledSourceIds`
         if ((merged.enabledSources?.length ?? 0) > 0 && (merged.disabledSourceIds?.length ?? 0) === 0) {
           const enabledSet = new Set(merged.enabledSources);
@@ -286,10 +287,28 @@ export function useFeed(options?: UseFeedOptions) {
             disabledSourceIds: DEFAULT_SOURCES.map(s => s.id).filter(id => !enabledSet.has(id)),
             enabledSources: [],
           };
+          shouldPersistPrefs = true;
+        }
+        // One-time migration: ensure all saved ids have a timestamp so cross-device ordering can converge.
+        if (merged.savedIds.length > 0) {
+          const nextSavedAtById = { ...(merged.savedAtById ?? {}) };
+          let addedAny = false;
+          const base = Date.now() - merged.savedIds.length;
+          merged.savedIds.forEach((id, idx) => {
+            if (nextSavedAtById[id] === undefined) {
+              nextSavedAtById[id] = base + idx;
+              addedAny = true;
+            }
+          });
+          if (addedAny) {
+            merged = { ...merged, savedAtById: nextSavedAtById };
+            shouldPersistPrefs = true;
+          }
         }
         const decayed = applyDecay(merged);
+        if (decayed !== merged) shouldPersistPrefs = true;
         setPrefsState(decayed);
-        if (decayed !== merged) {
+        if (shouldPersistPrefs) {
           kvSet(PREFS_ID, decayed).catch(console.error);
         }
         return decayed;
@@ -681,13 +700,27 @@ export function useFeed(options?: UseFeedOptions) {
 
   // ── Bookmark HTML export / import ────────────────────────────────────────────
   const handleExportBookmarks = useCallback(() => {
+    const savedIds = new Set(prefsRef.current.savedIds);
+    const savedAtById = prefsRef.current.savedAtById ?? {};
+    const savedRank = new Map(prefsRef.current.savedIds.map((id, idx) => [id, idx]));
     const poolIds = new Set(articlePoolRef.current.map(a => a.id));
-    const allSaved = [
-      ...articlePoolRef.current.filter(a => prefsRef.current.savedIds.includes(a.id)),
-      ...importedSavesRef.current.filter(
-        a => prefsRef.current.savedIds.includes(a.id) && !poolIds.has(a.id),
-      ),
-    ];
+    const savedById = new Map<string, Article>();
+    for (const article of articlePoolRef.current) {
+      if (savedIds.has(article.id)) savedById.set(article.id, article);
+    }
+    for (const article of importedSavesRef.current) {
+      if (savedIds.has(article.id) && !poolIds.has(article.id)) savedById.set(article.id, article);
+    }
+    const allSaved = prefsRef.current.savedIds
+      .slice()
+      .sort((a, b) => {
+        const ta = savedAtById[a] ?? 0;
+        const tb = savedAtById[b] ?? 0;
+        if (tb !== ta) return tb - ta;
+        return (savedRank.get(b) ?? 0) - (savedRank.get(a) ?? 0);
+      })
+      .map(id => savedById.get(id))
+      .filter((article): article is Article => article !== undefined);
     const html = exportBookmarkHTML(allSaved);
     const blob = new Blob([html], { type: 'text/html' });
     const url  = URL.createObjectURL(blob);
@@ -714,7 +747,17 @@ export function useFeed(options?: UseFeedOptions) {
     const existingSaved = new Set(prefsRef.current.savedIds);
     const newIds = parsed.map(a => a.id).filter(id => !existingSaved.has(id));
     if (newIds.length) {
-      updatePrefs({ ...prefsRef.current, savedIds: [...prefsRef.current.savedIds, ...newIds] });
+      const now = Date.now();
+      const publishedById = new Map(parsed.map(a => [a.id, a.publishedAt.getTime()]));
+      const nextSavedAtById = { ...(prefsRef.current.savedAtById ?? {}) };
+      for (const id of newIds) {
+        nextSavedAtById[id] = publishedById.get(id) ?? now;
+      }
+      updatePrefs({
+        ...prefsRef.current,
+        savedIds: [...prefsRef.current.savedIds, ...newIds],
+        savedAtById: nextSavedAtById,
+      });
     }
     return true;
   }, [updatePrefs]);
@@ -797,12 +840,27 @@ export function useFeed(options?: UseFeedOptions) {
   }, [prefsReady]); // one-shot: only runs once when prefs become ready
 
   const savedIds  = new Set(prefs.savedIds);
+  const savedAtById = prefs.savedAtById ?? {};
+  const savedRank = new Map(prefs.savedIds.map((id, idx) => [id, idx]));
   const poolIds   = new Set(articlePool.map(a => a.id));
-  const savedArticles = [
-    ...articlePool.filter(a => savedIds.has(a.id)),
-    // Imported bookmark articles not already in the RSS pool
-    ...importedSaves.filter(a => savedIds.has(a.id) && !poolIds.has(a.id)),
-  ];
+  const savedById = new Map<string, Article>();
+  for (const article of articlePool) {
+    if (savedIds.has(article.id)) savedById.set(article.id, article);
+  }
+  // Imported bookmark articles not already in the RSS pool
+  for (const article of importedSaves) {
+    if (savedIds.has(article.id) && !poolIds.has(article.id)) savedById.set(article.id, article);
+  }
+  const savedArticles = prefs.savedIds
+    .slice()
+    .sort((a, b) => {
+      const ta = savedAtById[a] ?? 0;
+      const tb = savedAtById[b] ?? 0;
+      if (tb !== ta) return tb - ta;
+      return (savedRank.get(b) ?? 0) - (savedRank.get(a) ?? 0);
+    })
+    .map(id => savedById.get(id))
+    .filter((article): article is Article => article !== undefined);
 
   const articleTagsMap = useMemo(() => {
     const map = new Map<string, string[]>(articleTags.map(t => [t.articleId, t.tags]));
