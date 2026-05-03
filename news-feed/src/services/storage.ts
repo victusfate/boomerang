@@ -10,6 +10,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   readIds:        [],
   savedIds:       [],
   savedAtById:    {},
+  unsavedAtById:  {},
   seenIds:        [],
   upvotedIds:     [],
   downvotedIds:   [],
@@ -70,16 +71,20 @@ export function toggleSaved(id: string, prefs: UserPrefs): UserPrefs {
   const alreadySaved = prefs.savedIds.includes(id);
   if (alreadySaved) {
     const { [id]: _removed, ...restSavedAt } = prefs.savedAtById ?? {};
+    const nextUnsavedAt = { ...(prefs.unsavedAtById ?? {}), [id]: Date.now() };
     return {
       ...prefs,
       savedIds: prefs.savedIds.filter(x => x !== id),
       savedAtById: restSavedAt,
+      unsavedAtById: nextUnsavedAt,
     };
   }
+  const { [id]: _removedUnsaved, ...restUnsavedAt } = prefs.unsavedAtById ?? {};
   return {
     ...prefs,
     savedIds: [...prefs.savedIds, id],
     savedAtById: { ...(prefs.savedAtById ?? {}), [id]: Date.now() },
+    unsavedAtById: restUnsavedAt,
   };
 }
 
@@ -257,6 +262,7 @@ interface BookmarkPayloadV1 {
   downvotedIds:  string[];
   savedIds:      string[];
   savedAtById?:  Record<string, number>;
+  unsavedAtById?: Record<string, number>;
   readIds:       string[];
   customSources: CustomSource[];
   enabledSources: string[];
@@ -277,6 +283,7 @@ function prefsToBookmarkFields(prefs: UserPrefs): Omit<BookmarkPayloadV1, 'v'> {
     downvotedIds:  prefs.downvotedIds,
     savedIds:      prefs.savedIds,
     savedAtById:   prefs.savedAtById ?? {},
+    unsavedAtById: prefs.unsavedAtById ?? {},
     readIds:       prefs.readIds,
     customSources: prefs.customSources,
     enabledSources: prefs.enabledSources,
@@ -312,6 +319,7 @@ function parseBookmarkPrefs(p: Partial<Omit<BookmarkPayloadV1, 'v'>>): Partial<U
   if (Array.isArray(p.downvotedIds))  out.downvotedIds  = p.downvotedIds;
   if (Array.isArray(p.savedIds))      out.savedIds      = p.savedIds;
   if (p.savedAtById && typeof p.savedAtById === 'object') out.savedAtById = p.savedAtById;
+  if (p.unsavedAtById && typeof p.unsavedAtById === 'object') out.unsavedAtById = p.unsavedAtById;
   if (Array.isArray(p.readIds))       out.readIds       = p.readIds;
   if (Array.isArray(p.customSources)) out.customSources = p.customSources;
   if (Array.isArray(p.enabledSources)) out.enabledSources = p.enabledSources;

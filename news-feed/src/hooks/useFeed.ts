@@ -22,7 +22,7 @@ import {
   SYNC_LOG,
   type StoredArticle,
 } from '../services/syncShare';
-import { mergeSavedArticleSnapshots } from '../services/syncWorker';
+import { mergeSavedArticleSnapshots, SYNC_PLACEHOLDER_SOURCE_ID } from '../services/syncWorker';
 import type { Article, ArticleTag, CustomSource, LabelHit, Topic, UserLabel, UserPrefs } from '../types';
 
 const PAGE_SIZE          = 5;
@@ -35,6 +35,43 @@ interface FeedCacheDoc        { articles: StoredArticle[]; fetchedAt: number }
 interface ImportedSavesDoc    { articles: StoredArticle[] }
 interface ClassificationsDoc  { hits: LabelHit[] }
 interface ArticleTagsDoc      { hits: ArticleTag[] }
+
+function scrubPlaceholderSaves(
+  prefs: UserPrefs,
+  imported: Article[],
+  extraPlaceholderIds: Iterable<string> = [],
+): { prefs: UserPrefs; imported: Article[]; removedSavedIds: string[] } {
+  const placeholderIds = new Set<string>(extraPlaceholderIds);
+  for (const article of imported) {
+    if (article.sourceId === SYNC_PLACEHOLDER_SOURCE_ID) {
+      placeholderIds.add(article.id);
+    }
+  }
+  if (placeholderIds.size === 0) return { prefs, imported, removedSavedIds: [] };
+
+  const nextImported = imported.filter(a => a.sourceId !== SYNC_PLACEHOLDER_SOURCE_ID);
+  const removedSavedIds = prefs.savedIds.filter(id => placeholderIds.has(id));
+  if (removedSavedIds.length === 0) return { prefs, imported: nextImported, removedSavedIds: [] };
+
+  const now = Date.now();
+  const nextSavedAtById = { ...(prefs.savedAtById ?? {}) };
+  const nextUnsavedAtById = { ...(prefs.unsavedAtById ?? {}) };
+  for (const id of removedSavedIds) {
+    delete nextSavedAtById[id];
+    nextUnsavedAtById[id] = Math.max(nextUnsavedAtById[id] ?? 0, now);
+  }
+
+  return {
+    prefs: {
+      ...prefs,
+      savedIds: prefs.savedIds.filter(id => !placeholderIds.has(id)),
+      savedAtById: nextSavedAtById,
+      unsavedAtById: nextUnsavedAtById,
+    },
+    imported: nextImported,
+    removedSavedIds,
+  };
+}
 
 
 export interface UseFeedMetaCallbacks {
@@ -343,12 +380,19 @@ export function useFeed(options?: UseFeedOptions) {
         savedIds: loadedPrefs.savedIds.length,
         userLabels: loadedPrefs.userLabels.length,
       });
+      const remotePlaceholderIds = new Set(
+        (syncPayload?.savedArticles ?? [])
+          .filter(a => a.sourceId === SYNC_PLACEHOLDER_SOURCE_ID)
+          .map(a => a.id),
+      );
       const syncedPrefs = syncPayload?.prefs
         ? mergePrefs(loadedPrefs, syncPayload.prefs)
         : loadedPrefs;
-      const syncedImported = syncPayload?.savedArticles?.length
+      const mergedImported = syncPayload?.savedArticles?.length
         ? mergeSavedArticleSnapshots(hydrate(syncPayload.savedArticles), imported)
         : imported;
+      const { prefs: cleanedPrefs, imported: syncedImported, removedSavedIds } =
+        scrubPlaceholderSaves(syncedPrefs, mergedImported, remotePlaceholderIds);
       const syncedHits = syncPayload?.labelHits?.length
         ? mergeLabelHits(hits, syncPayload.labelHits)
         : hits;
@@ -365,11 +409,12 @@ export function useFeed(options?: UseFeedOptions) {
           articleTagsBefore: tags.length,
           articleTagsAfter: syncedTags.length,
           savedIdsBefore: loadedPrefs.savedIds.length,
-          savedIdsAfter: syncedPrefs.savedIds.length,
+          savedIdsAfter: cleanedPrefs.savedIds.length,
+          placeholdersRemoved: removedSavedIds.length,
           userLabelsBefore: loadedPrefs.userLabels.length,
-          userLabelsAfter: syncedPrefs.userLabels.length,
+          userLabelsAfter: cleanedPrefs.userLabels.length,
         });
-        kvSet(PREFS_ID, syncedPrefs)
+        kvSet(PREFS_ID, cleanedPrefs)
           .then(() => console.info(SYNC_LOG, 'wrote user-prefs'))
           .catch(e => console.error(SYNC_LOG, 'failed writing user-prefs', e));
         kvSet(IMPORTED_SAVES_ID, { articles: dehydrate(syncedImported) })
@@ -381,12 +426,15 @@ export function useFeed(options?: UseFeedOptions) {
         kvSet(ARTICLE_TAGS_ID, { hits: syncedTags })
           .then(() => console.info(SYNC_LOG, 'wrote ai-article-tags', { count: syncedTags.length }))
           .catch(e => console.error(SYNC_LOG, 'failed writing ai-article-tags', e));
+      } else if (removedSavedIds.length > 0) {
+        kvSet(PREFS_ID, cleanedPrefs).catch(console.error);
+        kvSet(IMPORTED_SAVES_ID, { articles: dehydrate(syncedImported) }).catch(console.error);
       }
 
       // Merge startup prefs into current React state. `useSyncWorker` may already have applied
       // a poll (`applyRemoteSync`) using prefs from this same DB snapshot — that merge must not
       // be clobbered by a second `setPrefsState` from the snapshot-only `syncedPrefs`.
-      setPrefsState(prev => mergePrefs(syncedPrefs, prev));
+      setPrefsState(prev => mergePrefs(cleanedPrefs, prev));
       if (syncedImported.length) {
         importedSavesRef.current = syncedImported;
         setImportedSaves(syncedImported);
@@ -405,7 +453,7 @@ export function useFeed(options?: UseFeedOptions) {
         articlePoolRef.current = cached.articles;
         setArticlePool(cached.articles);
 
-        const ranked = rankFeed(cached.articles, mergePrefs(syncedPrefs, prefsRef.current));
+        const ranked = rankFeed(cached.articles, mergePrefs(cleanedPrefs, prefsRef.current));
         allArticlesRef.current = ranked;
         setAllArticles(ranked);
         if (ranked.length) setLoading(false);
@@ -750,13 +798,16 @@ export function useFeed(options?: UseFeedOptions) {
       const now = Date.now();
       const publishedById = new Map(parsed.map(a => [a.id, a.publishedAt.getTime()]));
       const nextSavedAtById = { ...(prefsRef.current.savedAtById ?? {}) };
+      const nextUnsavedAtById = { ...(prefsRef.current.unsavedAtById ?? {}) };
       for (const id of newIds) {
         nextSavedAtById[id] = publishedById.get(id) ?? now;
+        delete nextUnsavedAtById[id];
       }
       updatePrefs({
         ...prefsRef.current,
         savedIds: [...prefsRef.current.savedIds, ...newIds],
         savedAtById: nextSavedAtById,
+        unsavedAtById: nextUnsavedAtById,
       });
     }
     return true;
@@ -800,18 +851,25 @@ export function useFeed(options?: UseFeedOptions) {
     labelHits: LabelHit[];
     savedArticles: Article[];
   }) => {
+    const remotePlaceholderIds = new Set(
+      payload.savedArticles
+        .filter(a => a.sourceId === SYNC_PLACEHOLDER_SOURCE_ID)
+        .map(a => a.id),
+    );
     // Merge prefs (includes savedIds, topic weights, etc.)
     const mergedPrefs = mergePrefs(prefsRef.current, payload.prefs);
-    updatePrefs(mergedPrefs);
 
     // Merge saved articles into importedSaves — only non-RSS-pool articles are
     // persisted here; pool articles show up via prefs.savedIds automatically.
     const poolIds = new Set(articlePoolRef.current.map(a => a.id));
     const remoteNonPool = payload.savedArticles.filter(a => !poolIds.has(a.id));
     const mergedImported = mergeSavedArticleSnapshots(remoteNonPool, importedSavesRef.current);
-    importedSavesRef.current = mergedImported;
-    setImportedSaves(mergedImported);
-    kvSet(IMPORTED_SAVES_ID, { articles: dehydrate(mergedImported) }).catch(console.error);
+    const { prefs: cleanedPrefs, imported: cleanedImported } =
+      scrubPlaceholderSaves(mergedPrefs, mergedImported, remotePlaceholderIds);
+    updatePrefs(cleanedPrefs);
+    importedSavesRef.current = cleanedImported;
+    setImportedSaves(cleanedImported);
+    kvSet(IMPORTED_SAVES_ID, { articles: dehydrate(cleanedImported) }).catch(console.error);
 
     // Merge label hits
     const mergedHits = mergeLabelHits(labelHitsRef.current, payload.labelHits);
