@@ -1,4 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
+import { decode } from 'html-entities';
 import type { NewsSource, Topic } from './sources';
 
 /** Wire format — publishedAt ISO string for JSON */
@@ -51,10 +52,7 @@ function stripHTML(html: string): string {
 }
 
 function decodeEntities(text: string): string {
-  return text
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n));
+  return decode(text, { level: 'html5' });
 }
 
 /** Canonical http(s) URL — fixes literal &amp; in XML hrefs (breaks YouTube watch links in browsers). */
@@ -211,6 +209,7 @@ const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
   textNodeName: '#text',
+  htmlEntities: true,
 });
 
 function asArray<T>(x: T | T[] | undefined): T[] {
