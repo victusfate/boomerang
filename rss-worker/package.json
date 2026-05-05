@@ -10,7 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "fast-xml-parser": "^5.7.2"
+    "fast-xml-parser": "^5.7.2",
+    "html-entities": "^2.6.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.15.1",
