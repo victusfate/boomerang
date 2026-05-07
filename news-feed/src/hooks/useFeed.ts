@@ -24,6 +24,7 @@ import {
 } from '../services/syncShare';
 import { mergeSavedArticleSnapshots, SYNC_PLACEHOLDER_SOURCE_ID } from '../services/syncWorker';
 import type { Article, ArticleTag, CustomSource, LabelHit, Topic, UserLabel, UserPrefs } from '../types';
+import type { RecInteractionInput } from '../services/recWorker';
 
 const PAGE_SIZE          = 5;
 const PREFS_ID           = 'user-prefs';
@@ -82,6 +83,7 @@ export interface UseFeedMetaCallbacks {
 export interface UseFeedOptions {
   metaCallbacks?: UseFeedMetaCallbacks;
   metaTagsMap?: Map<string, string[]>;
+  recInteract?: (input: RecInteractionInput) => void;
 }
 
 export function useFeed(options?: UseFeedOptions) {
@@ -109,6 +111,9 @@ export function useFeed(options?: UseFeedOptions) {
   allArticlesRef.current = allArticles;
 
   const markedSeenRef    = useRef(new Set<string>());
+
+  const recInteractRef = useRef<((input: RecInteractionInput) => void) | undefined>(undefined);
+  useEffect(() => { recInteractRef.current = options?.recInteract; });
 
   // Incremented on every refresh call; onBatch/finally checks this to discard
   // results from a superseded (stale) fetch.
@@ -604,6 +609,8 @@ export function useFeed(options?: UseFeedOptions) {
       kvSet(PREFS_ID, next).catch(console.error);
       return next;
     });
+    const a = allArticlesRef.current.find(x => x.id === id);
+    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, action: 'seen' });
   }, []);
 
   // ── Pagination ────────────────────────────────────────────────────────────────
@@ -620,20 +627,25 @@ export function useFeed(options?: UseFeedOptions) {
     const next = markRead(article.id, prefsRef.current);
     const boosted = article.topics.reduce((p, t) => boostTopic(t, p), next);
     updatePrefs(boosted);
+    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, action: 'read' });
   }, [updatePrefs]);
 
   const handleSave = useCallback((id: string) => {
     updatePrefs(toggleSaved(id, prefsRef.current));
+    const a = allArticlesRef.current.find(x => x.id === id);
+    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, action: 'save' });
   }, [updatePrefs]);
 
   const handleUpvote = useCallback((article: Article) => {
     updatePrefs(upvote(article, prefsRef.current));
     // No re-rank: card stays visible; ▲ highlight comes from prefs.upvotedIds.
+    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, action: 'upvote' });
   }, [updatePrefs]);
 
   const handleDownvote = useCallback((article: Article) => {
     // Toggle downvote — card stays in the feed and renders collapsed via prefs.downvotedIds
     updatePrefs(downvote(article, prefsRef.current));
+    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, action: 'downvote' });
   }, [updatePrefs]);
 
   const handleToggleSource = useCallback((sourceId: string) => {

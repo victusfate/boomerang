@@ -92,8 +92,12 @@ Custom (user-added) sources have IDs prefixed `custom-` and live only in
 
 ## User preference signals
 
-All signals live in a single `UserPrefs` document in Fireproof
-(`db.get('user-prefs')`). Relevant fields for recommendations:
+All signals are persisted in **native IndexedDB** via a thin `kvStore.ts` wrapper
+(DB name: `boomerang-kv`, object store: `kv`). Relevant document keys:
+
+- `user-prefs` → `UserPrefs` document (weights, interaction history, toggles)
+- `feed-cache` → last ranked article list + fetchedAt timestamp
+- `rec:userId` → anonymous stable UUID used as the rec-worker userId
 
 ```ts
 interface UserPrefs {
@@ -131,6 +135,25 @@ per article, capped at 500 stored entries (evict lowest magnitude on overflow).
 
 ---
 
+## userId for rec-worker
+
+The news-feed generates a stable anonymous userId the first time the
+`useRecWorker` hook initialises, stores it in IndexedDB under `rec:userId`,
+and reuses it on subsequent visits. It is never linked to any PII.
+
+```ts
+// news-feed/src/services/recWorker.ts
+export async function getOrCreateRecUserId(): Promise<string> {
+  const existing = await kvGet<string>('rec:userId');
+  if (existing) return existing;
+  const id = crypto.randomUUID();
+  await kvSet('rec:userId', id);
+  return id;
+}
+```
+
+---
+
 ## Current local scoring formula
 
 For reference — the rec-worker should complement, not duplicate this:
@@ -148,6 +171,23 @@ P1 sources naturally lead the feed.
 
 ---
 
+## Client integration (`useRecWorker` hook)
+
+`news-feed/src/hooks/useRecWorker.ts` — the hook that:
+- Resolves/creates the anonymous userId on mount
+- Buffers `RecInteractionInput` events (in-memory)
+- Flushes every 30 s or when buffer hits 50 events via `POST /interactions`
+- After each flush, fetches fresh recommendations via `GET /recommendations/:userId`
+- Returns `sendInteraction`, `recArticleIds`, `recStatus`, `recEnvError`
+
+`useFeed.ts` accepts `recInteract?: (input: RecInteractionInput) => void` via
+`UseFeedOptions` and calls it inside all five interaction handlers (read, save,
+upvote, downvote, seen).
+
+Env var: `VITE_REC_WORKER_URL` (no trailing slash), local default `http://127.0.0.1:8790`.
+
+---
+
 ## KV / Worker conventions (from meta-worker)
 
 The existing `meta-worker` (boomerang-meta) is the closest structural
@@ -155,15 +195,14 @@ analogue. It uses:
 
 - **KV namespace** binding name `ARTICLE_META` — per-article JSON blobs
 - **Global Durable Object** `MetaDO` (class + binding name) — one instance
-  (`name: 'global'`) handles all WebSocket connections and write coordination
+  (`name: 'global'`) handles all write coordination
 - Cron trigger hourly for maintenance pruning
 
-`wrangler.jsonc` pattern used by both meta-worker and rss-worker (copy as
-baseline for rec-worker):
+`wrangler.jsonc` baseline for rec-worker:
 
 ```jsonc
 {
-  "name": "boomerang-rec",
+  "name": "ricochet-rec",
   "main": "src/index.ts",
   "compatibility_date": "2026-04-09",
   "kv_namespaces": [
@@ -178,21 +217,19 @@ baseline for rec-worker):
 
 ---
 
-## Interface boundary — what rec-worker needs to expose
-
-The news-feed will call the rec-worker from a new `useRecWorker` hook
-(similar to `useMetaWorker`). Minimum viable API surface:
+## Interface boundary — what rec-worker exposes
 
 ```
 POST /interactions          — ingest a batch of interaction events
 GET  /recommendations/:userId  — return ranked article IDs
+GET  /health                — { ok: true, service: 'ricochet-rec' }
 ```
 
-### Interaction event shape (suggested)
+### Interaction event shape
 
 ```ts
 interface InteractionEvent {
-  userId:    string;   // anonymous stable ID (e.g. hash of Fireproof deviceId)
+  userId:    string;   // anonymous stable UUID from rec:userId in IndexedDB
   articleId: string;   // 16-hex article ID from boomerang
   sourceId:  string;
   topics:    Topic[];
@@ -201,7 +238,7 @@ interface InteractionEvent {
 }
 ```
 
-### Recommendation response shape (suggested)
+### Recommendation response shape
 
 ```ts
 interface RecResponse {
@@ -215,11 +252,11 @@ interface RecResponse {
 ## What the rec-worker does NOT own
 
 - Article fetching / RSS parsing — stays in `rss-worker`
-- User prefs persistence — stays in Fireproof (`news-feed`)
+- User prefs persistence — stays in IndexedDB (`news-feed`)
 - Sync across devices — stays in `sync-worker`
 - AI tags — stays in `meta-worker`
 - Local re-ranking — stays in `news-feed/src/services/algorithm.ts`
 
 The rec-worker owns only: **interaction ingestion** and **cross-user
-collaborative signal** (co-occurrence, neighbor lists, aggregated popularity).
-Per-user learned weights remain local in Fireproof.
+collaborative signal** (BiasedMF online learning, global popularity ranking).
+Per-user learned weights remain local in IndexedDB.
