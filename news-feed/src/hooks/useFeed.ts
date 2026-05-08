@@ -84,6 +84,7 @@ export interface UseFeedOptions {
   metaCallbacks?: UseFeedMetaCallbacks;
   metaTagsMap?: Map<string, string[]>;
   recInteract?: (input: RecInteractionInput) => void;
+  recArticleIds?: string[];
 }
 
 export function useFeed(options?: UseFeedOptions) {
@@ -113,7 +114,11 @@ export function useFeed(options?: UseFeedOptions) {
   const markedSeenRef    = useRef(new Set<string>());
 
   const recInteractRef = useRef<((input: RecInteractionInput) => void) | undefined>(undefined);
-  useEffect(() => { recInteractRef.current = options?.recInteract; });
+  const recArticleIdsRef = useRef<string[]>([]);
+  useEffect(() => {
+    recInteractRef.current = options?.recInteract;
+    recArticleIdsRef.current = options?.recArticleIds ?? [];
+  });
 
   // Incremented on every refresh call; onBatch/finally checks this to discard
   // results from a superseded (stale) fetch.
@@ -458,7 +463,7 @@ export function useFeed(options?: UseFeedOptions) {
         articlePoolRef.current = cached.articles;
         setArticlePool(cached.articles);
 
-        const ranked = rankFeed(cached.articles, mergePrefs(cleanedPrefs, prefsRef.current));
+        const ranked = rankFeed(cached.articles, mergePrefs(cleanedPrefs, prefsRef.current), recArticleIdsRef.current);
         allArticlesRef.current = ranked;
         setAllArticles(ranked);
         if (ranked.length) setLoading(false);
@@ -527,7 +532,7 @@ export function useFeed(options?: UseFeedOptions) {
     };
 
     const applyRankedBatch = (accumulated: Article[]) => {
-      const ranked = rankFeed(accumulated, currentPrefs);
+      const ranked = rankFeed(accumulated, currentPrefs, recArticleIdsRef.current);
       // Same merge for explicit and background: preserve prior order for ids still present, append new
       // (avoids background tier prepending and matches split-fetch anchor behavior).
       mergeIncrementalAppend(ranked);
@@ -610,7 +615,7 @@ export function useFeed(options?: UseFeedOptions) {
       return next;
     });
     const a = allArticlesRef.current.find(x => x.id === id);
-    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, action: 'seen' });
+    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, action: 'seen', ts: Date.now() });
   }, []);
 
   // ── Pagination ────────────────────────────────────────────────────────────────
@@ -627,25 +632,25 @@ export function useFeed(options?: UseFeedOptions) {
     const next = markRead(article.id, prefsRef.current);
     const boosted = article.topics.reduce((p, t) => boostTopic(t, p), next);
     updatePrefs(boosted);
-    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, action: 'read' });
+    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, action: 'read', ts: Date.now() });
   }, [updatePrefs]);
 
   const handleSave = useCallback((id: string) => {
     updatePrefs(toggleSaved(id, prefsRef.current));
     const a = allArticlesRef.current.find(x => x.id === id);
-    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, action: 'save' });
+    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, action: 'save', ts: Date.now() });
   }, [updatePrefs]);
 
   const handleUpvote = useCallback((article: Article) => {
     updatePrefs(upvote(article, prefsRef.current));
     // No re-rank: card stays visible; ▲ highlight comes from prefs.upvotedIds.
-    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, action: 'upvote' });
+    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, action: 'upvote', ts: Date.now() });
   }, [updatePrefs]);
 
   const handleDownvote = useCallback((article: Article) => {
     // Toggle downvote — card stays in the feed and renders collapsed via prefs.downvotedIds
     updatePrefs(downvote(article, prefsRef.current));
-    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, action: 'downvote' });
+    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, action: 'downvote', ts: Date.now() });
   }, [updatePrefs]);
 
   const handleToggleSource = useCallback((sourceId: string) => {
@@ -722,7 +727,7 @@ export function useFeed(options?: UseFeedOptions) {
     const next = resetLearnedWeights(prefsRef.current);
     updatePrefs(next);
     const pool = articlePoolRef.current;
-    setAllArticles(rankFeed(pool, next));
+    setAllArticles(rankFeed(pool, next, recArticleIdsRef.current));
   }, [updatePrefs]);
 
   const handleClearViewed = useCallback(() => {
@@ -731,7 +736,7 @@ export function useFeed(options?: UseFeedOptions) {
     markedSeenRef.current.clear();
     setVisibleCount(PAGE_SIZE);
     const pool = articlePoolRef.current;
-    setAllArticles(rankFeed(pool, next));
+    setAllArticles(rankFeed(pool, next, recArticleIdsRef.current));
   }, [updatePrefs]);
 
   const handleRefresh = useCallback(() => {

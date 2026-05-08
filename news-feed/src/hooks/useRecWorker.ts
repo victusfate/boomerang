@@ -11,8 +11,9 @@ export type { RecInteractionInput };
 
 const WORKER_BASE = workerUrlFromEnv(import.meta.env.VITE_REC_WORKER_URL);
 
-const FLUSH_INTERVAL_MS = 30_000;
-const FLUSH_BATCH_SIZE  = 50;
+const FLUSH_INTERVAL_MS      = 30_000;       // POST interactions every 30 s
+const RECS_FETCH_INTERVAL_MS = 5 * 60_000;   // fetch recs every 5 min (matches KV TTL)
+const FLUSH_BATCH_SIZE       = 50;
 
 export type RecStatus = 'disabled' | 'active' | 'error';
 
@@ -32,21 +33,31 @@ export function useRecWorker(): UseRecWorkerResult {
     WORKER_BASE ? 'active' : 'disabled',
   );
 
-  const userIdRef     = useRef<string | null>(null);
-  const bufferRef     = useRef<RecInteractionInput[]>([]);
-  const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const userIdRef = useRef<string | null>(null);
+  const bufferRef = useRef<RecInteractionInput[]>([]);
 
+  // POST buffered interactions — no rec fetch here (KV cache would be stale)
   const flush = useCallback(async () => {
     if (!WORKER_BASE || !userIdRef.current || bufferRef.current.length === 0) return;
     const batch = bufferRef.current.splice(0, FLUSH_BATCH_SIZE);
     try {
       await postInteractions(WORKER_BASE, userIdRef.current, batch);
-      const recs = await fetchRecommendations(WORKER_BASE, userIdRef.current);
-      setRecArticleIds(recs.articleIds);
       setRecStatus('active');
     } catch {
       bufferRef.current.unshift(...batch);
       setRecStatus('error');
+    }
+  }, []);
+
+  // Fetch fresh recommendations (separate from flush — KV TTL is 5 min)
+  const fetchRecs = useCallback(async () => {
+    if (!WORKER_BASE || !userIdRef.current) return;
+    try {
+      const recs = await fetchRecommendations(WORKER_BASE, userIdRef.current);
+      setRecArticleIds(recs.articleIds);
+      setRecStatus('active');
+    } catch {
+      // silent — local ranking still works without recs
     }
   }, []);
 
@@ -61,20 +72,25 @@ export function useRecWorker(): UseRecWorkerResult {
         const recs = await fetchRecommendations(WORKER_BASE, id);
         if (!cancelled) setRecArticleIds(recs.articleIds);
       } catch {
-        // silent — local ranking still works without recs
+        // silent cold start
       }
     });
     return () => { cancelled = true; };
   }, []);
 
-  // Periodic flush
+  // Periodic flush timer
   useEffect(() => {
     if (!WORKER_BASE) return;
-    flushTimerRef.current = setInterval(() => { void flush(); }, FLUSH_INTERVAL_MS);
-    return () => {
-      if (flushTimerRef.current) clearInterval(flushTimerRef.current);
-    };
+    const t = setInterval(() => { void flush(); }, FLUSH_INTERVAL_MS);
+    return () => clearInterval(t);
   }, [flush]);
+
+  // Periodic rec fetch timer (aligned with KV TTL)
+  useEffect(() => {
+    if (!WORKER_BASE) return;
+    const t = setInterval(() => { void fetchRecs(); }, RECS_FETCH_INTERVAL_MS);
+    return () => clearInterval(t);
+  }, [fetchRecs]);
 
   const sendInteraction = useCallback((input: RecInteractionInput) => {
     if (!WORKER_BASE) return;

@@ -8,11 +8,11 @@ export interface RecInteractionInput {
   sourceId:  string;
   topics:    Topic[];
   action:    RecAction;
+  ts:        number;   // epoch ms — set at interaction time, not flush time
 }
 
 interface RecEvent extends RecInteractionInput {
   userId: string;
-  ts:     number;
 }
 
 export interface RecResponse {
@@ -35,8 +35,7 @@ export async function postInteractions(
   userId: string,
   inputs: RecInteractionInput[],
 ): Promise<void> {
-  const ts = Date.now();
-  const events: RecEvent[] = inputs.map(e => ({ ...e, userId, ts }));
+  const events: RecEvent[] = inputs.map(e => ({ ...e, userId }));
   await fetch(`${workerBase}/interactions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
