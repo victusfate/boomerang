@@ -1,0 +1,19 @@
+{
+  "name": "rec-worker",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev --port 8790",
+    "cf-typegen": "wrangler types",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@victusfate/ricochet": "github:victusfate/ricochet"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260409.1",
+    "typescript": "^5.5.2",
+    "wrangler": "^4.81.0"
+  }
+}
