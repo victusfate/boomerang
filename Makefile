@@ -7,6 +7,10 @@
 
 .DEFAULT_GOAL := dev
 
+# npm 11 treats npm_config_devdir as an unknown env config; remove it for make targets.
+unexport npm_config_devdir
+unexport NPM_CONFIG_DEVDIR
+
 help:
 	@echo "Boomerang — common targets"
 	@echo ""
