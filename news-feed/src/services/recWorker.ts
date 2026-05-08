@@ -1,7 +1,8 @@
+import type { Action, InteractionEvent, RecResponse } from '@victusfate/ricochet';
 import type { Topic } from '../types';
 import { kvGet, kvSet } from './kvStore';
 
-export type RecAction = 'read' | 'upvote' | 'downvote' | 'save' | 'seen';
+export type RecAction = Action;
 
 export interface RecInteractionInput {
   articleId: string;
@@ -11,14 +12,7 @@ export interface RecInteractionInput {
   ts:        number;   // epoch ms — set at interaction time, not flush time
 }
 
-interface RecEvent extends RecInteractionInput {
-  userId: string;
-}
-
-export interface RecResponse {
-  articleIds:  string[];
-  generatedAt: number;
-}
+export type { RecResponse };
 
 const USER_ID_KEY = 'rec:userId';
 
@@ -35,7 +29,7 @@ export async function postInteractions(
   userId: string,
   inputs: RecInteractionInput[],
 ): Promise<void> {
-  const events: RecEvent[] = inputs.map(e => ({ ...e, userId }));
+  const events: InteractionEvent[] = inputs.map(e => ({ ...e, userId }));
   await fetch(`${workerBase}/interactions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
