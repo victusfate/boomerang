@@ -85,6 +85,9 @@ export interface UseFeedOptions {
   metaTagsMap?: Map<string, string[]>;
   recInteract?: (input: RecInteractionInput) => void;
   recArticleIds?: string[];
+  recStatus?: 'disabled' | 'active' | 'error';
+  recBootstrapDone?: boolean;
+  recBootstrapError?: string | null;
 }
 
 export function useFeed(options?: UseFeedOptions) {
@@ -115,10 +118,51 @@ export function useFeed(options?: UseFeedOptions) {
 
   const recInteractRef = useRef<((input: RecInteractionInput) => void) | undefined>(undefined);
   const recArticleIdsRef = useRef<string[]>([]);
+  const recStatusRef = useRef<'disabled' | 'active' | 'error'>('disabled');
+  const recBootstrapDoneRef = useRef(false);
+  const recBootstrapErrorRef = useRef<string | null>(null);
+  // Locked once: either server recommendations (ids) or local fallback (null).
+  const selectedRecRankIdsRef = useRef<string[] | null | undefined>(undefined);
   useEffect(() => {
     recInteractRef.current = options?.recInteract;
     recArticleIdsRef.current = options?.recArticleIds ?? [];
+    recStatusRef.current = options?.recStatus ?? 'disabled';
+    recBootstrapDoneRef.current = options?.recBootstrapDone ?? false;
+    recBootstrapErrorRef.current = options?.recBootstrapError ?? null;
   });
+
+  const getRankRecIds = useCallback((): string[] => {
+    if (selectedRecRankIdsRef.current === undefined) return recArticleIdsRef.current;
+    return selectedRecRankIdsRef.current ?? [];
+  }, []);
+
+  // Lock recommendation policy exactly once: server ordering when available, otherwise
+  // explicit local fallback if bootstrap fails/disabled/returns empty.
+  useEffect(() => {
+    if (selectedRecRankIdsRef.current !== undefined) return;
+    if (!recBootstrapDoneRef.current) return;
+    const pool = articlePoolRef.current;
+    if (pool.length === 0) return;
+
+    const ids = recArticleIdsRef.current;
+    if (ids.length > 0) {
+      selectedRecRankIdsRef.current = [...ids];
+      console.info(`[rec] Applied server recommendations for initial ordering (${ids.length} ids).`);
+    } else {
+      selectedRecRankIdsRef.current = null;
+      if (recStatusRef.current === 'error' || recBootstrapErrorRef.current) {
+        console.warn('[rec] Recommendation backend unavailable; using local ranking fallback.');
+      } else if (recStatusRef.current === 'disabled') {
+        console.warn('[rec] Recommendations disabled (missing VITE_REC_WORKER_URL); using local ranking fallback.');
+      } else {
+        console.info('[rec] Recommendation backend returned no ids; using local ranking fallback.');
+      }
+    }
+
+    const ranked = rankFeed(pool, prefsRef.current, getRankRecIds());
+    allArticlesRef.current = ranked;
+    setAllArticles(ranked);
+  }, [options?.recBootstrapDone, options?.recBootstrapError, options?.recStatus, options?.recArticleIds, getRankRecIds]);
 
   // Incremented on every refresh call; onBatch/finally checks this to discard
   // results from a superseded (stale) fetch.
@@ -463,7 +507,7 @@ export function useFeed(options?: UseFeedOptions) {
         articlePoolRef.current = cached.articles;
         setArticlePool(cached.articles);
 
-        const ranked = rankFeed(cached.articles, mergePrefs(cleanedPrefs, prefsRef.current), recArticleIdsRef.current);
+        const ranked = rankFeed(cached.articles, mergePrefs(cleanedPrefs, prefsRef.current), getRankRecIds());
         allArticlesRef.current = ranked;
         setAllArticles(ranked);
         if (ranked.length) setLoading(false);
@@ -532,7 +576,7 @@ export function useFeed(options?: UseFeedOptions) {
     };
 
     const applyRankedBatch = (accumulated: Article[]) => {
-      const ranked = rankFeed(accumulated, currentPrefs, recArticleIdsRef.current);
+      const ranked = rankFeed(accumulated, currentPrefs, getRankRecIds());
       // Same merge for explicit and background: preserve prior order for ids still present, append new
       // (avoids background tier prepending and matches split-fetch anchor behavior).
       mergeIncrementalAppend(ranked);
@@ -727,7 +771,7 @@ export function useFeed(options?: UseFeedOptions) {
     const next = resetLearnedWeights(prefsRef.current);
     updatePrefs(next);
     const pool = articlePoolRef.current;
-    setAllArticles(rankFeed(pool, next, recArticleIdsRef.current));
+    setAllArticles(rankFeed(pool, next, getRankRecIds()));
   }, [updatePrefs]);
 
   const handleClearViewed = useCallback(() => {
@@ -736,7 +780,7 @@ export function useFeed(options?: UseFeedOptions) {
     markedSeenRef.current.clear();
     setVisibleCount(PAGE_SIZE);
     const pool = articlePoolRef.current;
-    setAllArticles(rankFeed(pool, next, recArticleIdsRef.current));
+    setAllArticles(rankFeed(pool, next, getRankRecIds()));
   }, [updatePrefs]);
 
   const handleRefresh = useCallback(() => {

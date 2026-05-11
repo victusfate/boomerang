@@ -79,7 +79,7 @@ export default function App() {
     metaTagsMap, feedTaggedArticle, endTaggingPass, forceMetaSync, metaStatus, metaError, metaEnvError, metaSyncCooldownMs,
   } = useMetaWorker(articleIds);
 
-  const { sendInteraction, recArticleIds } = useRecWorker();
+  const { sendInteraction, recArticleIds, recStatus, recBootstrapDone, recBootstrapError } = useRecWorker();
 
   const {
     visibleArticles, savedArticles, hasMore, totalLoaded,
@@ -91,7 +91,15 @@ export default function App() {
     articleTagsMap, classificationStatus, aiTaggingStarted, taggingArticleId, onStartAiTagging, onAddLabel, onDeleteLabel,
     labelHits, articleTags, onToggleAiBar, onAddManualTag, onRemoveManualTag,
     onRemoteSync, syncReady,
-  } = useFeed({ metaCallbacks: { feedTaggedArticle, endTaggingPass }, metaTagsMap, recInteract: sendInteraction, recArticleIds });
+  } = useFeed({
+    metaCallbacks: { feedTaggedArticle, endTaggingPass },
+    metaTagsMap,
+    recInteract: sendInteraction,
+    recArticleIds,
+    recStatus,
+    recBootstrapDone,
+    recBootstrapError,
+  });
 
   const { syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError, syncCooldownMs, forceSync, generateLink, revoke } =
     useSyncWorker(prefs, articleTags, labelHits, savedArticles, onRemoteSync, syncReady);

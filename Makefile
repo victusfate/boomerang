@@ -1,7 +1,7 @@
 # Requires GNU Make (Git for Windows: add Git's usr\bin to PATH, or use Git Bash).
 # Default: Vite dev server (loads news-feed/.env for VITE_* worker URLs).
 
-.PHONY: help preview-pages run dev worker worker-meta worker-sync worker-rss worker-rec install test \
+.PHONY: help preview-pages run dev worker worker-meta worker-sync worker-rss worker-rec install audit test \
         deploy-rss deploy-sync deploy-meta deploy-rec deploy \
         create-kv create-r2 create-rec-kv
 
@@ -24,6 +24,7 @@ help:
 	@echo "  make worker-rec            wrangler dev — rec-worker   http://127.0.0.1:8790"
 	@echo "  make worker                alias for worker-rss (backwards compat)"
 	@echo "  make install               npm ci in all five packages"
+	@echo "  make audit                 npm audit fix + npm audit in all five packages"
 	@echo "  make test                  Run tests in all four packages"
 	@echo ""
 	@echo "Deploy (requires wrangler login)"
@@ -72,6 +73,13 @@ install:
 	cd sync-worker && npm ci
 	cd meta-worker && npm ci
 	cd rec-worker && npm ci
+
+audit:
+	cd news-feed && npm audit fix && npm audit
+	cd rss-worker && npm audit fix && npm audit
+	cd sync-worker && npm audit fix && npm audit
+	cd meta-worker && npm audit fix && npm audit
+	cd rec-worker && npm audit fix && npm audit
 
 test:
 	cd news-feed && npm test

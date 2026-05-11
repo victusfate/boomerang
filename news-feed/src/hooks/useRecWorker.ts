@@ -22,6 +22,8 @@ export interface UseRecWorkerResult {
   recArticleIds:   string[];
   recStatus:       RecStatus;
   recEnvError:     string | null;
+  recBootstrapDone: boolean;
+  recBootstrapError: string | null;
 }
 
 export function useRecWorker(): UseRecWorkerResult {
@@ -32,6 +34,8 @@ export function useRecWorker(): UseRecWorkerResult {
   const [recStatus, setRecStatus] = useState<RecStatus>(() =>
     WORKER_BASE ? 'active' : 'disabled',
   );
+  const [recBootstrapDone, setRecBootstrapDone] = useState<boolean>(() => !WORKER_BASE);
+  const [recBootstrapError, setRecBootstrapError] = useState<string | null>(null);
 
   const userIdRef = useRef<string | null>(null);
   const bufferRef = useRef<RecInteractionInput[]>([]);
@@ -56,8 +60,10 @@ export function useRecWorker(): UseRecWorkerResult {
       const recs = await fetchRecommendations(WORKER_BASE, userIdRef.current);
       setRecArticleIds(recs.articleIds);
       setRecStatus('active');
+      setRecBootstrapError(null);
     } catch {
-      // silent — local ranking still works without recs
+      setRecStatus('error');
+      console.warn('[rec] Recommendations fetch failed; keeping existing local order.');
     }
   }, []);
 
@@ -65,16 +71,35 @@ export function useRecWorker(): UseRecWorkerResult {
   useEffect(() => {
     if (!WORKER_BASE) return;
     let cancelled = false;
-    getOrCreateRecUserId().then(async id => {
-      if (cancelled) return;
-      userIdRef.current = id;
-      try {
-        const recs = await fetchRecommendations(WORKER_BASE, id);
-        if (!cancelled) setRecArticleIds(recs.articleIds);
-      } catch {
-        // silent cold start
-      }
-    });
+    getOrCreateRecUserId()
+      .then(async id => {
+        if (cancelled) return;
+        userIdRef.current = id;
+        try {
+          const recs = await fetchRecommendations(WORKER_BASE, id);
+          if (!cancelled) {
+            setRecArticleIds(recs.articleIds);
+            setRecStatus('active');
+            setRecBootstrapDone(true);
+            setRecBootstrapError(null);
+          }
+        } catch {
+          if (!cancelled) {
+            setRecStatus('error');
+            setRecBootstrapDone(true);
+            setRecBootstrapError('initial recommendations fetch failed');
+            console.warn('[rec] Initial recommendation fetch failed; local ranking fallback will be used.');
+          }
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRecStatus('error');
+          setRecBootstrapDone(true);
+          setRecBootstrapError('failed to create recommendation user id');
+          console.warn('[rec] Recommendation bootstrap failed; local ranking fallback will be used.');
+        }
+      });
     return () => { cancelled = true; };
   }, []);
 
@@ -98,5 +123,5 @@ export function useRecWorker(): UseRecWorkerResult {
     if (bufferRef.current.length >= FLUSH_BATCH_SIZE) void flush();
   }, [flush]);
 
-  return { sendInteraction, recArticleIds, recStatus, recEnvError };
+  return { sendInteraction, recArticleIds, recStatus, recEnvError, recBootstrapDone, recBootstrapError };
 }
