@@ -6,9 +6,11 @@
 |---|---|
 | `shared/rss-sources.json` | Canonical built-in RSS source list — imported at build by `news-feed` and `rss-worker` |
 | `news-feed/` | News PWA (React + Vite + Fireproof), deployed to GitHub Pages at `/boomerang` |
-| `rss-worker/` | Cloudflare Worker — RSS aggregation (`GET /bundle`), staggered upstream fetches |
-| `sync-worker/` | Cloudflare Worker — cross-browser sync via R2 (`POST /sync/room`, `PUT/GET /sync/{roomId}/meta`, `PUT/GET /sync/{roomId}/blocks/{cid}`, `DELETE /sync/{roomId}`). Token auth: SHA-256(token) stored in R2; raw token travels only in the URL fragment, never in query strings. |
-| `meta-worker/` | Cloudflare Worker + global Durable Object — shared per-article metadata (e.g. AI tags). WebSocket `GET /ws` for subscribe/catch-up; KV namespace shared with `rss-worker` so `GET /bundle` can inline tags. Feature docs: `docs/shared-article-metadata/`. |
+| `platform-worker/` | **Unified Cloudflare Worker** — all four domains in one deploy: RSS (`/bundle`, `/og-image`, `/image`), sync (`/sync/*`), meta (`/meta*`, `/ws`), rec (`/interactions`, `/recommendations/*`). Local dev: port **8791** (`make worker-platform`). |
+| `rss-worker/` | Cloudflare Worker — RSS aggregation (legacy; superseded by `platform-worker`) |
+| `sync-worker/` | Cloudflare Worker — cross-browser sync via R2 (legacy; superseded by `platform-worker`). Token auth: SHA-256(token) stored in R2; raw token travels only in the URL fragment, never in query strings. |
+| `meta-worker/` | Cloudflare Worker + global Durable Object — shared per-article metadata (legacy; superseded by `platform-worker`). Feature docs: `docs/shared-article-metadata/`. |
+| `rec-worker/` | Cloudflare Worker — recommendations via `@victusfate/ricochet` (legacy; superseded by `platform-worker`) |
 | `.github/workflows/deploy.yml` | Builds `news-feed/` only; uploads `news-feed/dist` |
 | `/` (repo root) | `npm run dev` / `preview` forward to `news-feed/`. **`npm run build`** runs `npm ci` + build in `news-feed/` (same as Cloudflare Pages from repo root). In **`news-feed`**, **`npm run preview:gh-pages`** = GitHub Pages–style build + preview (`http://localhost:4173/boomerang`). **`make`** defaults to Vite dev (`http://localhost:5173/`); **`make preview-pages`** runs the GH Pages preview (needs GNU Make). **`make test`** runs tests in all four packages (`news-feed`, `rss-worker`, `sync-worker`, `meta-worker`). |
 
@@ -240,11 +242,13 @@ This project requires **Node.js 22+** (for `--experimental-strip-types` in `news
 
 | Action | Command |
 |---|---|
-| Install all deps | `make install` (runs `npm ci` in all 4 packages) |
+| Install all deps | `make install` (runs `npm ci` in all 6 packages) |
 | Run all tests | `make test` |
 | Typecheck news-feed | `cd news-feed && npm run typecheck` |
+| Typecheck platform-worker | `cd platform-worker && npm run typecheck` |
 | Build news-feed | `npm run build` (from repo root) |
 | Dev server (frontend) | `make dev` → http://localhost:5173/ |
+| Dev server (platform-worker) | `make worker-platform` → http://127.0.0.1:8791 |
 | Dev server (rss-worker) | `make worker-rss` → http://127.0.0.1:8787 |
 | Dev server (sync-worker) | `make worker-sync` → http://127.0.0.1:8788 |
 | Dev server (meta-worker) | `make worker-meta` → http://127.0.0.1:8789 |
