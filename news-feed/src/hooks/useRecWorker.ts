@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { workerUrlFromEnv, missingWorkerEnvMessage } from '../config/workerEnv';
+import { resolveWorkerUrl, missingWorkerEnvMessage } from '../config/workerEnv';
 import {
   getOrCreateRecUserId,
   postInteractions,
@@ -9,7 +9,7 @@ import {
 
 export type { RecInteractionInput };
 
-const WORKER_BASE = workerUrlFromEnv(import.meta.env.VITE_REC_WORKER_URL);
+const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_REC_WORKER_URL);
 
 const FLUSH_INTERVAL_MS      = 30_000;       // POST interactions every 30 s
 const RECS_FETCH_INTERVAL_MS = 5 * 60_000;   // fetch recs every 5 min (matches KV TTL)

@@ -8,10 +8,10 @@ import {
   autoSyncCompareKeyFromPushedJson,
   type SyncRoom,
 } from '../services/syncWorker';
-import { workerUrlFromEnv, missingWorkerEnvMessage } from '../config/workerEnv';
+import { resolveWorkerUrl, missingWorkerEnvMessage } from '../config/workerEnv';
 import { syncDebugLog } from '../config/debugSync';
 
-const SYNC_WORKER_BASE = workerUrlFromEnv(import.meta.env.VITE_SYNC_WORKER_URL);
+const SYNC_WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_SYNC_WORKER_URL);
 const MANUAL_SYNC_COOLDOWN_MS = 15_000;
 const DIRTY_SYNC_DEBOUNCE_MS = 1_000;
 const RATE_LIMIT_BACKOFF_BASE_MS = 2_000;
