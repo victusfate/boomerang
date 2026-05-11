@@ -1,9 +1,9 @@
 import type { Article, CustomSource, NewsSource } from '../types';
-import { missingWorkerEnvMessage, workerUrlFromEnv } from '../config/workerEnv';
+import { missingWorkerEnvMessage, resolveWorkerUrl } from '../config/workerEnv';
 import { partitionSourcesForSplitFetch } from './feedPartition';
 import rssSourcesJson from '../../../shared/rss-sources.json';
 
-const RSS_WORKER_URL = workerUrlFromEnv(import.meta.env.VITE_RSS_WORKER_URL);
+const RSS_WORKER_URL = resolveWorkerUrl(import.meta.env.VITE_RSS_WORKER_URL);
 
 // Built-in sources: single source of truth in `shared/rss-sources.json` (priority 1 = first batch; 2 = background).
 export const DEFAULT_SOURCES: NewsSource[] = rssSourcesJson as NewsSource[];

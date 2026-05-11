@@ -14,6 +14,7 @@
     "preview:gh-pages": "npm run build:gh-pages && cross-env GITHUB_PAGES=true vite preview"
   },
   "dependencies": {
+    "@victusfate/ricochet": "github:victusfate/ricochet",
     "qrcode": "^1.5.4",
     "react": "19.2.5",
     "react-dom": "19.2.5"

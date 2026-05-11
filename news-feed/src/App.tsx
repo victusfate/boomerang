@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from 'rea
 import { useFeed } from './hooks/useFeed';
 import { useSyncWorker, type SyncStatus } from './hooks/useSyncWorker';
 import { useMetaWorker } from './hooks/useMetaWorker';
+import { useRecWorker } from './hooks/useRecWorker';
 import { useOGImageBatch } from './hooks/useOGImageBatch';
 import { ArticleCard } from './components/ArticleCard';
 import { TopicFilter } from './components/TopicFilter';
@@ -78,6 +79,8 @@ export default function App() {
     metaTagsMap, feedTaggedArticle, endTaggingPass, forceMetaSync, metaStatus, metaError, metaEnvError, metaSyncCooldownMs,
   } = useMetaWorker(articleIds);
 
+  const { sendInteraction, recArticleIds, recStatus, recBootstrapDone, recBootstrapError } = useRecWorker();
+
   const {
     visibleArticles, savedArticles, hasMore, totalLoaded,
     loading, refreshing, fetching, error, prefs, lastRefresh, feedEnterIds,
@@ -88,7 +91,15 @@ export default function App() {
     articleTagsMap, classificationStatus, aiTaggingStarted, taggingArticleId, onStartAiTagging, onAddLabel, onDeleteLabel,
     labelHits, articleTags, onToggleAiBar, onAddManualTag, onRemoveManualTag,
     onRemoteSync, syncReady,
-  } = useFeed({ metaCallbacks: { feedTaggedArticle, endTaggingPass }, metaTagsMap });
+  } = useFeed({
+    metaCallbacks: { feedTaggedArticle, endTaggingPass },
+    metaTagsMap,
+    recInteract: sendInteraction,
+    recArticleIds,
+    recStatus,
+    recBootstrapDone,
+    recBootstrapError,
+  });
 
   const { syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError, syncCooldownMs, forceSync, generateLink, revoke } =
     useSyncWorker(prefs, articleTags, labelHits, savedArticles, onRemoteSync, syncReady);

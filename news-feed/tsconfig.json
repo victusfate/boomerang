@@ -15,7 +15,10 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@victusfate/ricochet": ["./node_modules/@victusfate/ricochet/src/lib.ts"]
+    }
   },
   "include": ["src", "../shared/rss-sources.json"]
 }

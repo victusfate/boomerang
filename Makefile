@@ -1,11 +1,16 @@
 # Requires GNU Make (Git for Windows: add Git's usr\bin to PATH, or use Git Bash).
 # Default: Vite dev server (loads news-feed/.env for VITE_* worker URLs).
 
-.PHONY: help preview-pages run dev worker worker-meta worker-sync worker-rss install test \
-        deploy-rss deploy-sync deploy-meta deploy \
-        create-kv create-r2
+.PHONY: help preview-pages run dev worker-platform stop-worker-platform \
+        install audit test \
+        deploy-platform deploy \
+        create-kv create-r2 create-rec-kv
 
 .DEFAULT_GOAL := dev
+
+# npm 11 treats npm_config_devdir as an unknown env config; remove it for make targets.
+unexport npm_config_devdir
+unexport NPM_CONFIG_DEVDIR
 
 help:
 	@echo "Boomerang — common targets"
@@ -14,22 +19,20 @@ help:
 	@echo "  make / make dev / make run  Vite dev — http://localhost:5173/ (uses .env)"
 	@echo "  make preview-pages           GitHub Pages–style build + preview → http://localhost:4173/boomerang"
 	@echo "  (no make on Windows PS?)    npm run dev --prefix news-feed  /  npm run preview:gh-pages --prefix news-feed"
-	@echo "  make worker-rss            wrangler dev — rss-worker  http://127.0.0.1:8787"
-	@echo "  make worker-sync           wrangler dev — sync-worker  http://127.0.0.1:8788"
-	@echo "  make worker-meta           wrangler dev — meta-worker  http://127.0.0.1:8789"
-	@echo "  make worker                alias for worker-rss (backwards compat)"
-	@echo "  make install               npm ci in all four packages"
-	@echo "  make test                  Run tests in all four packages"
+	@echo "  make worker-platform       wrangler dev — platform-worker http://127.0.0.1:8791"
+	@echo "  make stop-worker-platform  kill local platform-worker listener (8791)"
+	@echo "  make install               npm ci in news-feed and platform-worker"
+	@echo "  make audit                 npm audit fix + npm audit in both packages"
+	@echo "  make test                  Run tests in news-feed"
 	@echo ""
 	@echo "Deploy (requires wrangler login)"
-	@echo "  make deploy-rss            Deploy rss-worker to Cloudflare"
-	@echo "  make deploy-sync           Deploy sync-worker to Cloudflare"
-	@echo "  make deploy-meta           Deploy meta-worker to Cloudflare"
-	@echo "  make deploy                Deploy all three workers"
+	@echo "  make deploy-platform       Deploy platform-worker to Cloudflare"
+	@echo "  make deploy                alias for deploy-platform"
 	@echo ""
 	@echo "One-time resource creation (run once per Cloudflare account)"
-	@echo "  make create-kv             Create ARTICLE_META KV namespace (meta-worker)"
-	@echo "  make create-r2             Create boomerang R2 bucket (sync-worker)"
+	@echo "  make create-kv             Create ARTICLE_META KV namespace"
+	@echo "  make create-r2             Create boomerang R2 bucket"
+	@echo "  make create-rec-kv         Create REC_STORE KV namespace"
 
 # ── Frontend ──────────────────────────────────────────────────────────────────
 
@@ -41,57 +44,55 @@ run: dev
 dev:
 	npm run dev --prefix news-feed
 
-# ── Worker dev servers ────────────────────────────────────────────────────────
+# ── Worker dev server ─────────────────────────────────────────────────────────
 
-worker-rss:
-	cd rss-worker && npx wrangler dev --port 8787
+worker-platform:
+	cd platform-worker && npx wrangler dev --port 8791
 
-worker-sync:
-	cd sync-worker && npx wrangler dev --port 8788
-
-worker-meta:
-	cd meta-worker && npx wrangler dev --port 8789
-
-worker: worker-rss
+stop-worker-platform:
+	@pids="$$(lsof -t -iTCP:8791 -sTCP:LISTEN 2>/dev/null || true)"; \
+	if [ -n "$$pids" ]; then \
+		echo "Stopping platform-worker on :8791 (pid(s): $$pids)"; \
+		kill $$pids; \
+	else \
+		echo "platform-worker is not listening on :8791"; \
+	fi
 
 # ── Install + test ────────────────────────────────────────────────────────────
 
 install:
 	cd news-feed && npm ci
-	cd rss-worker && npm ci
-	cd sync-worker && npm ci
-	cd meta-worker && npm ci
+	cd platform-worker && npm ci
+
+audit:
+	cd news-feed && npm audit fix && npm audit
+	cd platform-worker && npm audit fix && npm audit
 
 test:
 	cd news-feed && npm test
-	cd rss-worker && npm test
-	cd sync-worker && npm test
-	cd meta-worker && npm test
 
 # ── Deploy ────────────────────────────────────────────────────────────────────
 
-deploy-rss:
-	cd rss-worker && npx wrangler deploy
+deploy-platform:
+	cd platform-worker && npx wrangler deploy
 
-deploy-sync:
-	cd sync-worker && npx wrangler deploy
-
-deploy-meta:
-	cd meta-worker && npx wrangler deploy
-
-deploy: deploy-rss deploy-sync deploy-meta
+deploy: deploy-platform
 
 # ── One-time resource creation ────────────────────────────────────────────────
 # Run these once when setting up a new Cloudflare account.
-# After creation, paste the returned namespace/bucket id into the relevant wrangler.jsonc.
+# After creation, paste the returned namespace/bucket id into platform-worker/wrangler.jsonc.
 
 create-kv:
-	@echo "Creating ARTICLE_META KV namespace for meta-worker..."
-	cd meta-worker && npx wrangler kv namespace create "ARTICLE_META"
-	@echo "Paste the returned id into meta-worker/wrangler.jsonc → kv_namespaces[0].id"
-	@echo "Also paste it into rss-worker/wrangler.jsonc → kv_namespaces[0].id"
+	@echo "Creating ARTICLE_META KV namespace..."
+	cd platform-worker && npx wrangler kv namespace create "ARTICLE_META"
+	@echo "Paste the returned id into platform-worker/wrangler.jsonc → kv_namespaces (ARTICLE_META binding)"
 
 create-r2:
-	@echo "Creating boomerang R2 bucket for sync-worker..."
-	cd sync-worker && npx wrangler r2 bucket create boomerang
+	@echo "Creating boomerang R2 bucket..."
+	cd platform-worker && npx wrangler r2 bucket create boomerang
 	@echo "Bucket 'boomerang' created — no config change needed (name is hardcoded in wrangler.jsonc)"
+
+create-rec-kv:
+	@echo "Creating REC_STORE KV namespace..."
+	cd platform-worker && npx wrangler kv namespace create "REC_STORE"
+	@echo "Paste the returned id into platform-worker/wrangler.jsonc → kv_namespaces (REC_STORE binding)"
