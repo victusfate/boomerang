@@ -3,7 +3,7 @@ import { handlePreflight, corsHeaders } from './cors';
 import { handleRss } from './domains/rss/index';
 import { handleSync } from './domains/sync/index';
 import { handleMeta, scheduledMeta } from './domains/meta/index';
-import { handleRec } from './domains/rec/index';
+import { handleRec, scheduledRec } from './domains/rec/index';
 
 export { MetaDO } from './domains/meta/MetaDO';
 export { RecDO } from './domains/rec/RecDO';
@@ -55,7 +55,8 @@ export default {
     return json({ error: 'Not Found' }, 404, h);
   },
 
-  async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     await scheduledMeta(env);
+    scheduledRec(env, ctx);
   },
 } satisfies ExportedHandler<Env>;
