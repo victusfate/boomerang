@@ -1,7 +1,9 @@
 # Requires GNU Make (Git for Windows: add Git's usr\bin to PATH, or use Git Bash).
 # Default: Vite dev server (loads news-feed/.env for VITE_* worker URLs).
 
-.PHONY: help preview-pages run dev worker worker-meta worker-sync worker-rss worker-rec install audit test \
+.PHONY: help preview-pages run dev worker worker-meta worker-sync worker-rss worker-rec \
+        stop-worker-rss stop-worker-sync stop-worker-meta stop-worker-rec stop-workers \
+        install audit test \
         deploy-rss deploy-sync deploy-meta deploy-rec deploy \
         create-kv create-r2 create-rec-kv
 
@@ -23,6 +25,11 @@ help:
 	@echo "  make worker-meta           wrangler dev — meta-worker  http://127.0.0.1:8789"
 	@echo "  make worker-rec            wrangler dev — rec-worker   http://127.0.0.1:8790"
 	@echo "  make worker                alias for worker-rss (backwards compat)"
+	@echo "  make stop-worker-rss       kill local rss-worker listener (8787)"
+	@echo "  make stop-worker-sync      kill local sync-worker listener (8788)"
+	@echo "  make stop-worker-meta      kill local meta-worker listener (8789)"
+	@echo "  make stop-worker-rec       kill local rec-worker listener (8790)"
+	@echo "  make stop-workers          kill all local worker listeners (8787-8790)"
 	@echo "  make install               npm ci in all five packages"
 	@echo "  make audit                 npm audit fix + npm audit in all five packages"
 	@echo "  make test                  Run tests in all four packages"
@@ -64,6 +71,44 @@ worker-rec:
 	cd rec-worker && npx wrangler dev --port 8790
 
 worker: worker-rss
+
+stop-worker-rss:
+	@pids="$$(lsof -t -iTCP:8787 -sTCP:LISTEN 2>/dev/null || true)"; \
+	if [ -n "$$pids" ]; then \
+		echo "Stopping rss-worker on :8787 (pid(s): $$pids)"; \
+		kill $$pids; \
+	else \
+		echo "rss-worker is not listening on :8787"; \
+	fi
+
+stop-worker-sync:
+	@pids="$$(lsof -t -iTCP:8788 -sTCP:LISTEN 2>/dev/null || true)"; \
+	if [ -n "$$pids" ]; then \
+		echo "Stopping sync-worker on :8788 (pid(s): $$pids)"; \
+		kill $$pids; \
+	else \
+		echo "sync-worker is not listening on :8788"; \
+	fi
+
+stop-worker-meta:
+	@pids="$$(lsof -t -iTCP:8789 -sTCP:LISTEN 2>/dev/null || true)"; \
+	if [ -n "$$pids" ]; then \
+		echo "Stopping meta-worker on :8789 (pid(s): $$pids)"; \
+		kill $$pids; \
+	else \
+		echo "meta-worker is not listening on :8789"; \
+	fi
+
+stop-worker-rec:
+	@pids="$$(lsof -t -iTCP:8790 -sTCP:LISTEN 2>/dev/null || true)"; \
+	if [ -n "$$pids" ]; then \
+		echo "Stopping rec-worker on :8790 (pid(s): $$pids)"; \
+		kill $$pids; \
+	else \
+		echo "rec-worker is not listening on :8790"; \
+	fi
+
+stop-workers: stop-worker-rss stop-worker-sync stop-worker-meta stop-worker-rec
 
 # ── Install + test ────────────────────────────────────────────────────────────
 
