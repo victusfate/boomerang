@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@victusfate/ricochet": "github:victusfate/ricochet"
+    "@victusfate/ricochet": "github:victusfate/ricochet",
+    "fast-xml-parser": "^5.7.2",
+    "html-entities": "^2.6.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260409.1",

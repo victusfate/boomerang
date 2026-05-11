@@ -18,6 +18,7 @@ export function isAllowedOrigin(origin: string, env: Env): boolean {
   try {
     const u = new URL(origin);
     if (u.protocol === 'https:' && u.hostname.endsWith('.pages.dev')) return true;
+    if (u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1')) return true;
   } catch { /* ignore */ }
   return false;
 }
