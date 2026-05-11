@@ -3,9 +3,10 @@ import type { Article, ArticleTag, LabelHit, UserPrefs } from '../types';
 import {
   loadSyncRoom, saveSyncRoom, clearSyncRoom, parseSyncFragment,
   createSyncRoom, fetchMeta, pushMeta, deleteRoom,
-  buildSyncUrl, buildPayload, mergePayload,
+  buildSyncUrl, buildSyncFragment, buildPayload, mergePayload,
   autoSyncCompareKey,
   autoSyncCompareKeyFromPushedJson,
+  migrateLegacySyncRoom,
   type SyncRoom,
 } from '../services/syncWorker';
 import { resolveWorkerUrl, missingWorkerEnvMessage } from '../config/workerEnv';
@@ -21,11 +22,19 @@ const RELINK_REQUIRED_MESSAGE =
 
 export type SyncStatus = 'idle' | 'active' | 'syncing' | 'error';
 
+export interface SyncErrorDetails {
+  phase: string;
+  roomId: string | null;
+  workerUrl: string | null;
+  endpoint?: string;
+}
+
 export interface UseSyncWorkerResult {
   syncActive: boolean;
   syncStatus: SyncStatus;
   syncedAt: Date | null;
   syncError: string | null;
+  syncErrorDetails: SyncErrorDetails | null;
   syncUrl: string | null;
   syncCooldownMs: number;
   forceSync: () => Promise<void>;
@@ -52,6 +61,7 @@ export function useSyncWorker(
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [syncedAt, setSyncedAt] = useState<Date | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncErrorDetails, setSyncErrorDetails] = useState<SyncErrorDetails | null>(null);
   const [syncUrl, setSyncUrl]   = useState<string | null>(null);
   const [syncCooldownMs, setSyncCooldownMs] = useState(0);
   const [hasDirtyData, setHasDirtyData] = useState(false);
@@ -63,6 +73,7 @@ export function useSyncWorker(
   const dirtyDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rateLimitBackoffStepRef = useRef(0);
   const roomRef = useRef<SyncRoom | null>(null);
+  const consumedSyncHashRef = useRef(false);
   // Keep in sync with `room` on every render; `activate` also sets the ref immediately so
   // `doPoll()` can run in the same tick as `activate` (before React commits `setRoom`).
   roomRef.current = room;
@@ -78,6 +89,30 @@ export function useSyncWorker(
   labelHitsRef.current   = labelHits;
   savedRef.current       = savedArticles;
   onMergeRef.current     = onMerge;
+
+  const logSyncError = useCallback((
+    phase: string,
+    message: string,
+    roomCtx?: SyncRoom | null,
+    extra?: Record<string, unknown>,
+  ) => {
+    const endpoint = typeof extra?.endpoint === 'string' ? extra.endpoint : undefined;
+    const details = {
+      phase,
+      roomId: roomCtx?.roomId ?? null,
+      workerUrl: roomCtx?.workerUrl ?? null,
+      endpoint,
+      ...extra,
+    };
+    console.error(`[sync] ${message}`, details);
+    syncDebugLog('saved', `${phase}:error`, details);
+    setSyncErrorDetails({
+      phase: details.phase,
+      roomId: details.roomId,
+      workerUrl: details.workerUrl,
+      endpoint,
+    });
+  }, []);
 
   const startSyncCooldown = useCallback((durationMs = MANUAL_SYNC_COOLDOWN_MS) => {
     const cooldownUntil = Date.now() + durationMs;
@@ -105,14 +140,28 @@ export function useSyncWorker(
     setSyncError(`Sync rate limited. Retrying allowed in ${Math.max(1, Math.ceil(backoffMs / 1000))}s.`);
   }, [startSyncCooldown]);
 
-  const disableLocalSyncRoom = useCallback((message: string) => {
-    clearSyncRoom();
+  const disableLocalSyncRoom = useCallback((message: string, roomForDisplay?: SyncRoom) => {
+    if (roomForDisplay) {
+      saveSyncRoom(roomForDisplay);
+    } else {
+      clearSyncRoom();
+    }
     roomRef.current = null;
     setRoom(null);
-    setSyncUrl(null);
+    if (roomForDisplay) {
+      setSyncUrl(buildSyncUrl(roomForDisplay.roomId, roomForDisplay.token));
+      history.replaceState(
+        null,
+        '',
+        `${location.pathname}${location.search}${buildSyncFragment(roomForDisplay.roomId, roomForDisplay.token)}`,
+      );
+    } else {
+      setSyncUrl(null);
+    }
     setSyncStatus('error');
     setSyncedAt(null);
     setSyncError(message);
+    setSyncErrorDetails(null);
     setSyncCooldownMs(0);
     setHasDirtyData(false);
     etagRef.current = '';
@@ -136,7 +185,10 @@ export function useSyncWorker(
       const remote = await fetchMeta(r);
       if (remote?.unauthorized) {
         syncDebugLog('saved', 'poll:unauthorized', { roomId: r.roomId });
-        disableLocalSyncRoom(RELINK_REQUIRED_MESSAGE);
+        logSyncError('poll', 'Unauthorized sync room/token during poll', r, {
+          endpoint: `${r.workerUrl}/sync/${r.roomId}/meta`,
+        });
+        disableLocalSyncRoom(RELINK_REQUIRED_MESSAGE, r);
         return { status: 'blocked' };
       }
       if (remote?.rateLimited) {
@@ -170,19 +222,28 @@ export function useSyncWorker(
       // During a full manual sync, keep status in "syncing" until push completes.
       if (!syncInFlightRef.current) setSyncStatus('active');
       setSyncError(null);
+      setSyncErrorDetails(null);
+      if (consumedSyncHashRef.current) {
+        history.replaceState(null, '', `${location.pathname}${location.search}`);
+        consumedSyncHashRef.current = false;
+      }
       rateLimitBackoffStepRef.current = 0;
       syncDebugLog('saved', 'poll:done', { roomId: r.roomId });
       return { status: 'ok', merged };
     } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      logSyncError('poll', message, r, {
+        endpoint: `${r.workerUrl}/sync/${r.roomId}/meta`,
+      });
       syncDebugLog('saved', 'poll:error', {
         roomId: r.roomId,
-        error: e instanceof Error ? e.message : String(e),
+        error: message,
       });
       setSyncStatus('error');
-      setSyncError(e instanceof Error ? e.message : 'Sync failed');
+      setSyncError(`Sync poll failed: ${message}`);
       return { status: 'blocked' };
     }
-  }, [applyRateLimitBackoff]);
+  }, [applyRateLimitBackoff, disableLocalSyncRoom, logSyncError]);
 
   // `data` is the already-merged state from doPoll; when provided, push that
   // instead of the current refs (which may still be pre-re-render stale values).
@@ -215,7 +276,10 @@ export function useSyncWorker(
     }
     if (result.unauthorized) {
       syncDebugLog('saved', 'push:unauthorized', { roomId: r.roomId });
-      disableLocalSyncRoom(RELINK_REQUIRED_MESSAGE);
+      logSyncError('push', 'Unauthorized sync room/token during push', r, {
+        endpoint: `${r.workerUrl}/sync/${r.roomId}/meta`,
+      });
+      disableLocalSyncRoom(RELINK_REQUIRED_MESSAGE, r);
       return 'blocked';
     }
     if (result.rateLimited) {
@@ -225,18 +289,22 @@ export function useSyncWorker(
     }
     if (!result.ok) {
       syncDebugLog('saved', 'push:failed', { roomId: r.roomId });
+      logSyncError('push', 'PUT /sync/:roomId/meta failed', r, {
+        endpoint: `${r.workerUrl}/sync/${r.roomId}/meta`,
+      });
       setSyncStatus('error');
-      setSyncError('Could not upload changes to sync (PUT failed). Check the Network tab for /meta.');
+      setSyncError(`Could not upload changes to sync (PUT failed at ${r.workerUrl}).`);
       return 'blocked';
     }
     lastPushedRef.current = payloadJson;
     setSyncStatus('active');
     setSyncError(null);
+    setSyncErrorDetails(null);
     setHasDirtyData(false);
     rateLimitBackoffStepRef.current = 0;
     syncDebugLog('saved', 'push:done', { roomId: r.roomId });
     return 'ok';
-  }, [applyRateLimitBackoff, disableLocalSyncRoom, doPoll]);
+  }, [applyRateLimitBackoff, disableLocalSyncRoom, doPoll, logSyncError]);
 
   const forceSync = useCallback(async () => {
     if (!roomRef.current) {
@@ -283,22 +351,23 @@ export function useSyncWorker(
     saveSyncRoom(r);
     setSyncStatus('active');
     setSyncError(null);
+    setSyncErrorDetails(null);
     if (SYNC_WORKER_BASE || r.workerUrl) {
-      setSyncUrl(buildSyncUrl(r.workerUrl, r.roomId, r.token));
+      setSyncUrl(buildSyncUrl(r.roomId, r.token));
     }
   }, []);
 
   // On mount: check URL fragment first, then localStorage
   useEffect(() => {
-    const fromFragment = parseSyncFragment();
+    const fromFragment = parseSyncFragment(undefined, SYNC_WORKER_BASE);
     if (fromFragment) {
-      activate(fromFragment);
-      // Clean fragment from URL without reload
-      history.replaceState(null, '', location.pathname + location.search);
+      const migrated = migrateLegacySyncRoom(fromFragment, SYNC_WORKER_BASE);
+      activate(migrated);
+      consumedSyncHashRef.current = true;
       return;
     }
     const stored = loadSyncRoom();
-    if (stored) activate(stored);
+    if (stored) activate(migrateLegacySyncRoom(stored, SYNC_WORKER_BASE));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pull once when a room is activated.
@@ -361,7 +430,9 @@ export function useSyncWorker(
   const generateLink = useCallback(async () => {
     const workerUrl = SYNC_WORKER_BASE;
     if (!workerUrl) {
-      setSyncError(missingWorkerEnvMessage('VITE_SYNC_WORKER_URL'));
+      const message = missingWorkerEnvMessage('VITE_SYNC_WORKER_URL');
+      logSyncError('generate-link', message, roomRef.current, { endpoint: '/sync/room' });
+      setSyncError(message);
       return;
     }
     try {
@@ -372,12 +443,18 @@ export function useSyncWorker(
       const payload = buildPayload(prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current);
       const put = await pushMeta(r, payload);
       if (put.unauthorized) {
+        logSyncError('generate-link', 'Unauthorized right after room creation', r, {
+          endpoint: `${r.workerUrl}/sync/${r.roomId}/meta`,
+        });
         disableLocalSyncRoom(RELINK_REQUIRED_MESSAGE);
         return;
       }
       if (!put.ok && !put.conflict) {
+        logSyncError('generate-link', 'Initial sync upload failed', r, {
+          endpoint: `${r.workerUrl}/sync/${r.roomId}/meta`,
+        });
         setSyncStatus('error');
-        setSyncError('Initial sync upload failed. Try Generate sync link again.');
+        setSyncError(`Initial sync upload failed at ${r.workerUrl}. Try Generate sync link again.`);
         return;
       }
       if (put.ok) {
@@ -386,10 +463,14 @@ export function useSyncWorker(
       }
       setSyncStatus('active');
     } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to create sync room';
+      logSyncError('generate-link', message, roomRef.current, {
+        endpoint: `${workerUrl}/sync/room`,
+      });
       setSyncStatus('error');
-      setSyncError(e instanceof Error ? e.message : 'Failed to create sync room');
+      setSyncError(`Generate link failed: ${message}`);
     }
-  }, [activate, disableLocalSyncRoom]);
+  }, [activate, disableLocalSyncRoom, logSyncError]);
 
   const revoke = useCallback(async () => {
     const r = roomRef.current;
@@ -403,6 +484,7 @@ export function useSyncWorker(
     setSyncStatus('idle');
     setSyncedAt(null);
     setSyncError(null);
+    setSyncErrorDetails(null);
     setSyncCooldownMs(0);
     setHasDirtyData(false);
     etagRef.current = '';
@@ -428,6 +510,7 @@ export function useSyncWorker(
     syncStatus,
     syncedAt,
     syncError,
+    syncErrorDetails,
     syncUrl,
     syncCooldownMs,
     forceSync,

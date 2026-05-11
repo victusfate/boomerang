@@ -101,7 +101,7 @@ export default function App() {
     recBootstrapError,
   });
 
-  const { syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError, syncCooldownMs, forceSync, generateLink, revoke } =
+  const { syncActive, syncStatus, syncedAt, syncError, syncErrorDetails, syncUrl, syncEnvError, syncCooldownMs, forceSync, generateLink, revoke } =
     useSyncWorker(prefs, articleTags, labelHits, savedArticles, onRemoteSync, syncReady);
 
   const [view, setView] = useState<FeedView>('feed');
@@ -493,6 +493,7 @@ export default function App() {
           syncStatus={syncStatus}
           syncedAt={syncedAt}
           syncError={syncError}
+          syncErrorDetails={syncErrorDetails}
           syncUrl={syncUrl}
           syncEnvError={syncEnvError}
           metaStatus={metaStatus}

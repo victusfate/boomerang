@@ -5,6 +5,7 @@ import { isSourceEnabled, isTopicEnabled } from '../services/storage';
 import { isPromptApiAvailable } from '../services/labelClassifier';
 import type { Article, CustomSource, Topic, UserLabel, UserPrefs } from '../types';
 import type { MetaStatus } from '../hooks/useMetaWorker';
+import type { SyncErrorDetails } from '../hooks/useSyncWorker';
 import { TOPIC_META } from './TopicFilter';
 
 const ALL_TOPICS = (Object.keys(TOPIC_META) as Topic[]).filter(t => t !== 'general');
@@ -37,6 +38,7 @@ interface Props {
   syncStatus: 'idle' | 'active' | 'syncing' | 'error';
   syncedAt: Date | null;
   syncError: string | null;
+  syncErrorDetails: SyncErrorDetails | null;
   syncUrl: string | null;
   syncEnvError: string | null;
   // Shared article metadata
@@ -55,7 +57,7 @@ export function Settings({
   onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
   onExportBookmarks, onImportBookmarks,
   onAddLabel, onDeleteLabel,   onSuggestLabels,
-  syncActive, syncStatus, syncedAt, syncError, syncUrl, syncEnvError,
+  syncActive, syncStatus, syncedAt, syncError, syncErrorDetails, syncUrl, syncEnvError,
   metaStatus, metaError, metaEnvError,
   onForceMetaSync, onForceSync, onGenerateLink, onRevoke, onToggleAiBar,
 }: Props) {
@@ -503,7 +505,22 @@ export function Settings({
               >
                 {syncStatus === 'syncing' ? 'Generating…' : 'Generate sync link'}
               </button>
-              {syncError && <p className="sync-error">{syncError}</p>}
+              {syncError && (
+                <>
+                  <p className="sync-error">{syncError}</p>
+                  {syncErrorDetails && (
+                    <details className="settings-hint" style={{ marginTop: '6px' }}>
+                      <summary>Show technical sync details</summary>
+                      <code>
+                        phase={syncErrorDetails.phase}
+                        {' | '}roomId={syncErrorDetails.roomId ?? 'n/a'}
+                        {' | '}worker={syncErrorDetails.workerUrl ?? 'n/a'}
+                        {syncErrorDetails.endpoint ? ` | endpoint=${syncErrorDetails.endpoint}` : ''}
+                      </code>
+                    </details>
+                  )}
+                </>
+              )}
             </>
           ) : (
             <>
@@ -554,6 +571,17 @@ export function Settings({
               >
                 Revoke sync
               </button>
+              {syncErrorDetails && (
+                <details className="settings-hint" style={{ marginTop: '8px' }}>
+                  <summary>Show technical sync details</summary>
+                  <code>
+                    phase={syncErrorDetails.phase}
+                    {' | '}roomId={syncErrorDetails.roomId ?? 'n/a'}
+                    {' | '}worker={syncErrorDetails.workerUrl ?? 'n/a'}
+                    {syncErrorDetails.endpoint ? ` | endpoint=${syncErrorDetails.endpoint}` : ''}
+                  </code>
+                </details>
+              )}
             </>
           )}
         </section>

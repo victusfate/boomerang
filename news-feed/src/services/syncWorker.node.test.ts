@@ -3,6 +3,7 @@ import { test, describe } from 'node:test';
 import {
   buildSyncFragment,
   parseSyncFragment,
+  migrateLegacySyncRoom,
   buildPayload,
   autoSyncCompareKey,
   mergePayload,
@@ -26,14 +27,32 @@ function article(id: string, sourceId = 'src'): Article {
   };
 }
 
-const WORKER_URL = 'https://boomerang-sync.example.workers.dev';
+const WORKER_URL = 'https://boomerang-platform.example.workers.dev';
 
 describe('buildSyncUrl / parseSyncFragment round-trip', () => {
-  test('encodes and decodes roomId, token, and workerUrl', () => {
+  test('builds compact fragment without worker URL', () => {
     const roomId = 'a'.repeat(64);
     const token  = 'tok123';
-    const hash   = buildSyncFragment(roomId, token, WORKER_URL);
-    const parsed = parseSyncFragment(hash);
+    const hash = buildSyncFragment(roomId, token);
+    assert.equal(hash, `#sync-room=${roomId}:${token}`);
+  });
+
+  test('decodes compact fragment using configured worker URL', () => {
+    const roomId = 'a'.repeat(64);
+    const token  = 'tok123';
+    const hash   = buildSyncFragment(roomId, token);
+    const parsed = parseSyncFragment(hash, WORKER_URL);
+    assert.ok(parsed !== null);
+    assert.equal(parsed!.roomId, roomId);
+    assert.equal(parsed!.token, token);
+    assert.equal(parsed!.workerUrl, WORKER_URL);
+  });
+
+  test('decodes legacy fragment with embedded worker URL', () => {
+    const roomId = 'd'.repeat(64);
+    const token  = 'tok456';
+    const hash = `#sync-room=${roomId}:${token}:${encodeURIComponent('http://127.0.0.1:8788')}`;
+    const parsed = parseSyncFragment(hash, WORKER_URL);
     assert.ok(parsed !== null);
     assert.equal(parsed!.roomId, roomId);
     assert.equal(parsed!.token, token);
@@ -44,8 +63,45 @@ describe('buildSyncUrl / parseSyncFragment round-trip', () => {
     assert.equal(parseSyncFragment(''), null);
   });
 
+  test('returns null for compact fragment when worker base is missing', () => {
+    const hash = buildSyncFragment('a'.repeat(64), 'tok123');
+    assert.equal(parseSyncFragment(hash), null);
+  });
+
   test('returns null for unrelated fragment', () => {
     assert.equal(parseSyncFragment('#sync=somelegacyhash'), null);
+  });
+});
+
+describe('migrateLegacySyncRoom', () => {
+  test('migrates local legacy sync worker port 8788', () => {
+    const room = {
+      roomId: 'a'.repeat(64),
+      token: 'tok',
+      workerUrl: 'http://127.0.0.1:8788',
+    };
+    const migrated = migrateLegacySyncRoom(room, 'http://127.0.0.1:8791');
+    assert.equal(migrated.workerUrl, 'http://127.0.0.1:8791');
+  });
+
+  test('migrates legacy boomerang-sync cloud hostname', () => {
+    const room = {
+      roomId: 'b'.repeat(64),
+      token: 'tok2',
+      workerUrl: 'https://boomerang-sync.boomerang.workers.dev',
+    };
+    const migrated = migrateLegacySyncRoom(room, 'https://boomerang-platform.boomerang.workers.dev');
+    assert.equal(migrated.workerUrl, 'https://boomerang-platform.boomerang.workers.dev');
+  });
+
+  test('does not rewrite already-modern URLs', () => {
+    const room = {
+      roomId: 'c'.repeat(64),
+      token: 'tok3',
+      workerUrl: 'https://boomerang-platform.boomerang.workers.dev',
+    };
+    const migrated = migrateLegacySyncRoom(room, 'https://boomerang-platform.boomerang.workers.dev');
+    assert.equal(migrated.workerUrl, room.workerUrl);
   });
 });
 

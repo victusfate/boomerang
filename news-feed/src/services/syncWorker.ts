@@ -29,25 +29,56 @@ export interface SyncRoom {
   workerUrl: string;
 }
 
+function isLegacySyncWorkerUrl(workerUrl: string): boolean {
+  try {
+    const url = new URL(workerUrl);
+    const host = url.hostname.toLowerCase();
+    const isLocalLegacy = (host === '127.0.0.1' || host === 'localhost') && url.port === '8788';
+    const isLegacyCloudHost = host.startsWith('boomerang-sync.');
+    return isLocalLegacy || isLegacyCloudHost;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Migrate legacy split-sync worker URLs to the current unified platform worker URL.
+ * Keeps roomId/token unchanged so existing data remains addressable.
+ */
+export function migrateLegacySyncRoom(room: SyncRoom, currentWorkerUrl?: string): SyncRoom {
+  const base = (currentWorkerUrl ?? '').replace(/\/$/, '').trim();
+  if (!base) return room;
+  if (!isLegacySyncWorkerUrl(room.workerUrl)) return room;
+  if (room.workerUrl === base) return room;
+  return { ...room, workerUrl: base };
+}
+
 // ── URL helpers ────────────────────────────────────────────────────────────────
 
-export function buildSyncFragment(roomId: string, token: string, workerUrl: string): string {
-  return `${FRAGMENT_PREFIX}${roomId}:${token}:${encodeURIComponent(workerUrl)}`;
+export function buildSyncFragment(roomId: string, token: string): string {
+  return `${FRAGMENT_PREFIX}${roomId}:${token}`;
 }
 
-export function buildSyncUrl(workerUrl: string, roomId: string, token: string): string {
+export function buildSyncUrl(roomId: string, token: string): string {
   const base = typeof location !== 'undefined' ? `${location.origin}${location.pathname}` : '';
-  return `${base}${buildSyncFragment(roomId, token, workerUrl)}`;
+  return `${base}${buildSyncFragment(roomId, token)}`;
 }
 
-export function parseSyncFragment(hash = typeof location !== 'undefined' ? location.hash : ''): SyncRoom | null {
+export function parseSyncFragment(
+  hash = typeof location !== 'undefined' ? location.hash : '',
+  defaultWorkerUrl = '',
+): SyncRoom | null {
   if (!hash.startsWith(FRAGMENT_PREFIX)) return null;
   const parts = hash.slice(FRAGMENT_PREFIX.length).split(':');
-  if (parts.length < 3) return null;
   const [roomId, token, ...rest] = parts;
-  const workerUrl = decodeURIComponent(rest.join(':'));
-  if (!roomId || !token || !workerUrl) return null;
-  return { roomId, token, workerUrl };
+  if (!roomId || !token) return null;
+  const base = defaultWorkerUrl.replace(/\/$/, '').trim();
+  if (!base) return null;
+  if (rest.length === 0) {
+    return { roomId, token, workerUrl: base };
+  }
+  // Legacy links may include an embedded worker URL; ignore it and use the configured platform URL.
+  return { roomId, token, workerUrl: base };
 }
 
 export function saveSyncRoom(room: SyncRoom): void {
