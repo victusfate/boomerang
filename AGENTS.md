@@ -4,15 +4,11 @@
 
 | Path | What it is |
 |---|---|
-| `shared/rss-sources.json` | Canonical built-in RSS source list — imported at build by `news-feed` and `rss-worker` |
+| `shared/rss-sources.json` | Canonical built-in RSS source list — imported at build by `news-feed` and `platform-worker` |
 | `news-feed/` | News PWA (React + Vite + Fireproof), deployed to GitHub Pages at `/boomerang` |
 | `platform-worker/` | **Unified Cloudflare Worker** — all four domains in one deploy: RSS (`/bundle`, `/og-image`, `/image`), sync (`/sync/*`), meta (`/meta*`, `/ws`), rec (`/interactions`, `/recommendations/*`). Local dev: port **8791** (`make worker-platform`). |
-| `rss-worker/` | Cloudflare Worker — RSS aggregation (legacy; superseded by `platform-worker`) |
-| `sync-worker/` | Cloudflare Worker — cross-browser sync via R2 (legacy; superseded by `platform-worker`). Token auth: SHA-256(token) stored in R2; raw token travels only in the URL fragment, never in query strings. |
-| `meta-worker/` | Cloudflare Worker + global Durable Object — shared per-article metadata (legacy; superseded by `platform-worker`). Feature docs: `docs/shared-article-metadata/`. |
-| `rec-worker/` | Cloudflare Worker — recommendations via `@victusfate/ricochet` (legacy; superseded by `platform-worker`) |
 | `.github/workflows/deploy.yml` | Builds `news-feed/` only; uploads `news-feed/dist` |
-| `/` (repo root) | `npm run dev` / `preview` forward to `news-feed/`. **`npm run build`** runs `npm ci` + build in `news-feed/` (same as Cloudflare Pages from repo root). In **`news-feed`**, **`npm run preview:gh-pages`** = GitHub Pages–style build + preview (`http://localhost:4173/boomerang`). **`make`** defaults to Vite dev (`http://localhost:5173/`); **`make preview-pages`** runs the GH Pages preview (needs GNU Make). **`make test`** runs tests in all four packages (`news-feed`, `rss-worker`, `sync-worker`, `meta-worker`). |
+| `/` (repo root) | `npm run dev` / `preview` forward to `news-feed/`. **`npm run build`** runs `npm ci` + build in `news-feed/` (same as Cloudflare Pages from repo root). In **`news-feed`**, **`npm run preview:gh-pages`** = GitHub Pages–style build + preview (`http://localhost:4173/boomerang`). **`make`** defaults to Vite dev (`http://localhost:5173/`); **`make preview-pages`** runs the GH Pages preview (needs GNU Make). **`make test`** runs tests in `news-feed`. |
 
 ## PR workflow — always follow this order
 
@@ -49,32 +45,24 @@
 - **Storage**: Fireproof (`use-fireproof ^0.24.0`) — database name `boomerang-news`
   - `user-prefs` document: topic weights, seenIds, readIds, savedIds, source/topic toggles
   - `feed-cache` document: last ranked article list + fetchedAt timestamp
-- **RSS fetching**: **Cloudflare Worker only** (`rss-worker/`). **Required** at build/dev: `VITE_RSS_WORKER_URL` (no trailing slash), e.g. `https://<wrangler-name>.<account-subdomain>.workers.dev` (not the bare account URL `https://boomerang.workers.dev`). GitHub Actions must set repository variables **`VITE_RSS_WORKER_URL`**, **`VITE_SYNC_WORKER_URL`**, and **`VITE_META_WORKER_URL`**. Worker exposes `GET /bundle?include=id1,id2,...`. There is no browser RSS or CORS-proxy fallback. Local dev: see `news-feed/.env.example`.
-- **Shared article metadata**: `meta-worker/` — real-time WebSocket updates and KV-backed tags; `rss-worker` reads the same KV to attach tags in `GET /bundle`. **Required**: `VITE_META_WORKER_URL` at build time (no trailing slash). Client hook: `useMetaWorker`. Local dev: **`make worker-meta`** pins **8789** (see `meta-worker/package.json` and `news-feed/.env.example`; run `rss` on **8787**, `sync` on **8788**).
-- **Sync**: `sync-worker/` — cross-browser preferences and bookmarks sync. **Required** for creating share links: `VITE_SYNC_WORKER_URL` at build time (no trailing slash). URL fragment carries `roomId:token:workerUrl`; token is never sent in query strings. Client hook: `useSyncWorker` (polls 30s + visibilitychange, debounced push, 412 conflict retry). R2 bucket name: `boomerang`.
+- **RSS fetching**: **Cloudflare Worker only** (`platform-worker`). **Required** at build/dev: `VITE_PLATFORM_WORKER_URL` (no trailing slash). GitHub Actions must set repository variable **`VITE_PLATFORM_WORKER_URL`**. Worker exposes `GET /bundle?include=id1,id2,...`. There is no browser RSS or CORS-proxy fallback. Local dev: `make worker-platform` (port **8791**); see `news-feed/.env.example`.
+- **Shared article metadata**: `platform-worker` — real-time WebSocket updates (`GET /ws`) and KV-backed tags (`GET /meta`, `POST /meta/tags`). Client hook: `useMetaWorker`.
+- **Sync**: `platform-worker` (`/sync/*`) — cross-browser preferences and bookmarks sync. URL fragment carries `roomId:token:workerUrl`; token is never sent in query strings. Client hook: `useSyncWorker` (polls 30s + visibilitychange, debounced push, 412 conflict retry). R2 bucket: `boomerang`.
+- **Recommendations**: `platform-worker` (`/interactions`, `/recommendations/:userId`) via `@victusfate/ricochet`. Client hook: `useRecWorker`.
 - **PWA**: `vite-plugin-pwa`
 
-## Tech stack — sync-worker
+## Tech stack — platform-worker
 
-- **Runtime**: Cloudflare Workers + R2 (bucket binding: `SYNC_BLOCKS`, bucket name: `boomerang`)
-- **Auth**: Bearer token in `Authorization` header; SHA-256 hash stored at `{roomId}/token` in R2
-- **Routes**: `POST /sync/room` (create), `GET|PUT /sync/{roomId}/meta` (clock head + ETag/If-Match), `GET|PUT /sync/{roomId}/blocks/{cid}` (block store), `DELETE /sync/{roomId}` (revoke)
-- **Tests**: Vitest 4 + `@cloudflare/vitest-pool-workers` (`src/worker.test.ts`); config in `vitest.config.mts`
-- **Deploy**: `cd sync-worker && wrangler deploy`; create bucket once with `wrangler r2 bucket create boomerang`
-
-## Tech stack — meta-worker
-
-- **Runtime**: Cloudflare Workers + one global Durable Object (`META_DO`, name `global`) + KV (`ARTICLE_META`, shared binding id with `rss-worker` where configured)
-- **Routes**: `GET /health`, `GET /ws` (WebSocket — subscribe, catch-up, tag submit handled in the DO)
-- **Maintenance**: Cron trigger → internal `POST` prune on the DO (see `meta-worker/wrangler.jsonc`)
-- **Tests**: Vitest + `@cloudflare/vitest-pool-workers` (`src/worker.test.ts`); config in `vitest.config.mts`
-- **Deploy**: `cd meta-worker && wrangler deploy`; KV namespace: `make create-kv` (see Makefile)
+- **Runtime**: Cloudflare Workers + R2 (`SYNC_BLOCKS`, bucket `boomerang`) + KV (`ARTICLE_META`, `REC_STORE`) + Durable Objects (`META_DO` global WebSocket hub, `REC_DO` global rec model)
+- **Routes**: `GET /bundle`, `/og-image`, `/image` (RSS) · `/sync/*` (sync) · `/meta`, `/meta/tags`, `/ws` (meta) · `/interactions`, `/recommendations/:userId` (rec)
+- **Scheduled**: hourly cron → `META_DO /prune` + `REC_DO /prune`
+- **Deploy**: `make deploy-platform` (`cd platform-worker && wrangler deploy`)
 
 ## Key behaviours to preserve
 
 - **Progressive loading**: 5 articles at a time, `IntersectionObserver` sentinel auto-loads more
 - **Seen tracking**: articles rendered in the feed are written to `seenIds` in Fireproof; filtered out on next refresh
-- **Worker fetch + `onBatch`**: `fetchAllSources` talks to `rss-worker` only (no browser RSS). The client still uses `onBatch` as the merged article pool grows (e.g. fast-tier + background-tier paths), not per-source browser streaming.
+- **Worker fetch + `onBatch`**: `fetchAllSources` talks to `platform-worker` only (no browser RSS). The client still uses `onBatch` as the merged article pool grows (e.g. fast-tier + background-tier paths), not per-source browser streaming.
 - **Fireproof cache**: cold starts show the cached feed instantly, then refresh in background
 - **YouTube thumbnails**: extracted from watch URLs via `img.youtube.com/vi/{id}/hqdefault.jpg`; `media:thumbnail` also parsed for Atom feeds
 - **Lazy og:image**: cards without RSS images fetch `og:image` via CORS proxy when scrolled into view
@@ -249,24 +237,19 @@ This project requires **Node.js 22+** (for `--experimental-strip-types` in `news
 | Build news-feed | `npm run build` (from repo root) |
 | Dev server (frontend) | `make dev` → http://localhost:5173/ |
 | Dev server (platform-worker) | `make worker-platform` → http://127.0.0.1:8791 |
-| Dev server (rss-worker) | `make worker-rss` → http://127.0.0.1:8787 |
-| Dev server (sync-worker) | `make worker-sync` → http://127.0.0.1:8788 |
-| Dev server (meta-worker) | `make worker-meta` → http://127.0.0.1:8789 |
 
 ### Environment setup
 
-Copy `news-feed/.env.example` → `news-feed/.env` before running the frontend dev server. The example already has correct local URLs for all three workers.
+Copy `news-feed/.env.example` → `news-feed/.env` before running the frontend dev server. The example sets `VITE_PLATFORM_WORKER_URL=http://127.0.0.1:8791`.
 
 ### Running services for local dev
 
-- The **rss-worker** is required for the frontend to load articles (no fallback exists).
-- **sync-worker** and **meta-worker** are optional — the app works without them, but sync/metadata features will be unavailable.
+- **`platform-worker`** is required for the frontend to load articles (RSS, sync, meta, rec — all on port **8791**). Start with `make worker-platform`.
 - Workers run via `wrangler dev` and don't need Cloudflare API tokens for local use.
-- Each worker test suite (`vitest run`) uses `@cloudflare/vitest-pool-workers` and does NOT require running worker dev servers.
 
 ### Gotchas
 
 - There is no root `package-lock.json`. Each sub-package has its own lockfile; install them individually or via `make install`.
 - The `npm run build` from root runs `npm ci --prefix news-feed` which reinstalls news-feed deps. If you've already installed, `cd news-feed && npm run build` is faster.
 - `punycode` deprecation warnings in worker tests are harmless noise from wrangler internals.
-- The `news-feed` test command uses Node's built-in test runner (not Vitest), while the three workers use Vitest with the Cloudflare pool.
+- The `news-feed` test command uses Node's built-in test runner (not Vitest).
