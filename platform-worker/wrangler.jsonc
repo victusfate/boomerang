@@ -1,0 +1,45 @@
+{
+  "name": "boomerang-platform",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-09",
+  "observability": {
+    "enabled": true
+  },
+  "kv_namespaces": [
+    {
+      "binding": "ARTICLE_META",
+      "id": "3357ba71982a42d3af3e5ceb7413781e"
+    },
+    {
+      "binding": "REC_STORE",
+      "id": "fa6c6dcc675b40b4a51f46b5ac99844e"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "SYNC_BLOCKS",
+      "bucket_name": "boomerang"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "META_DO",
+        "class_name": "MetaDO"
+      },
+      {
+        "name": "REC_DO",
+        "class_name": "RecDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["MetaDO", "RecDO"]
+    }
+  ],
+  "triggers": {
+    "crons": ["0 * * * *"]
+  }
+}

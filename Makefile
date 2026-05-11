@@ -1,10 +1,10 @@
 # Requires GNU Make (Git for Windows: add Git's usr\bin to PATH, or use Git Bash).
 # Default: Vite dev server (loads news-feed/.env for VITE_* worker URLs).
 
-.PHONY: help preview-pages run dev worker worker-meta worker-sync worker-rss worker-rec \
-        stop-worker-rss stop-worker-sync stop-worker-meta stop-worker-rec stop-workers \
+.PHONY: help preview-pages run dev worker worker-meta worker-sync worker-rss worker-rec worker-platform \
+        stop-worker-rss stop-worker-sync stop-worker-meta stop-worker-rec stop-worker-platform stop-workers \
         install audit test \
-        deploy-rss deploy-sync deploy-meta deploy-rec deploy \
+        deploy-rss deploy-sync deploy-meta deploy-rec deploy-platform deploy \
         create-kv create-r2 create-rec-kv
 
 .DEFAULT_GOAL := dev
@@ -23,15 +23,17 @@ help:
 	@echo "  make worker-rss            wrangler dev — rss-worker  http://127.0.0.1:8787"
 	@echo "  make worker-sync           wrangler dev — sync-worker  http://127.0.0.1:8788"
 	@echo "  make worker-meta           wrangler dev — meta-worker  http://127.0.0.1:8789"
-	@echo "  make worker-rec            wrangler dev — rec-worker   http://127.0.0.1:8790"
+	@echo "  make worker-rec            wrangler dev — rec-worker      http://127.0.0.1:8790"
+	@echo "  make worker-platform       wrangler dev — platform-worker http://127.0.0.1:8791"
 	@echo "  make worker                alias for worker-rss (backwards compat)"
 	@echo "  make stop-worker-rss       kill local rss-worker listener (8787)"
 	@echo "  make stop-worker-sync      kill local sync-worker listener (8788)"
 	@echo "  make stop-worker-meta      kill local meta-worker listener (8789)"
 	@echo "  make stop-worker-rec       kill local rec-worker listener (8790)"
-	@echo "  make stop-workers          kill all local worker listeners (8787-8790)"
-	@echo "  make install               npm ci in all five packages"
-	@echo "  make audit                 npm audit fix + npm audit in all five packages"
+	@echo "  make stop-worker-platform  kill local platform-worker listener (8791)"
+	@echo "  make stop-workers          kill all local worker listeners (8787-8791)"
+	@echo "  make install               npm ci in all six packages"
+	@echo "  make audit                 npm audit fix + npm audit in all six packages"
 	@echo "  make test                  Run tests in all four packages"
 	@echo ""
 	@echo "Deploy (requires wrangler login)"
@@ -39,7 +41,8 @@ help:
 	@echo "  make deploy-sync           Deploy sync-worker to Cloudflare"
 	@echo "  make deploy-meta           Deploy meta-worker to Cloudflare"
 	@echo "  make deploy-rec            Deploy rec-worker to Cloudflare"
-	@echo "  make deploy                Deploy all four workers"
+	@echo "  make deploy-platform       Deploy platform-worker to Cloudflare"
+	@echo "  make deploy                Deploy all five workers"
 	@echo ""
 	@echo "One-time resource creation (run once per Cloudflare account)"
 	@echo "  make create-kv             Create ARTICLE_META KV namespace (meta-worker)"
@@ -69,6 +72,9 @@ worker-meta:
 
 worker-rec:
 	cd rec-worker && npx wrangler dev --port 8790
+
+worker-platform:
+	cd platform-worker && npx wrangler dev --port 8791
 
 worker: worker-rss
 
@@ -108,7 +114,16 @@ stop-worker-rec:
 		echo "rec-worker is not listening on :8790"; \
 	fi
 
-stop-workers: stop-worker-rss stop-worker-sync stop-worker-meta stop-worker-rec
+stop-worker-platform:
+	@pids="$$(lsof -t -iTCP:8791 -sTCP:LISTEN 2>/dev/null || true)"; \
+	if [ -n "$$pids" ]; then \
+		echo "Stopping platform-worker on :8791 (pid(s): $$pids)"; \
+		kill $$pids; \
+	else \
+		echo "platform-worker is not listening on :8791"; \
+	fi
+
+stop-workers: stop-worker-rss stop-worker-sync stop-worker-meta stop-worker-rec stop-worker-platform
 
 # ── Install + test ────────────────────────────────────────────────────────────
 
@@ -118,6 +133,7 @@ install:
 	cd sync-worker && npm ci
 	cd meta-worker && npm ci
 	cd rec-worker && npm ci
+	cd platform-worker && npm ci
 
 audit:
 	cd news-feed && npm audit fix && npm audit
@@ -125,6 +141,7 @@ audit:
 	cd sync-worker && npm audit fix && npm audit
 	cd meta-worker && npm audit fix && npm audit
 	cd rec-worker && npm audit fix && npm audit
+	cd platform-worker && npm audit fix && npm audit
 
 test:
 	cd news-feed && npm test
@@ -146,7 +163,10 @@ deploy-meta:
 deploy-rec:
 	cd rec-worker && npx wrangler deploy
 
-deploy: deploy-rss deploy-sync deploy-meta deploy-rec
+deploy-platform:
+	cd platform-worker && npx wrangler deploy
+
+deploy: deploy-rss deploy-sync deploy-meta deploy-rec deploy-platform
 
 # ── One-time resource creation ────────────────────────────────────────────────
 # Run these once when setting up a new Cloudflare account.
