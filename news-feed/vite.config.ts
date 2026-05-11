@@ -7,6 +7,10 @@ const base = process.env.GITHUB_PAGES === 'true' ? '/boomerang' : '/';
 
 export default defineConfig({
   base,
+  server: {
+    port: 5173,
+    strictPort: true,
+  },
   // Preview must use the same `base` as the build (set GITHUB_PAGES=true for gh-pages preview).
   preview: {
     open: base === '/boomerang' ? '/boomerang' : '/',
