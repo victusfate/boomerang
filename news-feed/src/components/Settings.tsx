@@ -50,6 +50,7 @@ interface Props {
   onGenerateLink: () => Promise<void>;
   onRevoke: () => Promise<void>;
   onToggleAiBar: () => void;
+  onLogRecDiagnostics: () => Promise<void>;
 }
 
 export function Settings({
@@ -59,7 +60,7 @@ export function Settings({
   onAddLabel, onDeleteLabel,   onSuggestLabels,
   syncActive, syncStatus, syncedAt, syncError, syncErrorDetails, syncUrl, syncEnvError,
   metaStatus, metaError, metaEnvError,
-  onForceMetaSync, onForceSync, onGenerateLink, onRevoke, onToggleAiBar,
+  onForceMetaSync, onForceSync, onGenerateLink, onRevoke, onToggleAiBar, onLogRecDiagnostics,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
@@ -606,6 +607,12 @@ export function Settings({
           </p>
           <button className="btn-reset-prefs" onClick={() => { onResetPrefs(); onClose(); }}>
             Reset learned preferences
+          </button>
+          <p className="settings-hint" style={{ marginTop: '12px' }}>
+            Log collaborative filter state to the browser console (open DevTools to view).
+          </p>
+          <button className="btn-reset-prefs" onClick={() => void onLogRecDiagnostics()}>
+            Log rec diagnostics
           </button>
         </section>
 

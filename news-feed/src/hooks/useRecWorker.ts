@@ -4,6 +4,7 @@ import {
   getOrCreateRecUserId,
   postInteractions,
   fetchRecommendations,
+  fetchRecDiagnostics,
   type RecInteractionInput,
 } from '../services/recWorker';
 
@@ -24,6 +25,7 @@ export interface UseRecWorkerResult {
   recEnvError:     string | null;
   recBootstrapDone: boolean;
   recBootstrapError: string | null;
+  logDiagnostics: () => Promise<void>;
 }
 
 export function useRecWorker(): UseRecWorkerResult {
@@ -123,5 +125,27 @@ export function useRecWorker(): UseRecWorkerResult {
     if (bufferRef.current.length >= FLUSH_BATCH_SIZE) void flush();
   }, [flush]);
 
-  return { sendInteraction, recArticleIds, recStatus, recEnvError, recBootstrapDone, recBootstrapError };
+  const logDiagnostics = useCallback(async () => {
+    const userId = userIdRef.current;
+    console.group('[rec] Diagnostics');
+    console.log('userId:', userId ?? '(not resolved)');
+    console.log('status:', recStatus, '| bootstrapDone:', recBootstrapDone);
+    console.log('pendingBuffer:', bufferRef.current.length, 'events');
+    console.log('ranked articleIds (top 20):',
+      recArticleIds.slice(0, 20).map((id, i) => `#${i + 1} ${id}`));
+    if (WORKER_BASE && userId) {
+      try {
+        const debug = await fetchRecDiagnostics(WORKER_BASE);
+        console.log('model — globalState:', debug.globalState);
+        console.log('model — userFactors:', debug.userFactorsCount.count,
+          '| itemFactors:', debug.itemFactorsCount.count,
+          '| interactions:', debug.interactionsCount.count);
+      } catch (e) {
+        console.warn('[rec] debug fetch failed:', e);
+      }
+    }
+    console.groupEnd();
+  }, [recArticleIds, recStatus, recBootstrapDone]);
+
+  return { sendInteraction, recArticleIds, recStatus, recEnvError, recBootstrapDone, recBootstrapError, logDiagnostics };
 }

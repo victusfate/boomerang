@@ -79,7 +79,7 @@ export default function App() {
     metaTagsMap, feedTaggedArticle, endTaggingPass, forceMetaSync, metaStatus, metaError, metaEnvError, metaSyncCooldownMs,
   } = useMetaWorker(articleIds);
 
-  const { sendInteraction, recArticleIds, recStatus, recBootstrapDone, recBootstrapError } = useRecWorker();
+  const { sendInteraction, recArticleIds, recStatus, recBootstrapDone, recBootstrapError, logDiagnostics } = useRecWorker();
 
   const {
     visibleArticles, savedArticles, hasMore, totalLoaded,
@@ -504,6 +504,7 @@ export default function App() {
           onGenerateLink={generateLink}
           onRevoke={revoke}
           onToggleAiBar={onToggleAiBar}
+          onLogRecDiagnostics={logDiagnostics}
         />
       )}
     </>

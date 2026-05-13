@@ -136,6 +136,20 @@ export async function handleRec(request: Request, env: Env, _ctx: ExecutionConte
     return json(recBody, request, env);
   }
 
+  if (pathname === '/rec/debug' && request.method === 'GET') {
+    const stub = getRecDOStub(env);
+    const [gs, uc, ic, iic] = await Promise.all([
+      stub.fetch('http://do-internal/debug/global-state').then(r => r.json()),
+      stub.fetch('http://do-internal/debug/user-factors-count').then(r => r.json()),
+      stub.fetch('http://do-internal/debug/item-factors-count').then(r => r.json()),
+      stub.fetch('http://do-internal/debug/interactions-count').then(r => r.json()),
+    ]);
+    return json(
+      { globalState: gs, userFactorsCount: uc, itemFactorsCount: ic, interactionsCount: iic },
+      request, env,
+    );
+  }
+
   return new Response('Not Found', { status: 404, headers: corsHeaders(request, env) });
 }
 

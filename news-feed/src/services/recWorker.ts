@@ -48,3 +48,16 @@ export async function fetchRecommendations(
   if (!res.ok) throw new Error(`rec-worker ${res.status}`);
   return res.json() as Promise<RecResponse>;
 }
+
+export interface RecDebugInfo {
+  globalState: { mean: number; n: number };
+  userFactorsCount: { count: number };
+  itemFactorsCount: { count: number };
+  interactionsCount: { count: number };
+}
+
+export async function fetchRecDiagnostics(workerBase: string): Promise<RecDebugInfo> {
+  const res = await fetch(`${workerBase}/rec/debug`);
+  if (!res.ok) throw new Error(`rec-debug ${res.status}`);
+  return res.json() as Promise<RecDebugInfo>;
+}
