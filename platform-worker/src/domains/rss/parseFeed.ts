@@ -3,6 +3,9 @@ import { decode } from 'html-entities';
 import type { NewsSource, Topic } from './sources';
 import { resolveArticleImageUrl, extractOgImageFromHtml, isAllowedOgFetchUrl } from './ogImage';
 
+/** Card snippet length (matches news-feed `.card-desc` clamp). */
+export const ARTICLE_DESCRIPTION_MAX = 280;
+
 export interface ArticleWire {
   id: string;
   title: string;
@@ -224,7 +227,7 @@ export async function parseFeed(xml: string, source: NewsSource): Promise<Articl
 
       const enc = item['content:encoded'];
       const rawDesc = textVal(item.description ?? enc ?? item.summary ?? '');
-      const description = stripHTML(decodeEntities(rawDesc)).slice(0, 280);
+      const description = stripHTML(decodeEntities(rawDesc)).slice(0, ARTICLE_DESCRIPTION_MAX);
       const pubDateStr = textVal(item.pubDate ?? item.published ?? item['dc:date']);
       const publishedAt = pubDateStr ? new Date(pubDateStr) : new Date();
       const imageUrl =
@@ -270,7 +273,7 @@ export async function parseFeed(xml: string, source: NewsSource): Promise<Articl
       } else {
         rawDesc = textVal(entry.summary ?? entry.content);
       }
-      const description = stripHTML(decodeEntities(rawDesc)).slice(0, 280);
+      const description = stripHTML(decodeEntities(rawDesc)).slice(0, ARTICLE_DESCRIPTION_MAX);
       const pubDateStr = textVal(entry.published ?? entry.updated);
       const publishedAt = pubDateStr ? new Date(pubDateStr) : new Date();
       const imageUrl =

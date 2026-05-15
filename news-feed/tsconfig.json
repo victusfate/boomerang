@@ -20,5 +20,5 @@
       "@victusfate/ricochet": ["./node_modules/@victusfate/ricochet/src/lib.ts"]
     }
   },
-  "include": ["src", "../shared/rss-sources.json"]
+  "include": ["src", "../shared/rss-sources.json", "../shared/articleRecordCatalog.ts"]
 }

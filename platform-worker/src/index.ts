@@ -47,7 +47,7 @@ export default {
     }
 
     // ── Rec domain ────────────────────────────────────────────────────────────
-    if (path === '/interactions' || path.startsWith('/recommendations/')) {
+    if (path === '/interactions' || path.startsWith('/recommendations/') || path === '/rec/debug' || path === '/rec/articles') {
       return handleRec(request, env, ctx);
     }
 

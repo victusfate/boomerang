@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { Article, UserPrefs } from '../types';
 import { TOPIC_META } from './TopicFilter';
+import { CardScoreBadge } from './CardScoreBadge';
+import type { FeedScoreInsight } from '../services/feedScoreBreakdown';
 
 /** Match worker `normalizeHttpUrl` — fixes `&amp;` in stored URLs and canonicalizes for href / window.open. */
 function normalizeArticleNavUrl(raw: string): string {
@@ -47,6 +49,9 @@ interface Props {
   isTagging?: boolean;
   onAddManualTag?: (articleId: string, tag: string) => void;
   onRemoveManualTag?: (articleId: string, tag: string) => void;
+  /** Feed tab: local + MF ranking breakdown (hover chip) */
+  feedScoreInsight?: FeedScoreInsight | null;
+  feedScoresLoading?: boolean;
 }
 
 export function ArticleCard({
@@ -64,6 +69,8 @@ export function ArticleCard({
   onSeen,
   onAddManualTag,
   onRemoveManualTag,
+  feedScoreInsight,
+  feedScoresLoading = false,
 }: Props) {
   const saved     = prefs.savedIds.includes(article.id);
   const votedUp   = prefs.upvotedIds.includes(article.id);
@@ -197,6 +204,12 @@ export function ArticleCard({
           <span className="card-topic" style={{ color: topicMeta?.color }}>
             {topicMeta?.label ?? primaryTopic}
           </span>
+          {(feedScoresLoading || feedScoreInsight) && (
+            <>
+              <span className="card-dot">·</span>
+              <CardScoreBadge insight={feedScoreInsight ?? null} loading={feedScoresLoading} />
+            </>
+          )}
         </div>
 
         {(uniqueLabelNames.length > 0 || onAddManualTag) && (

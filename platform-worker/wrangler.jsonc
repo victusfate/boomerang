@@ -41,5 +41,9 @@
   ],
   "triggers": {
     "crons": ["0 * * * *"]
+  },
+  // Keep in sync with `src/corsOrigins.ts` → BOOMERANG_EXTRA_CORS_ORIGINS
+  "vars": {
+    "EXTRA_CORS_ORIGINS": "https://victusfate.github.io,https://boomerang-news.com,https://www.boomerang-news.com"
   }
 }

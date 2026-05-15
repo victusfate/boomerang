@@ -4,12 +4,13 @@
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",
-    "dev": "wrangler dev --port 8791",
+    "dev": "wrangler dev --port 8787",
     "cf-typegen": "wrangler types",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types src/domains/rec/articleMeta.node.test.ts"
   },
   "dependencies": {
-    "@victusfate/ricochet": "github:victusfate/ricochet",
+    "@victusfate/ricochet": "github:victusfate/ricochet#v1.2.2",
     "fast-xml-parser": "^5.7.2",
     "html-entities": "^2.6.0"
   },

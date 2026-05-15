@@ -87,4 +87,4 @@ export interface UserPrefs {
   hideAiBar:      boolean;
 }
 
-export type FeedView = 'feed' | 'saved' | 'settings';
+export type FeedView = 'feed' | 'saved' | 'rec';

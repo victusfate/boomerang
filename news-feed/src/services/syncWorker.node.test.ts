@@ -80,8 +80,8 @@ describe('migrateLegacySyncRoom', () => {
       token: 'tok',
       workerUrl: 'http://127.0.0.1:8788',
     };
-    const migrated = migrateLegacySyncRoom(room, 'http://127.0.0.1:8791');
-    assert.equal(migrated.workerUrl, 'http://127.0.0.1:8791');
+    const migrated = migrateLegacySyncRoom(room, 'http://localhost:8787');
+    assert.equal(migrated.workerUrl, 'http://localhost:8787');
   });
 
   test('migrates legacy boomerang-sync cloud hostname', () => {

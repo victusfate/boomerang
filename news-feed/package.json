@@ -7,14 +7,14 @@
     "icons": "node scripts/generate-icons.mjs",
     "prebuild": "node scripts/generate-icons.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types src/services/feedPartition.node.test.ts src/services/labelClassifier.node.test.ts src/services/storage.node.test.ts src/services/labelSuggester.node.test.ts src/components/TopicFilter.node.test.ts src/services/syncWorker.node.test.ts src/services/metaSyncTrigger.node.test.ts",
+    "test": "node --test --experimental-strip-types src/services/feedPartition.node.test.ts src/services/labelClassifier.node.test.ts src/services/storage.node.test.ts src/services/labelSuggester.node.test.ts src/components/TopicFilter.node.test.ts src/services/syncWorker.node.test.ts src/services/metaSyncTrigger.node.test.ts src/services/recArticlesLookup.node.test.ts src/services/articleRecordCatalog.node.test.ts src/services/recPoolMerge.node.test.ts src/services/feedScoreBreakdown.node.test.ts",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "build:gh-pages": "node scripts/generate-icons.mjs && npm run typecheck && cross-env GITHUB_PAGES=true vite build",
     "preview:gh-pages": "npm run build:gh-pages && cross-env GITHUB_PAGES=true vite preview"
   },
   "dependencies": {
-    "@victusfate/ricochet": "github:victusfate/ricochet",
+    "@victusfate/ricochet": "github:victusfate/ricochet#v1.2.2",
     "qrcode": "^1.5.4",
     "react": "19.2.5",
     "react-dom": "19.2.5"

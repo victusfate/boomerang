@@ -3,6 +3,7 @@ import { corsHeaders } from '../../cors';
 import { DEFAULT_SOURCES, SOURCE_BY_ID, type NewsSource } from './sources';
 import { fetchFeedsStaggered } from './rssFetch';
 import { extractOgImageFromHtml, isAllowedOgFetchUrl } from './ogImage';
+import { persistArticleMeta, wireArticleFromFeed } from '../rec/articleMeta';
 
 const BUNDLE_CACHE_TTL_SEC = 300;
 const IMAGE_PROXY_CACHE_TTL_SEC = 86_400;
@@ -88,6 +89,10 @@ export async function handleRss(request: Request, env: Env, ctx: ExecutionContex
     const response = json(body, request, env);
     ctx.waitUntil(
       cache.put(cacheKey, response.clone()).catch(() => { /* ignore transient cache failures */ }),
+    );
+    // Populate REC_STORE so /rec/articles can resolve titles without re-fetching feeds.
+    ctx.waitUntil(
+      persistArticleMeta(env, articles.map(wireArticleFromFeed)).catch(() => {}),
     );
     return response;
   }

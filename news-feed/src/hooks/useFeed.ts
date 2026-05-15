@@ -88,6 +88,8 @@ export interface UseFeedOptions {
   recStatus?: 'disabled' | 'active' | 'error';
   recBootstrapDone?: boolean;
   recBootstrapError?: string | null;
+  recCandidateMode?: 'feed-pool' | 'global';
+  onArticlePoolIds?: (ids: string[]) => void;
 }
 
 export function useFeed(options?: UseFeedOptions) {
@@ -114,6 +116,8 @@ export function useFeed(options?: UseFeedOptions) {
   const allArticlesRef   = useRef<Article[]>([]);
   allArticlesRef.current = allArticles;
 
+  const articleTagsMapRef = useRef<Map<string, string[]>>(new Map());
+
   const markedSeenRef    = useRef(new Set<string>());
 
   const recInteractRef = useRef<((input: RecInteractionInput) => void) | undefined>(undefined);
@@ -136,33 +140,65 @@ export function useFeed(options?: UseFeedOptions) {
     return selectedRecRankIdsRef.current ?? [];
   }, []);
 
-  // Lock recommendation policy exactly once: server ordering when available, otherwise
-  // explicit local fallback if bootstrap fails/disabled/returns empty.
+  const recCandidateModeRef = useRef<'feed-pool' | 'global' | undefined>(undefined);
   useEffect(() => {
-    if (selectedRecRankIdsRef.current !== undefined) return;
+    recCandidateModeRef.current = options?.recCandidateMode;
+  });
+
+  // Lock recommendation policy on bootstrap; re-apply when feed-pool recs refresh.
+  useEffect(() => {
     if (!recBootstrapDoneRef.current) return;
     const pool = articlePoolRef.current;
     if (pool.length === 0) return;
 
     const ids = recArticleIdsRef.current;
-    if (ids.length > 0) {
-      selectedRecRankIdsRef.current = [...ids];
-      console.info(`[rec] Applied server recommendations for initial ordering (${ids.length} ids).`);
-    } else {
-      selectedRecRankIdsRef.current = null;
-      if (recStatusRef.current === 'error' || recBootstrapErrorRef.current) {
-        console.warn('[rec] Recommendation backend unavailable; using local ranking fallback.');
-      } else if (recStatusRef.current === 'disabled') {
-        console.warn('[rec] Recommendations disabled (missing VITE_REC_WORKER_URL); using local ranking fallback.');
+    const isFeedPool = recCandidateModeRef.current === 'feed-pool';
+    const firstLock = selectedRecRankIdsRef.current === undefined;
+
+    if (firstLock) {
+      if (ids.length > 0) {
+        selectedRecRankIdsRef.current = [...ids];
+        console.info(`[rec] Applied server recommendations for initial ordering (${ids.length} ids).`);
       } else {
-        console.info('[rec] Recommendation backend returned no ids; using local ranking fallback.');
+        selectedRecRankIdsRef.current = null;
+        if (recStatusRef.current === 'error' || recBootstrapErrorRef.current) {
+          console.warn('[rec] Recommendation backend unavailable; using local ranking fallback.');
+        } else if (recStatusRef.current === 'disabled') {
+          console.warn('[rec] Recommendations disabled (missing VITE_REC_WORKER_URL); using local ranking fallback.');
+        } else {
+          console.info('[rec] Recommendation backend returned no ids; using local ranking fallback.');
+        }
       }
+    } else if (isFeedPool && ids.length > 0) {
+      selectedRecRankIdsRef.current = [...ids];
+    } else {
+      return;
     }
 
     const ranked = rankFeed(pool, prefsRef.current, getRankRecIds());
     allArticlesRef.current = ranked;
     setAllArticles(ranked);
-  }, [options?.recBootstrapDone, options?.recBootstrapError, options?.recStatus, options?.recArticleIds, getRankRecIds]);
+  }, [
+    options?.recBootstrapDone,
+    options?.recBootstrapError,
+    options?.recStatus,
+    options?.recArticleIds,
+    options?.recCandidateMode,
+    getRankRecIds,
+  ]);
+
+  // Publish rec candidates only when the pool snapshot is stable (cache / fetch done),
+  // not on every progressive onBatch — avoids dozens of batched POST /recommendations calls.
+  const publishRecCandidateIds = useCallback((pool: Article[]) => {
+    if (pool.length === 0) {
+      options?.onArticlePoolIds?.([]);
+      return;
+    }
+    const ids = rankFeed(pool, prefsRef.current, []).map(a => a.id);
+    options?.onArticlePoolIds?.(ids);
+  }, [options?.onArticlePoolIds]);
+  const publishRecCandidateIdsRef = useRef(publishRecCandidateIds);
+  publishRecCandidateIdsRef.current = publishRecCandidateIds;
 
   // Incremented on every refresh call; onBatch/finally checks this to discard
   // results from a superseded (stale) fetch.
@@ -506,6 +542,7 @@ export function useFeed(options?: UseFeedOptions) {
       if (cached?.articles.length) {
         articlePoolRef.current = cached.articles;
         setArticlePool(cached.articles);
+        publishRecCandidateIdsRef.current(cached.articles);
 
         const ranked = rankFeed(cached.articles, mergePrefs(cleanedPrefs, prefsRef.current), getRankRecIds());
         allArticlesRef.current = ranked;
@@ -640,6 +677,7 @@ export function useFeed(options?: UseFeedOptions) {
         setFetching(false);
         if (feedSuccess) {
           setLastRefresh(new Date());
+          publishRecCandidateIdsRef.current(articlePoolRef.current);
         }
         fetchingRef.current = false;
       } else {
@@ -659,7 +697,7 @@ export function useFeed(options?: UseFeedOptions) {
       return next;
     });
     const a = allArticlesRef.current.find(x => x.id === id);
-    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, action: 'seen', ts: Date.now() });
+    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, tags: articleTagsMapRef.current.get(a.id), action: 'seen', ts: Date.now() });
   }, []);
 
   // ── Pagination ────────────────────────────────────────────────────────────────
@@ -676,25 +714,25 @@ export function useFeed(options?: UseFeedOptions) {
     const next = markRead(article.id, prefsRef.current);
     const boosted = article.topics.reduce((p, t) => boostTopic(t, p), next);
     updatePrefs(boosted);
-    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, action: 'read', ts: Date.now() });
+    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, tags: articleTagsMapRef.current.get(article.id), action: 'read', ts: Date.now() });
   }, [updatePrefs]);
 
   const handleSave = useCallback((id: string) => {
     updatePrefs(toggleSaved(id, prefsRef.current));
     const a = allArticlesRef.current.find(x => x.id === id);
-    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, action: 'save', ts: Date.now() });
+    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, tags: articleTagsMapRef.current.get(a.id), action: 'save', ts: Date.now() });
   }, [updatePrefs]);
 
   const handleUpvote = useCallback((article: Article) => {
     updatePrefs(upvote(article, prefsRef.current));
     // No re-rank: card stays visible; ▲ highlight comes from prefs.upvotedIds.
-    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, action: 'upvote', ts: Date.now() });
+    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, tags: articleTagsMapRef.current.get(article.id), action: 'upvote', ts: Date.now() });
   }, [updatePrefs]);
 
   const handleDownvote = useCallback((article: Article) => {
     // Toggle downvote — card stays in the feed and renders collapsed via prefs.downvotedIds
     updatePrefs(downvote(article, prefsRef.current));
-    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, action: 'downvote', ts: Date.now() });
+    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, tags: articleTagsMapRef.current.get(article.id), action: 'downvote', ts: Date.now() });
   }, [updatePrefs]);
 
   const handleToggleSource = useCallback((sourceId: string) => {
@@ -996,8 +1034,10 @@ export function useFeed(options?: UseFeedOptions) {
     }
     return map;
   }, [articleTags, metaTagsMap]);
+  articleTagsMapRef.current = articleTagsMap;
 
   return {
+    allArticles,
     visibleArticles: allArticles.slice(0, visibleCount),
     savedArticles,
     hasMore:     visibleCount < allArticles.length,

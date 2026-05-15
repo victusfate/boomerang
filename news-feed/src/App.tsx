@@ -7,9 +7,16 @@ import { useOGImageBatch } from './hooks/useOGImageBatch';
 import { ArticleCard } from './components/ArticleCard';
 import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
+import { RecDiagnostics } from './components/RecDiagnostics';
 import { suggestLabels } from './services/labelSuggester';
 import { isPromptApiAvailable } from './services/labelClassifier';
 import { sameIdsInOrder } from './services/metaSyncTrigger';
+import { saveTitles, loadTitleCache } from './services/titleCache';
+import {
+  buildRecRankMap,
+  computeFeedScoreInsight,
+  countSourceArticles,
+} from './services/feedScoreBreakdown';
 import type { ActiveFilter, FeedView } from './types';
 
 const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
@@ -79,9 +86,27 @@ export default function App() {
     metaTagsMap, feedTaggedArticle, endTaggingPass, forceMetaSync, metaStatus, metaError, metaEnvError, metaSyncCooldownMs,
   } = useMetaWorker(articleIds);
 
-  const { sendInteraction, recArticleIds, recStatus, recBootstrapDone, recBootstrapError } = useRecWorker();
+  const [articlePoolIds, setArticlePoolIds] = useState<string[]>([]);
 
   const {
+    sendInteraction,
+    recArticleIds,
+    recScoreById,
+    recScoredArticles,
+    recModelDiagnostics,
+    recGeneratedAt,
+    recStatus,
+    recBootstrapDone,
+    recBootstrapError,
+    recUserId,
+    recEnvError,
+    recTrace,
+    recCacheInfo,
+    recTimingMs,
+  } = useRecWorker(articlePoolIds);
+
+  const {
+    allArticles,
     visibleArticles, savedArticles, hasMore, totalLoaded,
     loading, refreshing, fetching, error, prefs, lastRefresh, feedEnterIds,
     onOpen, onSave, onUpvote, onDownvote, onSeen, onLoadMore,
@@ -99,10 +124,50 @@ export default function App() {
     recStatus,
     recBootstrapDone,
     recBootstrapError,
+    recCandidateMode: recModelDiagnostics?.candidateMode,
+    onArticlePoolIds: setArticlePoolIds,
   });
 
   const { syncActive, syncStatus, syncedAt, syncError, syncErrorDetails, syncUrl, syncEnvError, syncCooldownMs, forceSync, generateLink, revoke } =
     useSyncWorker(prefs, articleTags, labelHits, savedArticles, onRemoteSync, syncReady);
+
+  const [persistedTitles, setPersistedTitles] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    void loadTitleCache().then(setPersistedTitles);
+  }, []);
+
+  useEffect(() => {
+    const articles = [...allArticles, ...savedArticles];
+    if (articles.length > 0) void saveTitles(articles);
+  }, [allArticles, savedArticles]);
+
+  const articleTitleById = useMemo(() => {
+    const map = new Map<string, string>(Object.entries(persistedTitles));
+    for (const article of allArticles) map.set(article.id, article.title);
+    for (const article of savedArticles) map.set(article.id, article.title);
+    return map;
+  }, [allArticles, savedArticles, persistedTitles]);
+  const getArticleTitle = useCallback(
+    (id: string) => articleTitleById.get(id) ?? null,
+    [articleTitleById],
+  );
+
+  const sourceDisplayBySourceId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of allArticles) {
+      if (!m.has(a.sourceId)) m.set(a.sourceId, a.source);
+    }
+    for (const a of savedArticles) {
+      if (!m.has(a.sourceId)) m.set(a.sourceId, a.source);
+    }
+    return m;
+  }, [allArticles, savedArticles]);
+
+  const getSourceName = useCallback(
+    (sourceId: string) => sourceDisplayBySourceId.get(sourceId) ?? sourceId,
+    [sourceDisplayBySourceId],
+  );
 
   const [view, setView] = useState<FeedView>('feed');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>(null);
@@ -270,6 +335,11 @@ export default function App() {
     return list;
   }, [visibleArticles, savedArticles, view, activeFilter, articleTagsMap, prefs.userLabels]);
 
+  const showFeedScores = view === 'feed' && recStatus !== 'disabled' && !recEnvError;
+  const recRankMap = useMemo(() => buildRecRankMap(recArticleIds), [recArticleIds]);
+  const feedSourceCounts = useMemo(() => countSourceArticles(allArticles), [allArticles]);
+  const feedScoresLoading = showFeedScores && !recBootstrapDone;
+
   // When a topic filter is active and the visible slice has no matches yet,
   // automatically load more so the user isn't stuck on a false empty state.
   useEffect(() => {
@@ -350,6 +420,14 @@ export default function App() {
         >
           Saved {savedArticles.length > 0 && <span className="tab-count">{savedArticles.length}</span>}
         </button>
+        <button
+          role="tab"
+          aria-selected={view === 'rec'}
+          className={`tab ${view === 'rec' ? 'active' : ''}`}
+          onClick={() => setView('rec')}
+        >
+          Ranking
+        </button>
       </nav>
 
       {view === 'feed' && (
@@ -400,75 +478,101 @@ export default function App() {
         </div>
       )}
 
-      <main className="feed">
-        {(error || metaEnvError || metaError) && (
-          <div className="feed-error">
-            {error && (
-              <>
-                <p>{error}</p>
-                <button onClick={onManualRefresh} className="btn-retry">Try again</button>
-              </>
+      <main className={view === 'rec' ? 'rec-view' : 'feed'}>
+        {view === 'rec' ? (
+          <RecDiagnostics
+            recUserId={recUserId}
+            recArticleIds={recArticleIds}
+            recScoreById={recScoreById}
+            recScoredArticles={recScoredArticles}
+            recModelDiagnostics={recModelDiagnostics}
+            recTrace={recTrace}
+            recCacheInfo={recCacheInfo}
+            recTimingMs={recTimingMs}
+            recGeneratedAt={recGeneratedAt}
+            recStatus={recStatus}
+            getSourceName={getSourceName}
+            getArticleTitle={getArticleTitle}
+          />
+        ) : (
+          <>
+            {(error || metaEnvError || metaError) && (
+              <div className="feed-error">
+                {error && (
+                  <>
+                    <p>{error}</p>
+                    <button onClick={onManualRefresh} className="btn-retry">Try again</button>
+                  </>
+                )}
+                {metaEnvError && <p>{metaEnvError}</p>}
+                {metaError && <p>Shared metadata: {metaError}</p>}
+              </div>
             )}
-            {metaEnvError && <p>{metaEnvError}</p>}
-            {metaError && <p>Shared metadata: {metaError}</p>}
-          </div>
-        )}
 
-        {/* Initial skeleton loading */}
-        {loading && visibleArticles.length === 0 && (
-          <div className="feed-loading">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="skeleton-card" style={{ animationDelay: `${i * 0.1}s` }} />
+            {loading && visibleArticles.length === 0 && (
+              <div className="feed-loading">
+                {[...Array(5)].map((_, i) => (
+                  <div key={i} className="skeleton-card" style={{ animationDelay: `${i * 0.1}s` }} />
+                ))}
+              </div>
+            )}
+
+            {filteredArticles.map((article, index) => (
+              <Fragment key={article.id}>
+                <ArticleCard
+                  article={article}
+                  prefs={prefs}
+                  animateEnter={feedEnterIds.includes(article.id)}
+                  priority={index === 0}
+                  ogImageUrl={ogMap.get(article.id)}
+                  articleLabelNames={articleTagsMap.get(article.id) ?? []}
+                  isTagging={taggingArticleId === article.id}
+                  onOpen={onOpen}
+                  onSave={onSave}
+                  onUpvote={onUpvote}
+                  onDownvote={onDownvote}
+                  onSeen={onSeen}
+                  onAddManualTag={onAddManualTag}
+                  onRemoveManualTag={onRemoveManualTag}
+                  feedScoresLoading={feedScoresLoading}
+                  feedScoreInsight={showFeedScores
+                    ? computeFeedScoreInsight(
+                      article,
+                      feedSourceCounts,
+                      recRankMap,
+                      recScoreById,
+                      recArticleIds,
+                    )
+                    : undefined}
+                />
+                {index === Math.min(ogFetchedUpTo, filteredArticles.length) - 1 && (
+                  <div ref={ogSentinelRef} aria-hidden="true" />
+                )}
+              </Fragment>
             ))}
-          </div>
-        )}
 
-        {filteredArticles.map((article, index) => (
-          <Fragment key={article.id}>
-            <ArticleCard
-              article={article}
-              prefs={prefs}
-              animateEnter={feedEnterIds.includes(article.id)}
-              priority={index === 0}
-              ogImageUrl={ogMap.get(article.id)}
-              articleLabelNames={articleTagsMap.get(article.id) ?? []}
-              isTagging={taggingArticleId === article.id}
-              onOpen={onOpen}
-              onSave={onSave}
-              onUpvote={onUpvote}
-              onDownvote={onDownvote}
-              onSeen={onSeen}
-              onAddManualTag={onAddManualTag}
-              onRemoveManualTag={onRemoveManualTag}
-            />
-            {index === Math.min(ogFetchedUpTo, filteredArticles.length) - 1 && (
-              <div ref={ogSentinelRef} aria-hidden="true" />
+            {view === 'feed' && <div ref={sentinelRef} className="sentinel" aria-hidden="true" />}
+
+            {!loading && !fetching && !hasMore && visibleArticles.length > 0 && view === 'feed' && !activeFilter && (
+              <div className="feed-end">
+                <span className="feed-end-icon">✓</span>
+                <p>All caught up</p>
+                <button className="btn-retry" onClick={onManualRefresh}>Refresh for more</button>
+              </div>
             )}
-          </Fragment>
-        ))}
 
-        {/* Sentinel — IntersectionObserver target */}
-        {view === 'feed' && <div ref={sentinelRef} className="sentinel" aria-hidden="true" />}
-
-        {/* All caught up */}
-        {!loading && !fetching && !hasMore && visibleArticles.length > 0 && view === 'feed' && !activeFilter && (
-          <div className="feed-end">
-            <span className="feed-end-icon">✓</span>
-            <p>All caught up</p>
-            <button className="btn-retry" onClick={onManualRefresh}>Refresh for more</button>
-          </div>
-        )}
-
-        {!loading && !fetching && filteredArticles.length === 0 && !error && !metaEnvError && (
-          <div className="feed-empty">
-            {view === 'saved' ? (
-              prefs.savedIds.length > 0
-                ? <p>Loading saved articles…</p>
-                : <p>No saved articles yet. Tap ☆ to bookmark.</p>
-            ) : activeFilter && hasMore ? null : (
-              <p>No articles match this filter.</p>
+            {!loading && !fetching && filteredArticles.length === 0 && !error && !metaEnvError && (
+              <div className="feed-empty">
+                {view === 'saved' ? (
+                  prefs.savedIds.length > 0
+                    ? <p>Loading saved articles…</p>
+                    : <p>No saved articles yet. Tap ☆ to bookmark.</p>
+                ) : activeFilter && hasMore ? null : (
+                  <p>No articles match this filter.</p>
+                )}
+              </div>
             )}
-          </div>
+          </>
         )}
       </main>
 
