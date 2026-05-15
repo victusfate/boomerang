@@ -433,7 +433,7 @@ html, body {
 .card {
   background: var(--card);
   border-radius: var(--radius);
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--border);
   transition: border-color 0.15s;
   animation: cardIn 0.2s ease both;
@@ -472,7 +472,10 @@ html, body {
 }
 .card-image-link:hover .card-play-btn { background: rgba(0,0,0,0.55); }
 
-.card-body { padding: 12px 14px; }
+.card-body {
+  padding: 12px 14px;
+  overflow: visible;
+}
 
 .card-meta {
   display: flex;
@@ -513,25 +516,26 @@ html, body {
   50% { opacity: 1; }
 }
 .card-score-popover {
-  display: none;
-  position: absolute;
-  z-index: 40;
-  right: 0;
-  top: calc(100% + 6px);
-  width: min(260px, 88vw);
   padding: 10px 12px;
   font-size: 0.75rem;
-  line-height: 1.4;
+  line-height: 1.45;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-  pointer-events: none;
+  box-sizing: border-box;
 }
-.card-score-hover:hover .card-score-popover,
-.card-score-hover:focus-within .card-score-popover {
-  display: block;
+.card-score-popover--centered {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 200;
+  width: min(300px, calc(100vw - 32px));
+  max-height: min(72dvh, 420px);
+  overflow-y: auto;
+  pointer-events: none;
 }
 .card-score-popover-title {
   margin: 0 0 8px;
@@ -543,25 +547,29 @@ html, body {
 }
 .card-score-dl { margin: 0; }
 .card-score-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 2px 0;
+  display: grid;
+  grid-template-columns: minmax(6.5rem, auto) 1fr;
+  gap: 8px 12px;
+  align-items: baseline;
+  padding: 3px 0;
 }
 .card-score-row dt {
   margin: 0;
   color: var(--sub);
   font-weight: 500;
+  white-space: nowrap;
 }
 .card-score-row dd {
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
 }
 .card-score-row--total {
-  margin-top: 4px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
+  margin-bottom: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
 }
 .card-score-row--total dt,
 .card-score-row--total dd {

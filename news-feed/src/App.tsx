@@ -100,6 +100,9 @@ export default function App() {
     recBootstrapError,
     recUserId,
     recEnvError,
+    recTrace,
+    recCacheInfo,
+    recTimingMs,
   } = useRecWorker(articlePoolIds);
 
   const {
@@ -148,6 +151,22 @@ export default function App() {
   const getArticleTitle = useCallback(
     (id: string) => articleTitleById.get(id) ?? null,
     [articleTitleById],
+  );
+
+  const sourceDisplayBySourceId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of allArticles) {
+      if (!m.has(a.sourceId)) m.set(a.sourceId, a.source);
+    }
+    for (const a of savedArticles) {
+      if (!m.has(a.sourceId)) m.set(a.sourceId, a.source);
+    }
+    return m;
+  }, [allArticles, savedArticles]);
+
+  const getSourceName = useCallback(
+    (sourceId: string) => sourceDisplayBySourceId.get(sourceId) ?? sourceId,
+    [sourceDisplayBySourceId],
   );
 
   const [view, setView] = useState<FeedView>('feed');
@@ -467,8 +486,12 @@ export default function App() {
             recScoreById={recScoreById}
             recScoredArticles={recScoredArticles}
             recModelDiagnostics={recModelDiagnostics}
+            recTrace={recTrace}
+            recCacheInfo={recCacheInfo}
+            recTimingMs={recTimingMs}
             recGeneratedAt={recGeneratedAt}
             recStatus={recStatus}
+            getSourceName={getSourceName}
             getArticleTitle={getArticleTitle}
           />
         ) : (
