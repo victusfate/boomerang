@@ -88,6 +88,11 @@ export function ArticleCard({
     () => Array.from(new Set(articleLabelNames)),
     [articleLabelNames],
   );
+  const hoverSnippet = useMemo(() => {
+    const ext = article.snippetExtended;
+    if (!ext || ext.length <= (article.description?.length ?? 0)) return null;
+    return ext;
+  }, [article.snippetExtended, article.description]);
 
   const commitNewTag = useCallback(() => {
     const v = newTagText.trim();
@@ -238,19 +243,27 @@ export function ArticleCard({
           </div>
         )}
 
-        <a
-          href={navUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="card-title-link"
-          onClick={handleArticleNavClick}
-        >
-          <h2 className="card-title">{article.title}</h2>
-        </a>
+        <div className={hoverSnippet ? 'card-snippet-hover' : undefined}>
+          <a
+            href={navUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="card-title-link"
+            onClick={handleArticleNavClick}
+          >
+            <h2 className="card-title">{article.title}</h2>
+          </a>
 
-        {article.description && (
-          <p className="card-desc">{article.description}</p>
-        )}
+          {article.description && (
+            <p className="card-desc">{article.description}</p>
+          )}
+
+          {hoverSnippet && (
+            <div className="card-snippet-popover" role="tooltip">
+              {hoverSnippet}
+            </div>
+          )}
+        </div>
 
         <div className="card-actions">
           <div className="card-read-group">

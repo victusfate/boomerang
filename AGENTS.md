@@ -6,7 +6,7 @@
 |---|---|
 | `shared/rss-sources.json` | Canonical built-in RSS source list — imported at build by `news-feed` and `platform-worker` |
 | `news-feed/` | News PWA (React + Vite + Fireproof), deployed to GitHub Pages at `/boomerang` |
-| `platform-worker/` | **Unified Cloudflare Worker** — all four domains in one deploy: RSS (`/bundle`, `/og-image`, `/image`), sync (`/sync/*`), meta (`/meta*`, `/ws`), rec (`/interactions`, `/recommendations/*`). Local dev: port **8791** (`make worker-platform`). |
+| `platform-worker/` | **Unified Cloudflare Worker** — all four domains in one deploy: RSS (`/bundle`, `/og-image`, `/image`), sync (`/sync/*`), meta (`/meta*`, `/ws`), rec (`/interactions`, `/recommendations/*`). Local dev: port **8787** (`make worker-platform`). |
 | `.github/workflows/deploy.yml` | Builds `news-feed/` only; uploads `news-feed/dist` |
 | `/` (repo root) | `npm run dev` / `preview` forward to `news-feed/`. **`npm run build`** runs `npm ci` + build in `news-feed/` (same as Cloudflare Pages from repo root). In **`news-feed`**, **`npm run preview:gh-pages`** = GitHub Pages–style build + preview (`http://localhost:4173/boomerang`). **`make`** defaults to Vite dev (`http://localhost:5173/`); **`make preview-pages`** runs the GH Pages preview (needs GNU Make). **`make test`** runs tests in `news-feed`. |
 
@@ -45,7 +45,7 @@
 - **Storage**: Fireproof (`use-fireproof ^0.24.0`) — database name `boomerang-news`
   - `user-prefs` document: topic weights, seenIds, readIds, savedIds, source/topic toggles
   - `feed-cache` document: last ranked article list + fetchedAt timestamp
-- **RSS fetching**: **Cloudflare Worker only** (`platform-worker`). **Required** at build/dev: `VITE_PLATFORM_WORKER_URL` (no trailing slash). GitHub Actions must set repository variable **`VITE_PLATFORM_WORKER_URL`**. Worker exposes `GET /bundle?include=id1,id2,...`. There is no browser RSS or CORS-proxy fallback. Local dev: `make worker-platform` (port **8791**); see `news-feed/.env.example`.
+- **RSS fetching**: **Cloudflare Worker only** (`platform-worker`). **Required** at build/dev: `VITE_PLATFORM_WORKER_URL` (no trailing slash). GitHub Actions must set repository variable **`VITE_PLATFORM_WORKER_URL`**. Worker exposes `GET /bundle?include=id1,id2,...`. There is no browser RSS or CORS-proxy fallback. Local dev: `make worker-platform` (port **8787**); see `news-feed/.env.example`.
 - **Shared article metadata**: `platform-worker` — real-time WebSocket updates (`GET /ws`) and KV-backed tags (`GET /meta`, `POST /meta/tags`). Client hook: `useMetaWorker`.
 - **Sync**: `platform-worker` (`/sync/*`) — cross-browser preferences and bookmarks sync. URL fragment carries `roomId:token:workerUrl`; token is never sent in query strings. Client hook: `useSyncWorker` (polls 30s + visibilitychange, debounced push, 412 conflict retry). R2 bucket: `boomerang`.
 - **Recommendations**: `platform-worker` (`/interactions`, `/recommendations/:userId`) via `@victusfate/ricochet`. Client hook: `useRecWorker`.
@@ -236,15 +236,15 @@ This project requires **Node.js 22+** (for `--experimental-strip-types` in `news
 | Typecheck platform-worker | `cd platform-worker && npm run typecheck` |
 | Build news-feed | `npm run build` (from repo root) |
 | Dev server (frontend) | `make dev` → http://localhost:5173/ |
-| Dev server (platform-worker) | `make worker-platform` → http://127.0.0.1:8791 |
+| Dev server (platform-worker) | `make worker-platform` → http://localhost:8787 |
 
 ### Environment setup
 
-Copy `news-feed/.env.example` → `news-feed/.env` before running the frontend dev server. The example sets `VITE_PLATFORM_WORKER_URL=http://127.0.0.1:8791`.
+Copy `news-feed/.env.example` → `news-feed/.env` before running the frontend dev server. The example sets `VITE_PLATFORM_WORKER_URL=http://localhost:8787`.
 
 ### Running services for local dev
 
-- **`platform-worker`** is required for the frontend to load articles (RSS, sync, meta, rec — all on port **8791**). Start with `make worker-platform`.
+- **`platform-worker`** is required for the frontend to load articles (RSS, sync, meta, rec — all on port **8787**). Start with `make worker-platform`.
 - Workers run via `wrangler dev` and don't need Cloudflare API tokens for local use.
 
 ### Gotchas

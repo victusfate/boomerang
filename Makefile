@@ -19,8 +19,8 @@ help:
 	@echo "  make / make dev / make run  Vite dev — http://localhost:5173/ (uses .env)"
 	@echo "  make preview-pages           GitHub Pages–style build + preview → http://localhost:4173/boomerang"
 	@echo "  (no make on Windows PS?)    npm run dev --prefix news-feed  /  npm run preview:gh-pages --prefix news-feed"
-	@echo "  make worker-platform       wrangler dev — platform-worker http://127.0.0.1:8791"
-	@echo "  make stop-worker-platform  kill local platform-worker listener (8791)"
+	@echo "  make worker-platform       wrangler dev — platform-worker http://localhost:8787"
+	@echo "  make stop-worker-platform  kill local platform-worker listener (8787)"
 	@echo "  make install               npm ci in news-feed and platform-worker"
 	@echo "  make audit                 npm audit fix + npm audit in both packages"
 	@echo "  make test                  Run tests in news-feed"
@@ -47,15 +47,15 @@ dev:
 # ── Worker dev server ─────────────────────────────────────────────────────────
 
 worker-platform:
-	cd platform-worker && npx wrangler dev --port 8791
+	cd platform-worker && npx wrangler dev --port 8787
 
 stop-worker-platform:
-	@pids="$$(lsof -t -iTCP:8791 -sTCP:LISTEN 2>/dev/null || true)"; \
+	@pids="$$(lsof -t -iTCP:8787 -sTCP:LISTEN 2>/dev/null || true)"; \
 	if [ -n "$$pids" ]; then \
-		echo "Stopping platform-worker on :8791 (pid(s): $$pids)"; \
+		echo "Stopping platform-worker on :8787 (pid(s): $$pids)"; \
 		kill $$pids; \
 	else \
-		echo "platform-worker is not listening on :8791"; \
+		echo "platform-worker is not listening on :8787"; \
 	fi
 
 # ── Install + test ────────────────────────────────────────────────────────────

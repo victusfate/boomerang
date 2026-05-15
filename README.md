@@ -40,20 +40,14 @@ make install
 cp news-feed/.env.example news-feed/.env
 ```
 
-### 3. Start the RSS worker (required) + frontend
+### 3. Start the platform worker (required) + frontend
 
 ```bash
-make worker-rss   # terminal 1 → http://127.0.0.1:8787
-make dev          # terminal 2 → http://localhost:5173/
+make worker-platform   # terminal 1 → http://localhost:8787
+make dev               # terminal 2 → http://localhost:5173/
 ```
 
-### Optional workers
-
-```bash
-make worker-sync   # terminal 3 → http://127.0.0.1:8788
-make worker-meta   # terminal 4 → http://127.0.0.1:8789
-# ricochet (separate repo): npm run dev → http://127.0.0.1:8790
-```
+All domains (RSS, sync, meta, rec) run on the unified **platform-worker**. Set `VITE_PLATFORM_WORKER_URL` in `news-feed/.env` (see `.env.example`).
 
 ### Makefile quick reference
 
@@ -61,9 +55,8 @@ make worker-meta   # terminal 4 → http://127.0.0.1:8789
 |--------|-------------|
 | `make` / `make dev` | Vite dev server → http://localhost:5173/ |
 | `make preview-pages` | GitHub Pages–style build + preview → http://localhost:4173/boomerang |
-| `make worker-rss` | rss-worker → http://127.0.0.1:8787 |
-| `make worker-sync` | sync-worker → http://127.0.0.1:8788 |
-| `make worker-meta` | meta-worker → http://127.0.0.1:8789 |
+| `make worker-platform` | platform-worker (RSS, sync, meta, rec) → http://localhost:8787 |
+| `make stop-worker-platform` | Stop the local platform-worker on port 8787 |
 | `make install` | `npm ci` in all four packages |
 | `make test` | Tests in all four packages |
 | `make deploy` | Deploy rss + sync + meta workers |

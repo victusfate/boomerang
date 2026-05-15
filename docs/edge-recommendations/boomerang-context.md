@@ -184,7 +184,7 @@ P1 sources naturally lead the feed.
 `UseFeedOptions` and calls it inside all five interaction handlers (read, save,
 upvote, downvote, seen).
 
-Env var: `VITE_REC_WORKER_URL` (no trailing slash), local default `http://127.0.0.1:8790`.
+Env: `VITE_PLATFORM_WORKER_URL` (or `VITE_REC_WORKER_URL`), local default `http://localhost:8787` (unified platform-worker).
 
 ---
 
