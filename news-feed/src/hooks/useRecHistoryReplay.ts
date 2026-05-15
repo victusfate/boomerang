@@ -1,12 +1,23 @@
 import { useEffect, useRef } from 'react';
 import type { Article, UserPrefs } from '../types';
-import { postInteractions } from '../services/recWorker';
+import { postInteractions, fetchRecArticles } from '../services/recWorker';
+import { DEFAULT_SOURCES } from '../services/newsService';
 import { resolveWorkerUrl } from '../config/workerEnv';
 
 const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_REC_WORKER_URL);
 
 /** Cap total ids to avoid flooding the rate limiter (200 events / batch max). */
 const MAX_REPLAY_IDS = 180;
+
+/** sourceId → [topic] from built-in source list; custom- sources fall back to ['general']. */
+const SOURCE_TOPIC_MAP = new Map<string, string[]>(
+  DEFAULT_SOURCES.map(s => [s.id, [s.category]]),
+);
+
+function inferTopics(sourceId: string): string[] {
+  if (sourceId.startsWith('custom-')) return ['general'];
+  return SOURCE_TOPIC_MAP.get(sourceId) ?? ['general'];
+}
 
 /**
  * Once per page load (guarded by replayedRef), replay strong-signal interactions
@@ -15,6 +26,9 @@ const MAX_REPLAY_IDS = 180;
  *
  * Safe to run on every load: RecDO deduplicates on (userId, articleId, action).
  * Duplicate events only update the stored timestamp; no MF gradient step is taken.
+ *
+ * For saved articles not in the current feed pool, metadata (sourceId → topics) is
+ * resolved via GET /rec/articles so historical saves are included in the replay.
  */
 export function useRecHistoryReplay(
   prefs: UserPrefs,
@@ -73,17 +87,47 @@ export function useRecHistoryReplay(
         pending.push({ articleId: id, action: 'read', ts: now });
       }
 
-      // isValidEvent requires sourceId and at least one topic; skip articles not in current pool.
-      const resolved = pending
-        .slice(0, MAX_REPLAY_IDS)
-        .flatMap(({ articleId, action, ts }) => {
-          const a = articleById.get(articleId);
-          if (!a?.sourceId || !a.topics.length) return [];
-          return [{ articleId, sourceId: a.sourceId, topics: a.topics, action, ts }];
-        });
+      const capped = pending.slice(0, MAX_REPLAY_IDS);
+
+      // Split: articles resolvable from local pool vs those that have aged out of the feed.
+      type ResolvedEvent = { articleId: string; sourceId: string; topics: string[]; action: string; ts: number };
+      const resolved: ResolvedEvent[] = [];
+      const unresolvedIds: string[] = [];
+
+      for (const { articleId, action, ts } of capped) {
+        const a = articleById.get(articleId);
+        if (a?.sourceId && a.topics.length) {
+          resolved.push({ articleId, sourceId: a.sourceId, topics: a.topics, action, ts });
+        } else {
+          unresolvedIds.push(articleId);
+        }
+      }
+
+      // For articles not in the current pool, fetch metadata from /rec/articles.
+      // sourceId from KV + category from DEFAULT_SOURCES → topics.
+      if (unresolvedIds.length > 0 && WORKER_BASE) {
+        try {
+          const meta = await fetchRecArticles(WORKER_BASE, unresolvedIds);
+          const metaById = new Map(meta.articles.map(m => [m.id, m]));
+          for (const { articleId, action, ts } of capped) {
+            if (articleById.has(articleId)) continue; // already resolved above
+            const m = metaById.get(articleId);
+            if (!m?.sourceId) continue;
+            resolved.push({
+              articleId,
+              sourceId: m.sourceId,
+              topics: inferTopics(m.sourceId),
+              action,
+              ts,
+            });
+          }
+        } catch {
+          // /rec/articles unavailable — proceed with what we have
+        }
+      }
 
       if (resolved.length === 0) {
-        console.info('[rec] history replay: no resolvable interactions (articles not yet in pool)');
+        console.info('[rec] history replay: no resolvable interactions (articles not in pool or KV)');
         return;
       }
 
@@ -97,7 +141,7 @@ export function useRecHistoryReplay(
         ...summary,
       });
 
-      await postInteractions(WORKER_BASE, recUserId, resolved);
+      await postInteractions(WORKER_BASE, recUserId, resolved as Parameters<typeof postInteractions>[2]);
       console.info('[rec] history replay: done');
     })().catch((e) => { console.warn('[rec] history replay failed', e); });
   }, [recBootstrapDone, recUserId, articlesReady]);

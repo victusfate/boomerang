@@ -367,7 +367,11 @@ export function RecDiagnostics({
         <div className="rec-status-row">
           <span className={`sync-dot sync-dot--${statusDot}`} />
           <span className="settings-hint" style={{ margin: 0 }}>
-            {data ? `${data.stats.total.toLocaleString()} local interactions` : '—'}
+            {data?.debug
+              ? `${data.debug.interactionsCount.count.toLocaleString()} remote interactions`
+              : data
+                ? `${data.stats.total.toLocaleString()} local interactions`
+                : '—'}
           </span>
           <span className="rec-status-sep" />
           <span className="settings-hint" style={{ margin: 0 }}>
