@@ -26,8 +26,6 @@ export interface Article {
   title: string;
   url: string;
   description: string;
-  /** Longer RSS plain-text body for hover preview when the feed provides more than `description`. */
-  snippetExtended?: string;
   imageUrl?: string;
   publishedAt: Date;
   source: string;

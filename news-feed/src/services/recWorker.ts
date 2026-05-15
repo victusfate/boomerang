@@ -12,6 +12,7 @@ import type { Topic } from '../types';
 import { kvGet, kvSet } from './kvStore';
 import { parseRecArticlesResponse, type RecArticlesResponse } from './recArticlesLookup';
 import {
+  capRecCandidateIds,
   chunkArticleIds,
   dedupeArticleIds,
   mergeFeedPoolRecResponses,
@@ -34,7 +35,14 @@ export interface RecInteractionInput {
 
 export type { RecResponse };
 export type { RecResponseWithScores } from './recPoolMerge.ts';
-export { REC_MAX_CANDIDATES, dedupeArticleIds, chunkArticleIds, mergeFeedPoolRecResponses } from './recPoolMerge.ts';
+export {
+  REC_MAX_CANDIDATES,
+  REC_POOL_CANDIDATE_CAP,
+  capRecCandidateIds,
+  dedupeArticleIds,
+  chunkArticleIds,
+  mergeFeedPoolRecResponses,
+} from './recPoolMerge.ts';
 
 const USER_ID_KEY = 'rec:userId';
 
@@ -70,18 +78,19 @@ export async function fetchFeedPoolRecommendations(
   userId: string,
   candidateArticleIds: string[],
 ): Promise<RecResponseWithScores> {
-  const ids = dedupeArticleIds(candidateArticleIds);
+  const ids = capRecCandidateIds(dedupeArticleIds(candidateArticleIds));
   if (ids.length === 0) {
     return mergeFeedPoolRecResponses([], 0);
   }
 
   const chunks = chunkArticleIds(ids);
-  const parts = await Promise.all(
-    chunks.map(chunk => fetchRecommendations(workerBase, userId, {
+  const parts: RecResponseWithScores[] = [];
+  for (const chunk of chunks) {
+    parts.push(await fetchRecommendations(workerBase, userId, {
       candidateArticleIds: chunk,
       limit: chunk.length,
-    })),
-  );
+    }));
+  }
   return mergeFeedPoolRecResponses(parts, ids.length);
 }
 
@@ -107,7 +116,7 @@ export async function fetchRecommendations(
     : await fetch(
       `${workerBase}/recommendations/${encodeURIComponent(userId)}?limit=${limit}`,
     );
-  if (!res.ok) throw new Error(`rec-worker ${res.status}`);
+  if (!res.ok) throw new Error(`rec-worker ${res.status} ${res.statusText}`);
   const raw = await res.json() as Partial<RecResponse> & Record<string, unknown>;
   const articleIds = Array.isArray(raw.articleIds) ? raw.articleIds : [];
   const generatedAt = typeof raw.generatedAt === 'number' ? raw.generatedAt : Date.now();

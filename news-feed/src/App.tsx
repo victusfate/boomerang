@@ -11,8 +11,12 @@ import { RecDiagnostics } from './components/RecDiagnostics';
 import { suggestLabels } from './services/labelSuggester';
 import { isPromptApiAvailable } from './services/labelClassifier';
 import { sameIdsInOrder } from './services/metaSyncTrigger';
-import { DEFAULT_SOURCES } from './services/newsService';
 import { saveTitles, loadTitleCache } from './services/titleCache';
+import {
+  buildRecRankMap,
+  computeFeedScoreInsight,
+  countSourceArticles,
+} from './services/feedScoreBreakdown';
 import type { ActiveFilter, FeedView } from './types';
 
 const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
@@ -90,13 +94,12 @@ export default function App() {
     recScoreById,
     recScoredArticles,
     recModelDiagnostics,
-    recTrace,
-    recCacheInfo,
-    recTimingMs,
     recGeneratedAt,
     recStatus,
     recBootstrapDone,
     recBootstrapError,
+    recUserId,
+    recEnvError,
   } = useRecWorker(articlePoolIds);
 
   const {
@@ -125,11 +128,6 @@ export default function App() {
   const { syncActive, syncStatus, syncedAt, syncError, syncErrorDetails, syncUrl, syncEnvError, syncCooldownMs, forceSync, generateLink, revoke } =
     useSyncWorker(prefs, articleTags, labelHits, savedArticles, onRemoteSync, syncReady);
 
-  const getSourceName = useCallback((id: string) => {
-    const builtIn = DEFAULT_SOURCES.find(s => s.id === id);
-    if (builtIn) return builtIn.name;
-    return prefs.customSources.find(s => s.id === id)?.name ?? id;
-  }, [prefs.customSources]);
   const [persistedTitles, setPersistedTitles] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -318,6 +316,11 @@ export default function App() {
     return list;
   }, [visibleArticles, savedArticles, view, activeFilter, articleTagsMap, prefs.userLabels]);
 
+  const showFeedScores = view === 'feed' && recStatus !== 'disabled' && !recEnvError;
+  const recRankMap = useMemo(() => buildRecRankMap(recArticleIds), [recArticleIds]);
+  const feedSourceCounts = useMemo(() => countSourceArticles(allArticles), [allArticles]);
+  const feedScoresLoading = showFeedScores && !recBootstrapDone;
+
   // When a topic filter is active and the visible slice has no matches yet,
   // automatically load more so the user isn't stuck on a false empty state.
   useEffect(() => {
@@ -404,7 +407,7 @@ export default function App() {
           className={`tab ${view === 'rec' ? 'active' : ''}`}
           onClick={() => setView('rec')}
         >
-          Rec
+          Ranking
         </button>
       </nav>
 
@@ -459,17 +462,13 @@ export default function App() {
       <main className={view === 'rec' ? 'rec-view' : 'feed'}>
         {view === 'rec' ? (
           <RecDiagnostics
-            autoLoad
+            recUserId={recUserId}
             recArticleIds={recArticleIds}
             recScoreById={recScoreById}
             recScoredArticles={recScoredArticles}
             recModelDiagnostics={recModelDiagnostics}
-            recTrace={recTrace}
-            recCacheInfo={recCacheInfo}
-            recTimingMs={recTimingMs}
             recGeneratedAt={recGeneratedAt}
             recStatus={recStatus}
-            getSourceName={getSourceName}
             getArticleTitle={getArticleTitle}
           />
         ) : (
@@ -512,6 +511,16 @@ export default function App() {
                   onSeen={onSeen}
                   onAddManualTag={onAddManualTag}
                   onRemoveManualTag={onRemoveManualTag}
+                  feedScoresLoading={feedScoresLoading}
+                  feedScoreInsight={showFeedScores
+                    ? computeFeedScoreInsight(
+                      article,
+                      feedSourceCounts,
+                      recRankMap,
+                      recScoreById,
+                      recArticleIds,
+                    )
+                    : undefined}
                 />
                 {index === Math.min(ogFetchedUpTo, filteredArticles.length) - 1 && (
                   <div ref={ogSentinelRef} aria-hidden="true" />

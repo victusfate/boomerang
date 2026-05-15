@@ -3,9 +3,17 @@ import { REC_MAX_CANDIDATES } from '@victusfate/ricochet';
 
 export { REC_MAX_CANDIDATES };
 
+/** Max feed-pool ids sent for MF ranking (top of locally ranked list). */
+export const REC_POOL_CANDIDATE_CAP = 400;
+
 export type RecResponseWithScores = RecResponse & {
   scoreById: Record<string, number>;
 };
+
+export function capRecCandidateIds(ids: string[], cap = REC_POOL_CANDIDATE_CAP): string[] {
+  if (ids.length <= cap) return ids;
+  return ids.slice(0, cap);
+}
 
 export function dedupeArticleIds(ids: string[]): string[] {
   const seen = new Set<string>();

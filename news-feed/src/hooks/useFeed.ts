@@ -187,15 +187,18 @@ export function useFeed(options?: UseFeedOptions) {
     getRankRecIds,
   ]);
 
-  // Local rank first so batched rec requests prioritize likely-visible articles.
-  const articlePoolIds = useMemo(() => {
-    if (articlePool.length === 0) return [];
-    return rankFeed(articlePool, prefsRef.current, []).map(a => a.id);
-  }, [articlePool]);
-
-  useEffect(() => {
-    options?.onArticlePoolIds?.(articlePoolIds);
-  }, [articlePoolIds, options?.onArticlePoolIds]);
+  // Publish rec candidates only when the pool snapshot is stable (cache / fetch done),
+  // not on every progressive onBatch — avoids dozens of batched POST /recommendations calls.
+  const publishRecCandidateIds = useCallback((pool: Article[]) => {
+    if (pool.length === 0) {
+      options?.onArticlePoolIds?.([]);
+      return;
+    }
+    const ids = rankFeed(pool, prefsRef.current, []).map(a => a.id);
+    options?.onArticlePoolIds?.(ids);
+  }, [options?.onArticlePoolIds]);
+  const publishRecCandidateIdsRef = useRef(publishRecCandidateIds);
+  publishRecCandidateIdsRef.current = publishRecCandidateIds;
 
   // Incremented on every refresh call; onBatch/finally checks this to discard
   // results from a superseded (stale) fetch.
@@ -539,6 +542,7 @@ export function useFeed(options?: UseFeedOptions) {
       if (cached?.articles.length) {
         articlePoolRef.current = cached.articles;
         setArticlePool(cached.articles);
+        publishRecCandidateIdsRef.current(cached.articles);
 
         const ranked = rankFeed(cached.articles, mergePrefs(cleanedPrefs, prefsRef.current), getRankRecIds());
         allArticlesRef.current = ranked;
@@ -673,6 +677,7 @@ export function useFeed(options?: UseFeedOptions) {
         setFetching(false);
         if (feedSuccess) {
           setLastRefresh(new Date());
+          publishRecCandidateIdsRef.current(articlePoolRef.current);
         }
         fetchingRef.current = false;
       } else {

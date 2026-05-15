@@ -3,18 +3,14 @@ import { decode } from 'html-entities';
 import type { NewsSource, Topic } from './sources';
 import { resolveArticleImageUrl, extractOgImageFromHtml, isAllowedOgFetchUrl } from './ogImage';
 
-/** Card line-clamp snippet length (matches news-feed `.card-desc`). */
+/** Card snippet length (matches news-feed `.card-desc` clamp). */
 export const ARTICLE_DESCRIPTION_MAX = 280;
-/** Longer plain-text excerpt for hover preview when RSS provides more body. */
-export const ARTICLE_SNIPPET_EXTENDED_MAX = 1_200;
 
 export interface ArticleWire {
   id: string;
   title: string;
   url: string;
   description: string;
-  /** Plain-text excerpt beyond `description` when the feed item has more body. */
-  snippetExtended?: string;
   imageUrl?: string;
   publishedAt: string;
   source: string;
@@ -231,11 +227,7 @@ export async function parseFeed(xml: string, source: NewsSource): Promise<Articl
 
       const enc = item['content:encoded'];
       const rawDesc = textVal(item.description ?? enc ?? item.summary ?? '');
-      const plainDesc = stripHTML(decodeEntities(rawDesc));
-      const description = plainDesc.slice(0, ARTICLE_DESCRIPTION_MAX);
-      const snippetExtended = plainDesc.length > ARTICLE_DESCRIPTION_MAX
-        ? plainDesc.slice(0, ARTICLE_SNIPPET_EXTENDED_MAX)
-        : undefined;
+      const description = stripHTML(decodeEntities(rawDesc)).slice(0, ARTICLE_DESCRIPTION_MAX);
       const pubDateStr = textVal(item.pubDate ?? item.published ?? item['dc:date']);
       const publishedAt = pubDateStr ? new Date(pubDateStr) : new Date();
       const imageUrl =
@@ -254,7 +246,6 @@ export async function parseFeed(xml: string, source: NewsSource): Promise<Articl
         title,
         url,
         description,
-        ...(snippetExtended ? { snippetExtended } : {}),
         imageUrl,
         publishedAt: (isNaN(publishedAt.getTime()) ? new Date() : publishedAt).toISOString(),
         source: source.name,
@@ -282,11 +273,7 @@ export async function parseFeed(xml: string, source: NewsSource): Promise<Articl
       } else {
         rawDesc = textVal(entry.summary ?? entry.content);
       }
-      const plainDesc = stripHTML(decodeEntities(rawDesc));
-      const description = plainDesc.slice(0, ARTICLE_DESCRIPTION_MAX);
-      const snippetExtended = plainDesc.length > ARTICLE_DESCRIPTION_MAX
-        ? plainDesc.slice(0, ARTICLE_SNIPPET_EXTENDED_MAX)
-        : undefined;
+      const description = stripHTML(decodeEntities(rawDesc)).slice(0, ARTICLE_DESCRIPTION_MAX);
       const pubDateStr = textVal(entry.published ?? entry.updated);
       const publishedAt = pubDateStr ? new Date(pubDateStr) : new Date();
       const imageUrl =
@@ -299,7 +286,6 @@ export async function parseFeed(xml: string, source: NewsSource): Promise<Articl
         title,
         url,
         description,
-        ...(snippetExtended ? { snippetExtended } : {}),
         imageUrl,
         publishedAt: (isNaN(publishedAt.getTime()) ? new Date() : publishedAt).toISOString(),
         source: source.name,

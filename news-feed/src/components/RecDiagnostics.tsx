@@ -1,67 +1,72 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { loadRecStats, engagementScore, ACTION_WEIGHT, type ActionCounts } from '../services/recStats';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   fetchRecArticles,
-  fetchRecDiagnostics,
-  type RecArticlesResponse,
-  type RecDebugInfo,
   type RecResponseWithScores,
 } from '../services/recWorker';
 import { resolveWorkerUrl } from '../config/workerEnv';
 import { articleCatalogMissingTitleLabel } from '../../../shared/articleRecordCatalog.ts';
-import { TOPIC_META } from './TopicFilter';
 import type { RecStatus } from '../hooks/useRecWorker';
-import type { Topic } from '../types';
 
 const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_REC_WORKER_URL);
-
-const ACTION_ORDER = ['save', 'upvote', 'read', 'seen', 'downvote'] as const;
-type Action = typeof ACTION_ORDER[number];
-
-const ACTION_COLOR: Record<Action, string> = {
-  save:     '#6c63ff',
-  upvote:   '#4caf50',
-  read:     '#4a9eff',
-  seen:     '#555',
-  downvote: '#f44336',
-};
-
-const ACTION_LABEL: Record<Action, string> = {
-  save:     'saved',
-  upvote:   '↑',
-  read:     'read',
-  seen:     'seen',
-  downvote: '↓',
-};
+const TOP_N = 25;
 
 interface Props {
+  recUserId?: string | null;
   recArticleIds: string[];
   recScoreById: Record<string, number>;
   recScoredArticles: RecResponseWithScores['scoredArticleIds'];
   recModelDiagnostics: RecResponseWithScores['diagnostics'] | null;
-  recTrace: RecResponseWithScores['trace'] | null;
-  recCacheInfo: RecResponseWithScores['cache'] | null;
-  recTimingMs: RecResponseWithScores['timingMs'] | null;
   recGeneratedAt: number | null;
   recStatus: RecStatus;
-  getSourceName: (id: string) => string;
   getArticleTitle: (id: string) => string | null;
-  autoLoad?: boolean;
 }
 
-interface DiagData {
-  stats: Awaited<ReturnType<typeof loadRecStats>>;
-  debug: RecDebugInfo | null;
-}
+function RecUserIdBar({ userId }: { userId: string | null | undefined }) {
+  const [copied, setCopied] = useState(false);
 
-function counts(c: ActionCounts, action: Action): number {
-  return (c as Record<string, number>)[action] ?? 0;
-}
+  const copyId = useCallback(async () => {
+    if (!userId) return;
+    try {
+      await navigator.clipboard.writeText(userId);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable */
+    }
+  }, [userId]);
 
-function cfBoostAtRank(index: number, total: number): number {
-  if (total <= 1) return 1.8;
-  const rank01 = index / Math.max(total - 1, 1);
-  return 1.0 + (1.0 - rank01) * 0.8;
+  return (
+    <div
+      className="rec-user-id-bar rec-user-id-bar--footer"
+      title="Collaborative filtering user id — used for /recommendations/:userId and /interactions"
+    >
+      <span className="rec-user-id-label">User id</span>
+      <code
+        className="rec-user-id-value"
+        onClick={() => { void copyId(); }}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            void copyId();
+          }
+        }}
+        role="button"
+        tabIndex={userId ? 0 : -1}
+        aria-label={userId ? `Recommendation user id ${userId}, click to copy` : 'Recommendation user id loading'}
+      >
+        {userId ?? 'Loading…'}
+      </code>
+      <button
+        type="button"
+        className="rec-user-id-copy"
+        onClick={() => { void copyId(); }}
+        disabled={!userId}
+        aria-label="Copy recommendation user id"
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </div>
+  );
 }
 
 function formatModelAge(generatedAt: number | null): string {
@@ -75,139 +80,49 @@ function formatModelAge(generatedAt: number | null): string {
   return `${hours}h ago`;
 }
 
-// Source row: stacked bar where each segment width = action's contribution to score
-function SourceRow({ name, c, score, maxScore }: {
-  name: string;
-  c: ActionCounts;
-  score: number;
-  maxScore: number;
-}) {
-  const barPct = maxScore > 0 ? Math.abs(score) / maxScore * 100 : 0;
-  const isNeg  = score < 0;
-
-  const chips = ACTION_ORDER.filter(a => counts(c, a) > 0);
-
-  return (
-    <div className="rec-source-row">
-      <div className="rec-source-header">
-        <span className="rec-source-name" title={name}>{name}</span>
-        <span className={`rec-source-score${isNeg ? ' rec-source-score--neg' : ''}`}>
-          {score > 0 ? '+' : ''}{score.toFixed(1)}
-        </span>
-      </div>
-
-      {/* Stacked bar: segments proportional to each action's weighted contribution */}
-      <div className="rec-source-track">
-        {isNeg ? (
-          <div className="rec-source-fill-neg" style={{ width: `${barPct}%` }} />
-        ) : (
-          <div className="rec-source-fill-stack" style={{ width: `${barPct}%` }}>
-            {ACTION_ORDER.map(action => {
-              const n = counts(c, action);
-              const weight = ACTION_WEIGHT[action] ?? 0;
-              const contribution = n * weight;
-              if (contribution <= 0) return null;
-              const segPct = contribution / score * 100;
-              return (
-                <div
-                  key={action}
-                  className="rec-source-segment"
-                  style={{ width: `${segPct}%`, background: ACTION_COLOR[action] }}
-                  title={`${action} ×${n} → +${contribution.toFixed(1)} pts`}
-                />
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Count chips */}
-      {chips.length > 0 && (
-        <div className="rec-source-chips">
-          {chips.map(action => (
-            <span key={action} className="rec-source-chip" style={{ color: ACTION_COLOR[action] }}>
-              {counts(c, action)} {ACTION_LABEL[action]}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Compact topic bar (secondary section)
-function TopicBar({ label, color, score, maxScore }: {
-  label: string; color?: string; score: number; maxScore: number;
-}) {
-  const pct = maxScore > 0 ? Math.max(0, score / maxScore) * 100 : 0;
-  return (
-    <div className="rec-topic-row">
-      <span className="rec-topic-name">{label}</span>
-      <div className="rec-topic-track">
-        <div className="rec-topic-fill" style={{ width: `${pct}%`, background: color ?? 'var(--accent)' }} />
-      </div>
-      <span className="rec-topic-score">{score.toFixed(1)}</span>
-    </div>
-  );
-}
-
 export function RecDiagnostics({
+  recUserId,
   recArticleIds,
   recScoreById,
   recScoredArticles,
   recModelDiagnostics,
-  recTrace,
-  recCacheInfo,
-  recTimingMs,
   recGeneratedAt,
   recStatus,
-  getSourceName,
   getArticleTitle,
-  autoLoad,
 }: Props) {
-  const [data, setData]       = useState<DiagData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
   const [lookupTitleById, setLookupTitleById] = useState<Record<string, string>>({});
-  const [lookupCoverage, setLookupCoverage] = useState<Pick<RecArticlesResponse, 'found' | 'requested' | 'missing' | 'timingMs'> | null>(null);
   const settledLookupIdsRef = useRef(new Set<string>());
   const inFlightLookupKeyRef = useRef<string | null>(null);
-  const rankedRows = recScoredArticles.length > 0
-    ? recScoredArticles.map(row => row.articleId)
-    : recArticleIds;
-  const previewKey = useMemo(() => {
-    const rows = recScoredArticles.length > 0
-      ? recScoredArticles.map(row => row.articleId)
-      : recArticleIds;
-    return rows.slice(0, 12).join(',');
-  }, [recScoredArticles, recArticleIds]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [stats, debug] = await Promise.all([
-        loadRecStats(),
-        WORKER_BASE
-          ? fetchRecDiagnostics(WORKER_BASE).catch(() => null)
-          : Promise.resolve(null),
-      ]);
-      setData({ stats, debug });
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
+  const topRated = useMemo(() => {
+    if (recScoredArticles.length > 0) {
+      return [...recScoredArticles]
+        .sort((a, b) => b.score - a.score || a.articleId.localeCompare(b.articleId))
+        .slice(0, TOP_N)
+        .map((row, idx) => ({
+          id: row.articleId,
+          rank: idx + 1,
+          score: row.score,
+        }));
     }
-  }, []);
+    return recArticleIds
+      .map(id => ({ id, score: recScoreById[id] }))
+      .filter((row): row is { id: string; score: number } =>
+        typeof row.score === 'number' && Number.isFinite(row.score))
+      .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+      .slice(0, TOP_N)
+      .map((row, idx) => ({ ...row, rank: idx + 1 }));
+  }, [recScoredArticles, recArticleIds, recScoreById]);
+
+  const titleLookupKey = useMemo(
+    () => topRated.map(r => r.id).join(','),
+    [topRated],
+  );
 
   useEffect(() => {
-    if (autoLoad) void load();
-  }, [autoLoad, load]);
-
-  useEffect(() => {
-    if (!previewKey || !WORKER_BASE) return;
-    const previewIds = previewKey.split(',').filter(Boolean);
-    const missingIds = previewIds.filter(
+    if (!titleLookupKey || !WORKER_BASE) return;
+    const ids = titleLookupKey.split(',').filter(Boolean);
+    const missingIds = ids.filter(
       id => !getArticleTitle(id)
         && !lookupTitleById[id]
         && !settledLookupIdsRef.current.has(id),
@@ -222,12 +137,6 @@ export function RecDiagnostics({
       .then((response) => {
         inFlightLookupKeyRef.current = null;
         for (const id of missingIds) settledLookupIdsRef.current.add(id);
-        setLookupCoverage({
-          found: response.found,
-          requested: response.requested,
-          missing: response.missing,
-          timingMs: response.timingMs,
-        });
         if (response.articles.length > 0) {
           setLookupTitleById(prev => ({
             ...prev,
@@ -239,276 +148,76 @@ export function RecDiagnostics({
         inFlightLookupKeyRef.current = null;
         for (const id of missingIds) settledLookupIdsRef.current.add(id);
       });
-  }, [previewKey, getArticleTitle]);
+  }, [titleLookupKey, getArticleTitle, lookupTitleById]);
 
-  if (!data && !loading && !error) {
-    return (
-      <button type="button" className="btn-add-source" onClick={load}>
-        Load diagnostics
-      </button>
-    );
-  }
-  if (loading) return <p className="settings-hint">Loading…</p>;
-  if (error)   return <p className="sync-error">{error}</p>;
-
-  const { stats, debug } = data!;
-
-  const sourceEntries = Object.entries(stats.sources)
-    .map(([id, c]) => ({ id, name: getSourceName(id), c, score: engagementScore(c) }))
-    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
-    .slice(0, 12);
-
-  const topicEntries = Object.entries(stats.topics)
-    .map(([topic, c]) => ({ topic, score: engagementScore(c) }))
-    .filter(e => e.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  const tagEntries = Object.entries(stats.tags ?? {})
-    .map(([tag, c]) => ({ tag, score: engagementScore(c) }))
-    .filter(e => e.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 12);
-
-  const maxSource = sourceEntries[0] ? Math.abs(sourceEntries[0].score) : 1;
-  const maxTopic  = topicEntries[0]?.score || 1;
-  const maxTag    = tagEntries[0]?.score   || 1;
-  const recPreview = rankedRows.slice(0, 12).map((id, idx) => {
-    const boost = cfBoostAtRank(idx, rankedRows.length);
-    const score = recScoreById[id];
-    return {
-      id,
-      rank: idx + 1,
-      score,
-      boost,
-    };
-  });
-  const scoreValues = recPreview
-    .map(entry => entry.score)
-    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  const scoreValues = topRated.map(e => e.score);
   const minScore = scoreValues.length > 0 ? Math.min(...scoreValues) : 0;
   const maxScore = scoreValues.length > 0 ? Math.max(...scoreValues) : 1;
   const scoreSpan = maxScore - minScore;
-  const recPreviewWithPct = recPreview.map(entry => {
-    const pctFromScore = entry.score !== undefined
-      ? (scoreSpan <= 1e-9 ? 100 : ((entry.score - minScore) / scoreSpan) * 100)
-      : null;
-    const pctFromBoost = ((entry.boost - 1.0) / 0.8) * 100;
-    return {
-      ...entry,
-      pct: pctFromScore ?? pctFromBoost,
-    };
-  });
 
   const statusDot = recStatus === 'active' ? 'active' : recStatus === 'error' ? 'error' : 'idle';
-  const previewIds = recPreview.map(entry => entry.id);
-  const resolvedTitleCount = previewIds.filter(
-    id => Boolean(getArticleTitle(id) || lookupTitleById[id]),
-  ).length;
-  const titleLookupHint = lookupCoverage
-    ? `Resolved ${resolvedTitleCount}/${previewIds.length} titles`
-      + (lookupCoverage.missing.length > 0 ? ` (${lookupCoverage.missing.length} missing)` : '')
-      + (lookupCoverage.timingMs ? ` · ${Math.round(lookupCoverage.timingMs.total)}ms` : '')
-    : previewIds.length > 0
-      ? `Resolved ${resolvedTitleCount}/${previewIds.length} titles`
-      : null;
+  const coldLabel = recModelDiagnostics?.coldStart ? ' · cold start' : '';
 
   return (
     <div className="rec-diag">
-      {/* Status bar */}
-      <div className="rec-status-row">
-        <span className={`sync-dot sync-dot--${statusDot}`} />
-        <span className="settings-hint" style={{ margin: 0 }}>
-          {stats.total.toLocaleString()} local interactions
-        </span>
-        <span className="rec-status-sep" />
-        <span className="settings-hint" style={{ margin: 0 }}>
-          {recArticleIds.length > 0
-            ? `${recArticleIds.length} articles ranked`
-            : recStatus === 'active' ? 'cold start' : 'offline'}
-        </span>
-        <button type="button" className="rec-diag-reload" onClick={load} title="Refresh">↺</button>
+      <div className="rec-diag-main">
+        <div className="rec-status-row">
+          <span className={`sync-dot sync-dot--${statusDot}`} />
+          <span className="settings-hint" style={{ margin: 0 }}>
+            {topRated.length > 0
+              ? `Top ${topRated.length} by MF score`
+              : recStatus === 'active' ? 'Waiting for rankings…' : 'Ranking offline'}
+            {recModelDiagnostics?.candidateCount != null && topRated.length > 0
+              ? ` · ${recModelDiagnostics.candidateCount} candidates`
+              : ''}
+            {coldLabel}
+          </span>
+          <span className="rec-status-sep" />
+          <span className="settings-hint" style={{ margin: 0 }}>
+            Updated {formatModelAge(recGeneratedAt)}
+          </span>
+        </div>
+
+        {topRated.length > 0 ? (
+          <>
+            <p className="settings-hint" style={{ marginBottom: 4 }}>
+              Highest collaborative scores from your current feed pool. Per-card breakdowns are on the Feed tab.
+            </p>
+            <div className="rec-cf-list">
+              {topRated.map(entry => {
+                const pct = scoreSpan <= 1e-9
+                  ? 100
+                  : ((entry.score - minScore) / scoreSpan) * 100;
+                const title = getArticleTitle(entry.id)
+                  ?? lookupTitleById[entry.id]
+                  ?? articleCatalogMissingTitleLabel();
+                return (
+                  <div key={entry.id} className="rec-cf-row">
+                    <div className="rec-cf-header">
+                      <span className="rec-cf-rank">#{entry.rank}</span>
+                      <span className="rec-cf-score">s{entry.score.toFixed(3)}</span>
+                    </div>
+                    <div className="rec-cf-title" title={title}>{title}</div>
+                    <div className="rec-cf-track">
+                      <div className="rec-cf-fill" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <p className="settings-hint">
+            {recStatus === 'error'
+              ? 'Could not load rankings — check the worker and try refreshing the feed.'
+              : recStatus === 'disabled'
+                ? 'Recommendations are disabled (missing worker URL).'
+                : 'No scores yet. Load the feed and interact with articles to train the model.'}
+          </p>
+        )}
       </div>
 
-      <p className="rec-chart-title">Collaborative ranking influence</p>
-      {recPreview.length > 0 ? (
-        <>
-          <p className="settings-hint" style={{ marginBottom: 4 }}>
-            Worker snapshot {formatModelAge(recGeneratedAt)}. Bars show collaborative scores
-            and x-values show feed boost influence.
-            {titleLookupHint ? ` ${titleLookupHint}.` : ''}
-          </p>
-          <div className="rec-cf-list">
-            {recPreviewWithPct.map(entry => (
-              <div key={entry.id} className="rec-cf-row">
-                <div className="rec-cf-header">
-                  <span className="rec-cf-rank">#{entry.rank}</span>
-                  <span className="rec-cf-id" title={entry.id}>{entry.id}</span>
-                  <span className="rec-cf-score">
-                    s{entry.score !== undefined ? entry.score.toFixed(3) : 'n/a'}
-                  </span>
-                  <span className="rec-cf-boost">x{entry.boost.toFixed(2)}</span>
-                </div>
-                <div className="rec-cf-title" title={getArticleTitle(entry.id) ?? lookupTitleById[entry.id] ?? undefined}>
-                  {getArticleTitle(entry.id) ?? lookupTitleById[entry.id] ?? articleCatalogMissingTitleLabel()}
-                </div>
-                <div className="rec-cf-track">
-                  <div className="rec-cf-fill" style={{ width: `${entry.pct}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </>
-      ) : (
-        <p className="settings-hint">
-          No collaborative ranking ids yet (cold start or offline).
-        </p>
-      )}
-
-      {(recModelDiagnostics || recCacheInfo || recTimingMs || recTrace) && (
-        <>
-          <p className="rec-chart-title">CF request observability</p>
-          <div className="rec-observability-grid">
-            {recModelDiagnostics && (
-              <>
-                <div className="rec-observability-item">
-                  <span className="rec-observability-label">model</span>
-                  <span className="rec-observability-value">{recModelDiagnostics.modelVersion}</span>
-                </div>
-                <div className="rec-observability-item">
-                  <span className="rec-observability-label">candidates</span>
-                  <span className="rec-observability-value">{recModelDiagnostics.candidateCount}</span>
-                </div>
-                <div className="rec-observability-item">
-                  <span className="rec-observability-label">ranked</span>
-                  <span className="rec-observability-value">{recModelDiagnostics.rankedCount}</span>
-                </div>
-                <div className="rec-observability-item">
-                  <span className="rec-observability-label">excluded downvotes</span>
-                  <span className="rec-observability-value">{recModelDiagnostics.excludedDownvotes}</span>
-                </div>
-                <div className="rec-observability-item">
-                  <span className="rec-observability-label">cold start</span>
-                  <span className="rec-observability-value">{recModelDiagnostics.coldStart ? 'yes' : 'no'}</span>
-                </div>
-              </>
-            )}
-            {recCacheInfo && (
-              <>
-                <div className="rec-observability-item">
-                  <span className="rec-observability-label">cache</span>
-                  <span className="rec-observability-value">{recCacheInfo.status}</span>
-                </div>
-                <div className="rec-observability-item">
-                  <span className="rec-observability-label">cache age</span>
-                  <span className="rec-observability-value">{recCacheInfo.ageSec}s</span>
-                </div>
-              </>
-            )}
-            {recTimingMs && (
-              <>
-                <div className="rec-observability-item">
-                  <span className="rec-observability-label">total</span>
-                  <span className="rec-observability-value">{recTimingMs.total.toFixed(1)}ms</span>
-                </div>
-                <div className="rec-observability-item">
-                  <span className="rec-observability-label">do fetch</span>
-                  <span className="rec-observability-value">{recTimingMs.doFetch.toFixed(1)}ms</span>
-                </div>
-              </>
-            )}
-            {recTrace && (
-              <div className="rec-observability-item rec-observability-item--wide">
-                <span className="rec-observability-label">request id</span>
-                <span className="rec-observability-value rec-observability-mono">{recTrace.requestId}</span>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* Source engagement — primary focus */}
-      {sourceEntries.length > 0 ? (
-        <>
-          <p className="rec-chart-title">Source engagement</p>
-          <div className="rec-source-legend">
-            {ACTION_ORDER.filter(a => a !== 'seen').map(a => (
-              <span key={a} className="rec-legend-item">
-                <span className="rec-legend-dot" style={{ background: ACTION_COLOR[a] }} />
-                {a}
-              </span>
-            ))}
-          </div>
-          <div className="rec-source-list">
-            {sourceEntries.map(({ id, name, c, score }) => (
-              <SourceRow key={id} name={name} c={c} score={score} maxScore={maxSource} />
-            ))}
-          </div>
-        </>
-      ) : (
-        <p className="settings-hint">
-          No interaction data yet — read, save, or vote on articles to build your source profile.
-        </p>
-      )}
-
-      {/* Topic affinity — secondary */}
-      {topicEntries.length > 0 && (
-        <>
-          <p className="rec-chart-title" style={{ marginTop: 4 }}>Topic affinity</p>
-          <div className="rec-topic-list">
-            {topicEntries.map(({ topic, score }) => (
-              <TopicBar
-                key={topic}
-                label={TOPIC_META[topic as Topic]?.label ?? topic}
-                color={TOPIC_META[topic as Topic]?.color}
-                score={score}
-                maxScore={maxTopic}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Tag engagement — shown when AI/manual/shared tags have been accumulated */}
-      {tagEntries.length > 0 && (
-        <>
-          <p className="rec-chart-title" style={{ marginTop: 4 }}>Tag engagement</p>
-          <div className="rec-topic-list">
-            {tagEntries.map(({ tag, score }) => (
-              <TopicBar
-                key={tag}
-                label={tag}
-                score={score}
-                maxScore={maxTag}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Model stats — always visible */}
-      {debug && (
-        <>
-          <p className="rec-chart-title" style={{ marginTop: 4 }}>Model stats</p>
-          <div className="rec-stat-grid">
-            <div className="rec-stat-card">
-              <div className="rec-stat-value">{debug.interactionsCount.count.toLocaleString()}</div>
-              <div className="rec-stat-label">interactions</div>
-            </div>
-            <div className="rec-stat-card">
-              <div className="rec-stat-value">{debug.userFactorsCount.count.toLocaleString()}</div>
-              <div className="rec-stat-label">users</div>
-            </div>
-            <div className="rec-stat-card">
-              <div className="rec-stat-value">{debug.itemFactorsCount.count.toLocaleString()}</div>
-              <div className="rec-stat-label">items</div>
-            </div>
-            <div className="rec-stat-card">
-              <div className="rec-stat-value">{debug.globalState.mean.toFixed(3)}</div>
-              <div className="rec-stat-label">global mean</div>
-            </div>
-          </div>
-        </>
-      )}
+      <RecUserIdBar userId={recUserId} />
     </div>
   );
 }

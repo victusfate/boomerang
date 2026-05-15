@@ -16,7 +16,7 @@ const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_REC_WORKER_URL);
 const FLUSH_INTERVAL_MS      = 30_000;       // POST interactions every 30 s
 const RECS_FETCH_INTERVAL_MS = 5 * 60_000;   // fetch recs every 5 min (matches KV TTL)
 const FLUSH_BATCH_SIZE       = 50;
-const POOL_REC_DEBOUNCE_MS   = 400;
+const POOL_REC_DEBOUNCE_MS   = 1_500;
 
 export type RecStatus = 'disabled' | 'active' | 'error';
 
@@ -34,6 +34,7 @@ export interface UseRecWorkerResult {
   recEnvError:     string | null;
   recBootstrapDone: boolean;
   recBootstrapError: string | null;
+  recUserId: string | null;
 }
 
 function applyRecResponse(
@@ -59,6 +60,14 @@ function applyRecResponse(
   setters.setRecGeneratedAt(Number.isFinite(recs.generatedAt) ? recs.generatedAt : null);
 }
 
+/** Stable key for “same candidate set” without storing megabyte-long strings. */
+function poolRecKey(ids: string[]): string {
+  if (ids.length === 0) return '';
+  const first = ids[0];
+  const last = ids[ids.length - 1];
+  return `${ids.length}:${first}:${last}`;
+}
+
 export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult {
   const [recEnvError] = useState<string | null>(() =>
     WORKER_BASE ? null : missingWorkerEnvMessage('VITE_REC_WORKER_URL'),
@@ -76,15 +85,16 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
   );
   const [recBootstrapDone, setRecBootstrapDone] = useState<boolean>(() => !WORKER_BASE);
   const [recBootstrapError, setRecBootstrapError] = useState<string | null>(null);
+  const [recUserId, setRecUserId] = useState<string | null>(null);
 
   const userIdRef = useRef<string | null>(null);
   const bufferRef = useRef<RecInteractionInput[]>([]);
   const poolFetchKeyRef = useRef<string>('');
+  const poolFetchInFlightRef = useRef(false);
+  const articlePoolIdsRef = useRef<string[]>(articlePoolIds);
+  articlePoolIdsRef.current = articlePoolIds;
 
-  const poolKey = useMemo(
-    () => (articlePoolIds.length > 0 ? articlePoolIds.slice().sort().join(',') : ''),
-    [articlePoolIds],
-  );
+  const poolKey = useMemo(() => poolRecKey(articlePoolIds), [articlePoolIds]);
 
   const recSetters = useMemo(() => ({
     setRecArticleIds,
@@ -96,6 +106,15 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
     setRecTimingMs,
     setRecGeneratedAt,
   }), []);
+
+  const ensureRecUserId = useCallback(async (): Promise<string | null> => {
+    if (!WORKER_BASE) return null;
+    if (userIdRef.current) return userIdRef.current;
+    const id = await getOrCreateRecUserId();
+    userIdRef.current = id;
+    setRecUserId(id);
+    return id;
+  }, []);
 
   // POST buffered interactions — no rec fetch here (KV cache would be stale)
   const flush = useCallback(async () => {
@@ -110,30 +129,37 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
     }
   }, []);
 
-  const fetchPoolRecs = useCallback(async (ids: string[]) => {
-    if (!WORKER_BASE) return;
+  const fetchPoolRecs = useCallback(async (ids: string[]): Promise<boolean> => {
+    if (!WORKER_BASE || poolFetchInFlightRef.current) return false;
+    poolFetchInFlightRef.current = true;
     try {
-      if (!userIdRef.current) {
-        userIdRef.current = await getOrCreateRecUserId();
-      }
-      const recs = await fetchFeedPoolRecommendations(WORKER_BASE, userIdRef.current, ids);
+      const userId = await ensureRecUserId();
+      if (!userId) return false;
+      const recs = await fetchFeedPoolRecommendations(WORKER_BASE, userId, ids);
       applyRecResponse(recs, recSetters);
       setRecStatus('active');
       setRecBootstrapError(null);
-    } catch {
+      return true;
+    } catch (e) {
       setRecStatus('error');
-      console.warn('[rec] Feed-pool recommendations fetch failed; keeping existing local order.');
+      const status = e instanceof Error && /rec-worker (\d+)/.exec(e.message)?.[1];
+      if (status === '429') {
+        console.warn('[rec] Rate limited on feed-pool ranking; will retry on next scheduled refresh.');
+      } else {
+        console.warn('[rec] Feed-pool recommendations fetch failed; keeping existing local order.');
+      }
+      return false;
     } finally {
+      poolFetchInFlightRef.current = false;
       setRecBootstrapDone(true);
     }
-  }, [recSetters]);
+  }, [recSetters, ensureRecUserId]);
 
-  // Feed-pool ranking when article ids are available (debounced; no global rec fetch)
+  // Feed-pool ranking when candidate ids change (debounced; stable pool snapshots only)
   useEffect(() => {
     if (!WORKER_BASE) return;
     if (!poolKey) {
-      void getOrCreateRecUserId()
-        .then(id => { userIdRef.current = id; })
+      void ensureRecUserId()
         .catch(() => {
           setRecStatus('error');
           setRecBootstrapError('failed to create recommendation user id');
@@ -144,22 +170,27 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
 
     if (poolFetchKeyRef.current === poolKey) return;
     const timer = window.setTimeout(() => {
-      poolFetchKeyRef.current = poolKey;
-      void fetchPoolRecs(articlePoolIds);
+      if (poolFetchKeyRef.current === poolKey) return;
+      void fetchPoolRecs(articlePoolIds).then(ok => {
+        if (ok) poolFetchKeyRef.current = poolKey;
+      });
     }, POOL_REC_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [poolKey, articlePoolIds, fetchPoolRecs]);
+  }, [poolKey, articlePoolIds, fetchPoolRecs, ensureRecUserId]);
 
-  // Periodic pool-scoped refresh (aligned with KV TTL)
+  // Periodic pool-scoped refresh (aligned with KV TTL) — interval does not reset on pool growth
   useEffect(() => {
-    if (!WORKER_BASE || !poolKey) return;
+    if (!WORKER_BASE) return;
     const t = setInterval(() => {
-      if (userIdRef.current && articlePoolIds.length > 0) {
-        void fetchPoolRecs(articlePoolIds);
-      }
+      const ids = articlePoolIdsRef.current;
+      if (!userIdRef.current || ids.length === 0) return;
+      const key = poolRecKey(ids);
+      void fetchPoolRecs(ids).then(ok => {
+        if (ok) poolFetchKeyRef.current = key;
+      });
     }, RECS_FETCH_INTERVAL_MS);
     return () => clearInterval(t);
-  }, [poolKey, articlePoolIds, fetchPoolRecs]);
+  }, [fetchPoolRecs]);
 
   // Periodic flush timer
   useEffect(() => {
@@ -189,5 +220,6 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
     recEnvError,
     recBootstrapDone,
     recBootstrapError,
+    recUserId,
   };
 }
