@@ -1560,3 +1560,12 @@ details[open] .rec-model-summary::before { content: '▾ '; }
   border-radius: 50%;
   flex-shrink: 0;
 }
+
+/* ── Rec tab view ────────────────────────────────────────────── */
+.rec-view {
+  flex: 1;
+  padding: 16px 16px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}

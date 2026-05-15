@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { loadRecStats, engagementScore, ACTION_WEIGHT, type ActionCounts } from '../services/recStats';
 import { fetchRecDiagnostics, type RecDebugInfo } from '../services/recWorker';
 import { resolveWorkerUrl } from '../config/workerEnv';
@@ -31,6 +31,7 @@ interface Props {
   recArticleIds: string[];
   recStatus: RecStatus;
   getSourceName: (id: string) => string;
+  autoLoad?: boolean;
 }
 
 interface DiagData {
@@ -118,7 +119,7 @@ function TopicBar({ label, color, score, maxScore }: {
   );
 }
 
-export function RecDiagnostics({ recArticleIds, recStatus, getSourceName }: Props) {
+export function RecDiagnostics({ recArticleIds, recStatus, getSourceName, autoLoad }: Props) {
   const [data, setData]       = useState<DiagData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
@@ -141,10 +142,14 @@ export function RecDiagnostics({ recArticleIds, recStatus, getSourceName }: Prop
     }
   }, []);
 
+  useEffect(() => {
+    if (autoLoad) void load();
+  }, [autoLoad, load]);
+
   if (!data && !loading && !error) {
     return (
       <button type="button" className="btn-add-source" onClick={load}>
-        Load rec diagnostics
+        Load diagnostics
       </button>
     );
   }
