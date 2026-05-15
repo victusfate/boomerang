@@ -82,6 +82,8 @@ export default function App() {
     metaTagsMap, feedTaggedArticle, endTaggingPass, forceMetaSync, metaStatus, metaError, metaEnvError, metaSyncCooldownMs,
   } = useMetaWorker(articleIds);
 
+  const [articlePoolIds, setArticlePoolIds] = useState<string[]>([]);
+
   const {
     sendInteraction,
     recArticleIds,
@@ -95,7 +97,7 @@ export default function App() {
     recStatus,
     recBootstrapDone,
     recBootstrapError,
-  } = useRecWorker();
+  } = useRecWorker(articlePoolIds);
 
   const {
     allArticles,
@@ -116,6 +118,8 @@ export default function App() {
     recStatus,
     recBootstrapDone,
     recBootstrapError,
+    recCandidateMode: recModelDiagnostics?.candidateMode,
+    onArticlePoolIds: setArticlePoolIds,
   });
 
   const { syncActive, syncStatus, syncedAt, syncError, syncErrorDetails, syncUrl, syncEnvError, syncCooldownMs, forceSync, generateLink, revoke } =

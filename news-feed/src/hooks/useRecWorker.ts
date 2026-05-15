@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { resolveWorkerUrl, missingWorkerEnvMessage } from '../config/workerEnv';
 import {
   getOrCreateRecUserId,
   postInteractions,
-  fetchRecommendations,
+  fetchFeedPoolRecommendations,
   type RecInteractionInput,
   type RecResponseWithScores,
 } from '../services/recWorker';
@@ -16,6 +16,7 @@ const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_REC_WORKER_URL);
 const FLUSH_INTERVAL_MS      = 30_000;       // POST interactions every 30 s
 const RECS_FETCH_INTERVAL_MS = 5 * 60_000;   // fetch recs every 5 min (matches KV TTL)
 const FLUSH_BATCH_SIZE       = 50;
+const POOL_REC_DEBOUNCE_MS   = 400;
 
 export type RecStatus = 'disabled' | 'active' | 'error';
 
@@ -35,7 +36,30 @@ export interface UseRecWorkerResult {
   recBootstrapError: string | null;
 }
 
-export function useRecWorker(): UseRecWorkerResult {
+function applyRecResponse(
+  recs: RecResponseWithScores,
+  setters: {
+    setRecArticleIds: (ids: string[]) => void;
+    setRecScoreById: (v: Record<string, number>) => void;
+    setRecScoredArticles: (v: RecResponseWithScores['scoredArticleIds']) => void;
+    setRecModelDiagnostics: (v: RecResponseWithScores['diagnostics'] | null) => void;
+    setRecTrace: (v: RecResponseWithScores['trace'] | null) => void;
+    setRecCacheInfo: (v: RecResponseWithScores['cache'] | null) => void;
+    setRecTimingMs: (v: RecResponseWithScores['timingMs'] | null) => void;
+    setRecGeneratedAt: (v: number | null) => void;
+  },
+): void {
+  setters.setRecArticleIds(recs.articleIds);
+  setters.setRecScoreById(recs.scoreById);
+  setters.setRecScoredArticles(recs.scoredArticleIds);
+  setters.setRecModelDiagnostics(recs.diagnostics);
+  setters.setRecTrace(recs.trace);
+  setters.setRecCacheInfo(recs.cache);
+  setters.setRecTimingMs(recs.timingMs);
+  setters.setRecGeneratedAt(Number.isFinite(recs.generatedAt) ? recs.generatedAt : null);
+}
+
+export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult {
   const [recEnvError] = useState<string | null>(() =>
     WORKER_BASE ? null : missingWorkerEnvMessage('VITE_REC_WORKER_URL'),
   );
@@ -55,6 +79,23 @@ export function useRecWorker(): UseRecWorkerResult {
 
   const userIdRef = useRef<string | null>(null);
   const bufferRef = useRef<RecInteractionInput[]>([]);
+  const poolFetchKeyRef = useRef<string>('');
+
+  const poolKey = useMemo(
+    () => (articlePoolIds.length > 0 ? articlePoolIds.slice().sort().join(',') : ''),
+    [articlePoolIds],
+  );
+
+  const recSetters = useMemo(() => ({
+    setRecArticleIds,
+    setRecScoreById,
+    setRecScoredArticles,
+    setRecModelDiagnostics,
+    setRecTrace,
+    setRecCacheInfo,
+    setRecTimingMs,
+    setRecGeneratedAt,
+  }), []);
 
   // POST buffered interactions — no rec fetch here (KV cache would be stale)
   const flush = useCallback(async () => {
@@ -69,69 +110,56 @@ export function useRecWorker(): UseRecWorkerResult {
     }
   }, []);
 
-  // Fetch fresh recommendations (separate from flush — KV TTL is 5 min)
-  const fetchRecs = useCallback(async () => {
-    if (!WORKER_BASE || !userIdRef.current) return;
+  const fetchPoolRecs = useCallback(async (ids: string[]) => {
+    if (!WORKER_BASE) return;
     try {
-      const recs = await fetchRecommendations(WORKER_BASE, userIdRef.current);
-      setRecArticleIds(recs.articleIds);
-      setRecScoreById(recs.scoreById);
-      setRecScoredArticles(recs.scoredArticleIds);
-      setRecModelDiagnostics(recs.diagnostics);
-      setRecTrace(recs.trace);
-      setRecCacheInfo(recs.cache);
-      setRecTimingMs(recs.timingMs);
-      setRecGeneratedAt(Number.isFinite(recs.generatedAt) ? recs.generatedAt : null);
+      if (!userIdRef.current) {
+        userIdRef.current = await getOrCreateRecUserId();
+      }
+      const recs = await fetchFeedPoolRecommendations(WORKER_BASE, userIdRef.current, ids);
+      applyRecResponse(recs, recSetters);
       setRecStatus('active');
       setRecBootstrapError(null);
     } catch {
       setRecStatus('error');
-      console.warn('[rec] Recommendations fetch failed; keeping existing local order.');
+      console.warn('[rec] Feed-pool recommendations fetch failed; keeping existing local order.');
+    } finally {
+      setRecBootstrapDone(true);
     }
-  }, []);
+  }, [recSetters]);
 
-  // Resolve userId + fetch initial recs on mount
+  // Feed-pool ranking when article ids are available (debounced; no global rec fetch)
   useEffect(() => {
     if (!WORKER_BASE) return;
-    let cancelled = false;
-    getOrCreateRecUserId()
-      .then(async id => {
-        if (cancelled) return;
-        userIdRef.current = id;
-        try {
-          const recs = await fetchRecommendations(WORKER_BASE, id);
-          if (!cancelled) {
-            setRecArticleIds(recs.articleIds);
-            setRecScoreById(recs.scoreById);
-            setRecScoredArticles(recs.scoredArticleIds);
-            setRecModelDiagnostics(recs.diagnostics);
-            setRecTrace(recs.trace);
-            setRecCacheInfo(recs.cache);
-            setRecTimingMs(recs.timingMs);
-            setRecGeneratedAt(Number.isFinite(recs.generatedAt) ? recs.generatedAt : null);
-            setRecStatus('active');
-            setRecBootstrapDone(true);
-            setRecBootstrapError(null);
-          }
-        } catch {
-          if (!cancelled) {
-            setRecStatus('error');
-            setRecBootstrapDone(true);
-            setRecBootstrapError('initial recommendations fetch failed');
-            console.warn('[rec] Initial recommendation fetch failed; local ranking fallback will be used.');
-          }
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
+    if (!poolKey) {
+      void getOrCreateRecUserId()
+        .then(id => { userIdRef.current = id; })
+        .catch(() => {
           setRecStatus('error');
-          setRecBootstrapDone(true);
           setRecBootstrapError('failed to create recommendation user id');
-          console.warn('[rec] Recommendation bootstrap failed; local ranking fallback will be used.');
-        }
-      });
-    return () => { cancelled = true; };
-  }, []);
+        })
+        .finally(() => { setRecBootstrapDone(true); });
+      return;
+    }
+
+    if (poolFetchKeyRef.current === poolKey) return;
+    const timer = window.setTimeout(() => {
+      poolFetchKeyRef.current = poolKey;
+      void fetchPoolRecs(articlePoolIds);
+    }, POOL_REC_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [poolKey, articlePoolIds, fetchPoolRecs]);
+
+  // Periodic pool-scoped refresh (aligned with KV TTL)
+  useEffect(() => {
+    if (!WORKER_BASE || !poolKey) return;
+    const t = setInterval(() => {
+      if (userIdRef.current && articlePoolIds.length > 0) {
+        void fetchPoolRecs(articlePoolIds);
+      }
+    }, RECS_FETCH_INTERVAL_MS);
+    return () => clearInterval(t);
+  }, [poolKey, articlePoolIds, fetchPoolRecs]);
 
   // Periodic flush timer
   useEffect(() => {
@@ -140,17 +168,10 @@ export function useRecWorker(): UseRecWorkerResult {
     return () => clearInterval(t);
   }, [flush]);
 
-  // Periodic rec fetch timer (aligned with KV TTL)
-  useEffect(() => {
-    if (!WORKER_BASE) return;
-    const t = setInterval(() => { void fetchRecs(); }, RECS_FETCH_INTERVAL_MS);
-    return () => clearInterval(t);
-  }, [fetchRecs]);
-
   const sendInteraction = useCallback((input: RecInteractionInput) => {
     if (!WORKER_BASE) return;
     bufferRef.current.push(input);
-    void recordInteraction(input); // fire-and-forget — updates local stats for diagnostics
+    void recordInteraction(input);
     if (bufferRef.current.length >= FLUSH_BATCH_SIZE) void flush();
   }, [flush]);
 

@@ -1,7 +1,11 @@
-/** Shared article catalog contract for REC_STORE (no RSS imports). */
+/** Article catalog — primary store: ARTICLE_META KV `meta:<id>`. */
 
+import { ARTICLE_RECORD_TTL_SECONDS } from '../../../../shared/articleRecordCatalog';
+
+/** @deprecated Legacy REC_STORE keys; read fallback only during migration */
 export const ARTICLE_META_KEY_PREFIX = 'rec:article-meta:';
-export const ARTICLE_META_TTL_SECONDS = 86_400;
+/** Matches ARTICLE_META KV TTL (see shared/articleRecordCatalog.ts) */
+export const ARTICLE_META_TTL_SECONDS = ARTICLE_RECORD_TTL_SECONDS;
 export const MAX_ARTICLE_IDS_LOOKUP = 50;
 
 export interface RecArticleMeta {

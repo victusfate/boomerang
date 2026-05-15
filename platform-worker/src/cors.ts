@@ -1,18 +1,9 @@
 import type { Env } from './env';
-
-const ALLOWED_ORIGINS = [
-  'https://victusfate.github.io',
-  'https://boomerang-news.com',
-  'https://www.boomerang-news.com',
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://localhost:4173',
-  'http://127.0.0.1:4173',
-];
+import { BOOMERANG_ALLOWED_CORS_ORIGINS } from './corsOrigins';
 
 export function isAllowedOrigin(origin: string, env: Env): boolean {
   if (!origin) return false;
-  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  if (BOOMERANG_ALLOWED_CORS_ORIGINS.includes(origin)) return true;
   const extra = env.EXTRA_CORS_ORIGINS?.trim().split(',').map(s => s.trim()).filter(Boolean) ?? [];
   if (extra.includes(origin)) return true;
   try {

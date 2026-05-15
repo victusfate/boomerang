@@ -9,13 +9,11 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 
 const MAX_TAGS_PER_ARTICLE = 6;
-const KV_TTL_SECONDS = 90 * 24 * 60 * 60;
 
-interface ArticleMetaEntry {
-  articleId: string;
-  tags: string[];
-  updatedAt: number;
-}
+import type { ArticleRecord } from './articleRecord';
+import { ARTICLE_RECORD_TTL_SECONDS, articleRecordKey } from './articleRecord';
+
+type ArticleMetaEntry = ArticleRecord;
 
 function json(data: unknown, request: Request, env: Env, init?: ResponseInit): Response {
   const headers = corsHeaders(request, env);
@@ -69,18 +67,27 @@ function parseIdsParam(url: URL): string[] {
 
 async function loadMetaEntries(env: Env, ids: string[]): Promise<ArticleMetaEntry[]> {
   const entries = await Promise.all(
-    ids.map(id => env.ARTICLE_META.get<ArticleMetaEntry>(`meta:${id}`, 'json')),
+    ids.map(id => env.ARTICLE_META.get<ArticleMetaEntry>(articleRecordKey(id), 'json')),
   );
   return entries.filter((e): e is ArticleMetaEntry => e !== null);
 }
 
 async function upsertMetaEntry(env: Env, articleId: string, incomingTags: string[]): Promise<void> {
-  const key = `meta:${articleId}`;
+  const key = articleRecordKey(articleId);
   const existing = await env.ARTICLE_META.get<ArticleMetaEntry>(key, 'json');
   const merged = mergeTagSets(existing?.tags ?? [], incomingTags).slice(0, MAX_TAGS_PER_ARTICLE);
   const updatedAt = Date.now();
-  const entry: ArticleMetaEntry = { articleId, tags: merged, updatedAt };
-  await env.ARTICLE_META.put(key, JSON.stringify(entry), { expirationTtl: KV_TTL_SECONDS });
+  const entry: ArticleMetaEntry = {
+    articleId,
+    tags: merged,
+    updatedAt,
+    title: existing?.title,
+    source: existing?.source,
+    sourceId: existing?.sourceId,
+    publishedAt: existing?.publishedAt,
+    url: existing?.url,
+  };
+  await env.ARTICLE_META.put(key, JSON.stringify(entry), { expirationTtl: ARTICLE_RECORD_TTL_SECONDS });
 }
 
 export async function handleMeta(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {

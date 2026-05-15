@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { loadRecStats, engagementScore, ACTION_WEIGHT, type ActionCounts } from '../services/recStats';
 import {
   fetchRecArticles,
@@ -8,6 +8,7 @@ import {
   type RecResponseWithScores,
 } from '../services/recWorker';
 import { resolveWorkerUrl } from '../config/workerEnv';
+import { articleCatalogMissingTitleLabel } from '../../../shared/articleRecordCatalog.ts';
 import { TOPIC_META } from './TopicFilter';
 import type { RecStatus } from '../hooks/useRecWorker';
 import type { Topic } from '../types';
@@ -168,11 +169,18 @@ export function RecDiagnostics({
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [lookupTitleById, setLookupTitleById] = useState<Record<string, string>>({});
-  const [lookupMissingById, setLookupMissingById] = useState<Record<string, true>>({});
   const [lookupCoverage, setLookupCoverage] = useState<Pick<RecArticlesResponse, 'found' | 'requested' | 'missing' | 'timingMs'> | null>(null);
+  const settledLookupIdsRef = useRef(new Set<string>());
+  const inFlightLookupKeyRef = useRef<string | null>(null);
   const rankedRows = recScoredArticles.length > 0
     ? recScoredArticles.map(row => row.articleId)
     : recArticleIds;
+  const previewKey = useMemo(() => {
+    const rows = recScoredArticles.length > 0
+      ? recScoredArticles.map(row => row.articleId)
+      : recArticleIds;
+    return rows.slice(0, 12).join(',');
+  }, [recScoredArticles, recArticleIds]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -197,16 +205,23 @@ export function RecDiagnostics({
   }, [autoLoad, load]);
 
   useEffect(() => {
-    const previewIds = rankedRows.slice(0, 12);
+    if (!previewKey || !WORKER_BASE) return;
+    const previewIds = previewKey.split(',').filter(Boolean);
     const missingIds = previewIds.filter(
-      id => !getArticleTitle(id) && !(id in lookupTitleById) && !(id in lookupMissingById),
+      id => !getArticleTitle(id)
+        && !lookupTitleById[id]
+        && !settledLookupIdsRef.current.has(id),
     );
     if (missingIds.length === 0) return;
-    if (!WORKER_BASE) return;
-    let cancelled = false;
+
+    const batchKey = missingIds.slice().sort().join(',');
+    if (inFlightLookupKeyRef.current === batchKey) return;
+    inFlightLookupKeyRef.current = batchKey;
+
     void fetchRecArticles(WORKER_BASE, missingIds)
       .then((response) => {
-        if (cancelled) return;
+        inFlightLookupKeyRef.current = null;
+        for (const id of missingIds) settledLookupIdsRef.current.add(id);
         setLookupCoverage({
           found: response.found,
           requested: response.requested,
@@ -219,18 +234,12 @@ export function RecDiagnostics({
             ...Object.fromEntries(response.articles.map(a => [a.id, a.title])),
           }));
         }
-        if (response.missing.length > 0) {
-          setLookupMissingById(prev => ({
-            ...prev,
-            ...Object.fromEntries(response.missing.map(id => [id, true as const])),
-          }));
-        }
       })
       .catch(() => {
-        // Keep local fallback copy; missing ids stay unresolved for now.
+        inFlightLookupKeyRef.current = null;
+        for (const id of missingIds) settledLookupIdsRef.current.add(id);
       });
-    return () => { cancelled = true; };
-  }, [rankedRows, getArticleTitle, lookupTitleById, lookupMissingById]);
+  }, [previewKey, getArticleTitle]);
 
   if (!data && !loading && !error) {
     return (
@@ -340,7 +349,7 @@ export function RecDiagnostics({
                   <span className="rec-cf-boost">x{entry.boost.toFixed(2)}</span>
                 </div>
                 <div className="rec-cf-title" title={getArticleTitle(entry.id) ?? lookupTitleById[entry.id] ?? undefined}>
-                  {getArticleTitle(entry.id) ?? lookupTitleById[entry.id] ?? '(title not in local article pool yet)'}
+                  {getArticleTitle(entry.id) ?? lookupTitleById[entry.id] ?? articleCatalogMissingTitleLabel()}
                 </div>
                 <div className="rec-cf-track">
                   <div className="rec-cf-fill" style={{ width: `${entry.pct}%` }} />

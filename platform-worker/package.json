@@ -10,7 +10,7 @@
     "test": "node --test --experimental-strip-types src/domains/rec/articleMeta.node.test.ts"
   },
   "dependencies": {
-    "@victusfate/ricochet": "github:victusfate/ricochet",
+    "@victusfate/ricochet": "github:victusfate/ricochet#v1.2.2",
     "fast-xml-parser": "^5.7.2",
     "html-entities": "^2.6.0"
   },

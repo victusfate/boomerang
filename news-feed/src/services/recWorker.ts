@@ -10,12 +10,13 @@ import type {
 } from '@victusfate/ricochet';
 import type { Topic } from '../types';
 import { kvGet, kvSet } from './kvStore';
+import { parseRecArticlesResponse, type RecArticlesResponse } from './recArticlesLookup';
 import {
-  parseRecArticlesResponse,
-  type RecArticleMeta,
-  type RecArticlesLookupTiming,
-  type RecArticlesResponse,
-} from './recArticlesLookup';
+  chunkArticleIds,
+  dedupeArticleIds,
+  mergeFeedPoolRecResponses,
+  type RecResponseWithScores,
+} from './recPoolMerge.ts';
 
 export type { RecArticleMeta, RecArticlesLookupTiming, RecArticlesResponse } from './recArticlesLookup';
 export { normalizeRecArticleMeta, parseRecArticlesResponse } from './recArticlesLookup';
@@ -32,10 +33,8 @@ export interface RecInteractionInput {
 }
 
 export type { RecResponse };
-
-export interface RecResponseWithScores extends RecResponse {
-  scoreById: Record<string, number>;
-}
+export type { RecResponseWithScores } from './recPoolMerge.ts';
+export { REC_MAX_CANDIDATES, dedupeArticleIds, chunkArticleIds, mergeFeedPoolRecResponses } from './recPoolMerge.ts';
 
 const USER_ID_KEY = 'rec:userId';
 
@@ -60,14 +59,54 @@ export async function postInteractions(
   });
 }
 
+export interface FetchRecommendationsOptions {
+  candidateArticleIds?: string[];
+  limit?: number;
+}
+
+/** Rank the full feed pool in batches of ≤`REC_MAX_CANDIDATES`, merged by MF score for `rankFeed`. */
+export async function fetchFeedPoolRecommendations(
+  workerBase: string,
+  userId: string,
+  candidateArticleIds: string[],
+): Promise<RecResponseWithScores> {
+  const ids = dedupeArticleIds(candidateArticleIds);
+  if (ids.length === 0) {
+    return mergeFeedPoolRecResponses([], 0);
+  }
+
+  const chunks = chunkArticleIds(ids);
+  const parts = await Promise.all(
+    chunks.map(chunk => fetchRecommendations(workerBase, userId, {
+      candidateArticleIds: chunk,
+      limit: chunk.length,
+    })),
+  );
+  return mergeFeedPoolRecResponses(parts, ids.length);
+}
+
 export async function fetchRecommendations(
   workerBase: string,
   userId: string,
-  limit = 50,
+  options: FetchRecommendationsOptions | number = 50,
 ): Promise<RecResponseWithScores> {
-  const res = await fetch(
-    `${workerBase}/recommendations/${encodeURIComponent(userId)}?limit=${limit}`,
-  );
+  const opts: FetchRecommendationsOptions = typeof options === 'number'
+    ? { limit: options }
+    : options;
+  const limit = opts.limit ?? 50;
+  const useFeedPool = opts.candidateArticleIds !== undefined;
+  const res = useFeedPool
+    ? await fetch(`${workerBase}/recommendations/${encodeURIComponent(userId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        candidateArticleIds: opts.candidateArticleIds,
+        limit,
+      }),
+    })
+    : await fetch(
+      `${workerBase}/recommendations/${encodeURIComponent(userId)}?limit=${limit}`,
+    );
   if (!res.ok) throw new Error(`rec-worker ${res.status}`);
   const raw = await res.json() as Partial<RecResponse> & Record<string, unknown>;
   const articleIds = Array.isArray(raw.articleIds) ? raw.articleIds : [];
@@ -115,10 +154,15 @@ function normalizeDiagnostics(candidate: unknown, count: number, limit: number):
     model: 'biased-mf',
     modelVersion: typeof d.modelVersion === 'string' ? d.modelVersion : 'unknown',
     factorCount: typeof d.factorCount === 'number' ? d.factorCount : 0,
+    candidateMode: d.candidateMode === 'feed-pool' || d.candidateMode === 'global'
+      ? d.candidateMode
+      : undefined,
     candidateCount: typeof d.candidateCount === 'number' ? d.candidateCount : count,
     rankedCount: typeof d.rankedCount === 'number' ? d.rankedCount : count,
     returnedCount: typeof d.returnedCount === 'number' ? d.returnedCount : count,
     excludedDownvotes: typeof d.excludedDownvotes === 'number' ? d.excludedDownvotes : 0,
+    coldItemCount: typeof d.coldItemCount === 'number' ? d.coldItemCount : undefined,
+    warmItemCount: typeof d.warmItemCount === 'number' ? d.warmItemCount : undefined,
     coldStart: typeof d.coldStart === 'boolean' ? d.coldStart : count === 0,
     limit: typeof d.limit === 'number' ? d.limit : limit,
   };

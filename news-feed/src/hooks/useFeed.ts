@@ -88,6 +88,8 @@ export interface UseFeedOptions {
   recStatus?: 'disabled' | 'active' | 'error';
   recBootstrapDone?: boolean;
   recBootstrapError?: string | null;
+  recCandidateMode?: 'feed-pool' | 'global';
+  onArticlePoolIds?: (ids: string[]) => void;
 }
 
 export function useFeed(options?: UseFeedOptions) {
@@ -138,33 +140,62 @@ export function useFeed(options?: UseFeedOptions) {
     return selectedRecRankIdsRef.current ?? [];
   }, []);
 
-  // Lock recommendation policy exactly once: server ordering when available, otherwise
-  // explicit local fallback if bootstrap fails/disabled/returns empty.
+  const recCandidateModeRef = useRef<'feed-pool' | 'global' | undefined>(undefined);
   useEffect(() => {
-    if (selectedRecRankIdsRef.current !== undefined) return;
+    recCandidateModeRef.current = options?.recCandidateMode;
+  });
+
+  // Lock recommendation policy on bootstrap; re-apply when feed-pool recs refresh.
+  useEffect(() => {
     if (!recBootstrapDoneRef.current) return;
     const pool = articlePoolRef.current;
     if (pool.length === 0) return;
 
     const ids = recArticleIdsRef.current;
-    if (ids.length > 0) {
-      selectedRecRankIdsRef.current = [...ids];
-      console.info(`[rec] Applied server recommendations for initial ordering (${ids.length} ids).`);
-    } else {
-      selectedRecRankIdsRef.current = null;
-      if (recStatusRef.current === 'error' || recBootstrapErrorRef.current) {
-        console.warn('[rec] Recommendation backend unavailable; using local ranking fallback.');
-      } else if (recStatusRef.current === 'disabled') {
-        console.warn('[rec] Recommendations disabled (missing VITE_REC_WORKER_URL); using local ranking fallback.');
+    const isFeedPool = recCandidateModeRef.current === 'feed-pool';
+    const firstLock = selectedRecRankIdsRef.current === undefined;
+
+    if (firstLock) {
+      if (ids.length > 0) {
+        selectedRecRankIdsRef.current = [...ids];
+        console.info(`[rec] Applied server recommendations for initial ordering (${ids.length} ids).`);
       } else {
-        console.info('[rec] Recommendation backend returned no ids; using local ranking fallback.');
+        selectedRecRankIdsRef.current = null;
+        if (recStatusRef.current === 'error' || recBootstrapErrorRef.current) {
+          console.warn('[rec] Recommendation backend unavailable; using local ranking fallback.');
+        } else if (recStatusRef.current === 'disabled') {
+          console.warn('[rec] Recommendations disabled (missing VITE_REC_WORKER_URL); using local ranking fallback.');
+        } else {
+          console.info('[rec] Recommendation backend returned no ids; using local ranking fallback.');
+        }
       }
+    } else if (isFeedPool && ids.length > 0) {
+      selectedRecRankIdsRef.current = [...ids];
+    } else {
+      return;
     }
 
     const ranked = rankFeed(pool, prefsRef.current, getRankRecIds());
     allArticlesRef.current = ranked;
     setAllArticles(ranked);
-  }, [options?.recBootstrapDone, options?.recBootstrapError, options?.recStatus, options?.recArticleIds, getRankRecIds]);
+  }, [
+    options?.recBootstrapDone,
+    options?.recBootstrapError,
+    options?.recStatus,
+    options?.recArticleIds,
+    options?.recCandidateMode,
+    getRankRecIds,
+  ]);
+
+  // Local rank first so batched rec requests prioritize likely-visible articles.
+  const articlePoolIds = useMemo(() => {
+    if (articlePool.length === 0) return [];
+    return rankFeed(articlePool, prefsRef.current, []).map(a => a.id);
+  }, [articlePool]);
+
+  useEffect(() => {
+    options?.onArticlePoolIds?.(articlePoolIds);
+  }, [articlePoolIds, options?.onArticlePoolIds]);
 
   // Incremented on every refresh call; onBatch/finally checks this to discard
   // results from a superseded (stale) fetch.

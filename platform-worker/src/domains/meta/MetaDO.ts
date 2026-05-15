@@ -1,19 +1,19 @@
 import type { Env } from '../../env';
 import { normaliseTags, mergeTagSets } from './tags';
+import {
+  type ArticleRecord,
+  ARTICLE_RECORD_TTL_SECONDS,
+  articleRecordKey,
+} from './articleRecord';
 
 const MAX_MISSED_PONGS = 2;
 const MAX_BATCH_SIZE = 200;
 const MAX_MSG_PER_MIN = 20;
 const MAX_TAGS_PER_ARTICLE = 6;
-const KV_TTL_SECONDS = 90 * 24 * 60 * 60;
 const SQLITE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 const CATCHUP_PAGE_SIZE = 200;
 
-export interface ArticleMetaEntry {
-  articleId: string;
-  tags: string[];
-  updatedAt: number;
-}
+export type ArticleMetaEntry = ArticleRecord;
 
 interface SessionState {
   missedPongs: number;
@@ -164,7 +164,7 @@ export class MetaDO implements DurableObject {
   }
 
   private async kvWrite(articleId: string, incomingTags: string[]): Promise<void> {
-    const key = `meta:${articleId}`;
+    const key = articleRecordKey(articleId);
     const existing = await this.env.ARTICLE_META.get<ArticleMetaEntry>(key, 'json');
 
     const existingTags = existing?.tags ?? [];
@@ -176,10 +176,19 @@ export class MetaDO implements DurableObject {
     ) return;
 
     const updatedAt = Date.now();
-    const entry: ArticleMetaEntry = { articleId, tags: merged, updatedAt };
+    const entry: ArticleMetaEntry = {
+      articleId,
+      tags: merged,
+      updatedAt,
+      title: existing?.title,
+      source: existing?.source,
+      sourceId: existing?.sourceId,
+      publishedAt: existing?.publishedAt,
+      url: existing?.url,
+    };
 
     await this.env.ARTICLE_META.put(key, JSON.stringify(entry), {
-      expirationTtl: KV_TTL_SECONDS,
+      expirationTtl: ARTICLE_RECORD_TTL_SECONDS,
     });
 
     this.state.storage.sql.exec(
@@ -200,7 +209,7 @@ export class MetaDO implements DurableObject {
     )];
 
     const entries = await Promise.all(
-      rows.map(r => this.env.ARTICLE_META.get<ArticleMetaEntry>(`meta:${r.article_id}`, 'json')),
+      rows.map(r => this.env.ARTICLE_META.get<ArticleMetaEntry>(articleRecordKey(r.article_id), 'json')),
     );
 
     const updates = entries.filter((e): e is ArticleMetaEntry => e !== null);

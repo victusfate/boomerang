@@ -5,13 +5,44 @@ import {
   normalizeArticleMeta,
   normalizeIdsParam,
   wireArticleFromFeed,
-  ARTICLE_META_KEY_PREFIX,
+  ARTICLE_META_TTL_SECONDS,
   MAX_ARTICLE_IDS_LOOKUP,
 } from './articleMetaContract.ts';
+import {
+  articleRecordKey,
+  catalogFromArticleRecord,
+  ARTICLE_RECORD_TTL_SECONDS,
+} from '../meta/articleRecord.ts';
 
 describe('articleMeta catalog contract', () => {
-  it('uses rec:article-meta key prefix', () => {
-    assert.equal(ARTICLE_META_KEY_PREFIX, 'rec:article-meta:');
+  it('uses meta: KV key with shared catalog TTL', () => {
+    assert.equal(articleRecordKey('abc'), 'meta:abc');
+    assert.equal(ARTICLE_RECORD_TTL_SECONDS, ARTICLE_META_TTL_SECONDS);
+    assert.equal(ARTICLE_RECORD_TTL_SECONDS, 180 * 24 * 60 * 60);
+  });
+
+  it('reads catalog fields from unified article record', () => {
+    const catalog = catalogFromArticleRecord({
+      articleId: 'a1',
+      tags: ['ai'],
+      updatedAt: 1,
+      title: 'Hello',
+      source: 'Src',
+      sourceId: 'src-1',
+      publishedAt: '2026-01-01',
+      url: 'https://example.com/a1',
+    });
+    assert.deepEqual(catalog, {
+      id: 'a1',
+      title: 'Hello',
+      source: 'Src',
+      sourceId: 'src-1',
+      publishedAt: '2026-01-01',
+      url: 'https://example.com/a1',
+    });
+  });
+
+  it('legacy rec:article-meta key still parseable', () => {
     assert.equal(articleMetaCacheKey('abc'), 'rec:article-meta:abc');
   });
 
