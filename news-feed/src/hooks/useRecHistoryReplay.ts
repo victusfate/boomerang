@@ -2,24 +2,19 @@ import { useEffect, useRef } from 'react';
 import type { Article, UserPrefs } from '../types';
 import { postInteractions } from '../services/recWorker';
 import { resolveWorkerUrl } from '../config/workerEnv';
-import { kvGet, kvSet } from '../services/kvStore';
 
 const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_REC_WORKER_URL);
 
-/** Re-replay saved/voted/read history after 6 h to catch sync merges and new sessions. */
-const REPLAY_COOLDOWN_MS = 6 * 60 * 60 * 1000;
-const REPLAY_KEY = 'rec:last-replay-at';
 /** Cap total ids to avoid flooding the rate limiter (200 events / batch max). */
 const MAX_REPLAY_IDS = 180;
 
 /**
- * On each session, once the rec worker is ready and articles are loaded, replay
- * strong-signal interactions (save, upvote, downvote, read) from local prefs so
- * the CF model sees historical preference data — not just live-session events.
+ * Once per page load (guarded by replayedRef), replay strong-signal interactions
+ * (save, upvote, downvote, read) from local prefs so the CF model sees historical
+ * preference data — not just live-session events.
  *
- * Throttled to once per REPLAY_COOLDOWN_MS to catch cross-browser syncs without
- * flooding the worker. RecDO deduplicates on (userId, articleId, action) so
- * replaying the same event is safe.
+ * Safe to run on every load: RecDO deduplicates on (userId, articleId, action).
+ * Duplicate events only update the stored timestamp; no MF gradient step is taken.
  */
 export function useRecHistoryReplay(
   prefs: UserPrefs,
@@ -45,9 +40,6 @@ export function useRecHistoryReplay(
     replayedRef.current = true;
 
     void (async () => {
-      const lastReplay = await kvGet<number>(REPLAY_KEY);
-      if (lastReplay !== undefined && Date.now() - lastReplay < REPLAY_COOLDOWN_MS) return;
-
       const p = prefsRef.current;
       const articleById = new Map<string, Article>();
       for (const a of allArticlesRef.current) articleById.set(a.id, a);
@@ -93,7 +85,6 @@ export function useRecHistoryReplay(
       if (resolved.length === 0) return;
 
       await postInteractions(WORKER_BASE, recUserId, resolved);
-      await kvSet(REPLAY_KEY, Date.now());
     })().catch(() => {});
   }, [recBootstrapDone, recUserId, articlesReady]);
 }
