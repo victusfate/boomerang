@@ -82,9 +82,23 @@ export function useRecHistoryReplay(
           return [{ articleId, sourceId: a.sourceId, topics: a.topics, action, ts }];
         });
 
-      if (resolved.length === 0) return;
+      if (resolved.length === 0) {
+        console.info('[rec] history replay: no resolvable interactions (articles not yet in pool)');
+        return;
+      }
+
+      const summary = resolved.reduce<Record<string, number>>((acc, e) => {
+        acc[e.action] = (acc[e.action] ?? 0) + 1;
+        return acc;
+      }, {});
+      console.info('[rec] history replay: posting to platform worker', {
+        total: resolved.length,
+        skipped: pending.length - resolved.length,
+        ...summary,
+      });
 
       await postInteractions(WORKER_BASE, recUserId, resolved);
-    })().catch(() => {});
+      console.info('[rec] history replay: done');
+    })().catch((e) => { console.warn('[rec] history replay failed', e); });
   }, [recBootstrapDone, recUserId, articlesReady]);
 }
