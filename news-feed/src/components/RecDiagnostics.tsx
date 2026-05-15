@@ -122,7 +122,6 @@ export function RecDiagnostics({ recArticleIds, recStatus, getSourceName }: Prop
   const [data, setData]       = useState<DiagData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
-  const [showModel, setShowModel] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -164,8 +163,15 @@ export function RecDiagnostics({ recArticleIds, recStatus, getSourceName }: Prop
     .filter(e => e.score > 0)
     .sort((a, b) => b.score - a.score);
 
+  const tagEntries = Object.entries(stats.tags ?? {})
+    .map(([tag, c]) => ({ tag, score: engagementScore(c) }))
+    .filter(e => e.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 12);
+
   const maxSource = sourceEntries[0] ? Math.abs(sourceEntries[0].score) : 1;
   const maxTopic  = topicEntries[0]?.score || 1;
+  const maxTag    = tagEntries[0]?.score   || 1;
 
   const statusDot = recStatus === 'active' ? 'active' : recStatus === 'error' ? 'error' : 'idle';
 
@@ -228,12 +234,27 @@ export function RecDiagnostics({ recArticleIds, recStatus, getSourceName }: Prop
         </>
       )}
 
-      {/* Model stats — collapsed by default */}
+      {/* Tag engagement — shown when AI/manual/shared tags have been accumulated */}
+      {tagEntries.length > 0 && (
+        <>
+          <p className="rec-chart-title" style={{ marginTop: 4 }}>Tag engagement</p>
+          <div className="rec-topic-list">
+            {tagEntries.map(({ tag, score }) => (
+              <TopicBar
+                key={tag}
+                label={tag}
+                score={score}
+                maxScore={maxTag}
+              />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Model stats — always visible */}
       {debug && (
-        <details className="rec-model-details" onToggle={e => setShowModel((e.target as HTMLDetailsElement).open)}>
-          <summary className="rec-model-summary">
-            Model stats {!showModel && <span className="rec-model-peek">(n={debug.interactionsCount.count})</span>}
-          </summary>
+        <>
+          <p className="rec-chart-title" style={{ marginTop: 4 }}>Model stats</p>
           <div className="rec-stat-grid">
             <div className="rec-stat-card">
               <div className="rec-stat-value">{debug.interactionsCount.count.toLocaleString()}</div>
@@ -252,7 +273,7 @@ export function RecDiagnostics({ recArticleIds, recStatus, getSourceName }: Prop
               <div className="rec-stat-label">global mean</div>
             </div>
           </div>
-        </details>
+        </>
       )}
     </div>
   );

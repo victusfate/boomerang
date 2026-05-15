@@ -8,6 +8,7 @@ export interface RecInteractionInput {
   articleId: string;
   sourceId:  string;
   topics:    Topic[];
+  tags?:     string[];
   action:    RecAction;
   ts:        number;   // epoch ms — set at interaction time, not flush time
 }

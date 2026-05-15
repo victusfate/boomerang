@@ -114,6 +114,8 @@ export function useFeed(options?: UseFeedOptions) {
   const allArticlesRef   = useRef<Article[]>([]);
   allArticlesRef.current = allArticles;
 
+  const articleTagsMapRef = useRef<Map<string, string[]>>(new Map());
+
   const markedSeenRef    = useRef(new Set<string>());
 
   const recInteractRef = useRef<((input: RecInteractionInput) => void) | undefined>(undefined);
@@ -659,7 +661,7 @@ export function useFeed(options?: UseFeedOptions) {
       return next;
     });
     const a = allArticlesRef.current.find(x => x.id === id);
-    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, action: 'seen', ts: Date.now() });
+    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, tags: articleTagsMapRef.current.get(a.id), action: 'seen', ts: Date.now() });
   }, []);
 
   // ── Pagination ────────────────────────────────────────────────────────────────
@@ -676,25 +678,25 @@ export function useFeed(options?: UseFeedOptions) {
     const next = markRead(article.id, prefsRef.current);
     const boosted = article.topics.reduce((p, t) => boostTopic(t, p), next);
     updatePrefs(boosted);
-    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, action: 'read', ts: Date.now() });
+    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, tags: articleTagsMapRef.current.get(article.id), action: 'read', ts: Date.now() });
   }, [updatePrefs]);
 
   const handleSave = useCallback((id: string) => {
     updatePrefs(toggleSaved(id, prefsRef.current));
     const a = allArticlesRef.current.find(x => x.id === id);
-    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, action: 'save', ts: Date.now() });
+    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, tags: articleTagsMapRef.current.get(a.id), action: 'save', ts: Date.now() });
   }, [updatePrefs]);
 
   const handleUpvote = useCallback((article: Article) => {
     updatePrefs(upvote(article, prefsRef.current));
     // No re-rank: card stays visible; ▲ highlight comes from prefs.upvotedIds.
-    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, action: 'upvote', ts: Date.now() });
+    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, tags: articleTagsMapRef.current.get(article.id), action: 'upvote', ts: Date.now() });
   }, [updatePrefs]);
 
   const handleDownvote = useCallback((article: Article) => {
     // Toggle downvote — card stays in the feed and renders collapsed via prefs.downvotedIds
     updatePrefs(downvote(article, prefsRef.current));
-    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, action: 'downvote', ts: Date.now() });
+    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, tags: articleTagsMapRef.current.get(article.id), action: 'downvote', ts: Date.now() });
   }, [updatePrefs]);
 
   const handleToggleSource = useCallback((sourceId: string) => {
@@ -996,6 +998,7 @@ export function useFeed(options?: UseFeedOptions) {
     }
     return map;
   }, [articleTags, metaTagsMap]);
+  articleTagsMapRef.current = articleTagsMap;
 
   return {
     visibleArticles: allArticles.slice(0, visibleCount),
