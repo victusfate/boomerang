@@ -10,6 +10,15 @@ import type {
 } from '@victusfate/ricochet';
 import type { Topic } from '../types';
 import { kvGet, kvSet } from './kvStore';
+import {
+  parseRecArticlesResponse,
+  type RecArticleMeta,
+  type RecArticlesLookupTiming,
+  type RecArticlesResponse,
+} from './recArticlesLookup';
+
+export type { RecArticleMeta, RecArticlesLookupTiming, RecArticlesResponse } from './recArticlesLookup';
+export { normalizeRecArticleMeta, parseRecArticlesResponse } from './recArticlesLookup';
 
 export type RecAction = Action;
 
@@ -167,15 +176,6 @@ export interface RecDebugInfo {
   interactionsCount: { count: number };
 }
 
-export interface RecArticleMeta {
-  id: string;
-  title: string;
-  source: string;
-  sourceId: string;
-  publishedAt: string;
-  url: string;
-}
-
 export async function fetchRecDiagnostics(workerBase: string): Promise<RecDebugInfo> {
   const res = await fetch(`${workerBase}/rec/debug`);
   if (!res.ok) throw new Error(`rec-debug ${res.status}`);
@@ -185,34 +185,14 @@ export async function fetchRecDiagnostics(workerBase: string): Promise<RecDebugI
 export async function fetchRecArticles(
   workerBase: string,
   ids: string[],
-): Promise<RecArticleMeta[]> {
+): Promise<RecArticlesResponse> {
   const uniqueIds = Array.from(new Set(ids));
-  if (uniqueIds.length === 0) return [];
+  if (uniqueIds.length === 0) {
+    return { ok: true, requested: 0, found: 0, missing: [], articles: [] };
+  }
   const res = await fetch(
     `${workerBase}/rec/articles?ids=${encodeURIComponent(uniqueIds.join(','))}`,
   );
   if (!res.ok) throw new Error(`rec-articles ${res.status}`);
-  const body = await res.json() as { articles?: unknown };
-  if (!Array.isArray(body.articles)) return [];
-  return body.articles.reduce<RecArticleMeta[]>((acc, row) => {
-    if (!row || typeof row !== 'object') return acc;
-    const r = row as Record<string, unknown>;
-    if (
-      typeof r.id !== 'string'
-      || typeof r.title !== 'string'
-      || typeof r.source !== 'string'
-      || typeof r.sourceId !== 'string'
-      || typeof r.publishedAt !== 'string'
-      || typeof r.url !== 'string'
-    ) return acc;
-    acc.push({
-      id: r.id,
-      title: r.title,
-      source: r.source,
-      sourceId: r.sourceId,
-      publishedAt: r.publishedAt,
-      url: r.url,
-    });
-    return acc;
-  }, []);
+  return parseRecArticlesResponse(await res.json());
 }

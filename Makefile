@@ -70,6 +70,7 @@ audit:
 
 test:
 	cd news-feed && npm test
+	cd platform-worker && npm test
 
 # ── Deploy ────────────────────────────────────────────────────────────────────
 

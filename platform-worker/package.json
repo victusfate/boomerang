@@ -6,7 +6,8 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev --port 8791",
     "cf-typegen": "wrangler types",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types src/domains/rec/articleMeta.node.test.ts"
   },
   "dependencies": {
     "@victusfate/ricochet": "github:victusfate/ricochet",

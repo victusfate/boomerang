@@ -1,6 +1,12 @@
 import { useState, useCallback, useEffect } from 'react';
 import { loadRecStats, engagementScore, ACTION_WEIGHT, type ActionCounts } from '../services/recStats';
-import { fetchRecArticles, fetchRecDiagnostics, type RecDebugInfo, type RecResponseWithScores } from '../services/recWorker';
+import {
+  fetchRecArticles,
+  fetchRecDiagnostics,
+  type RecArticlesResponse,
+  type RecDebugInfo,
+  type RecResponseWithScores,
+} from '../services/recWorker';
 import { resolveWorkerUrl } from '../config/workerEnv';
 import { TOPIC_META } from './TopicFilter';
 import type { RecStatus } from '../hooks/useRecWorker';
@@ -162,7 +168,8 @@ export function RecDiagnostics({
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [lookupTitleById, setLookupTitleById] = useState<Record<string, string>>({});
-  const [lookupAttemptedById, setLookupAttemptedById] = useState<Record<string, true>>({});
+  const [lookupMissingById, setLookupMissingById] = useState<Record<string, true>>({});
+  const [lookupCoverage, setLookupCoverage] = useState<Pick<RecArticlesResponse, 'found' | 'requested' | 'missing' | 'timingMs'> | null>(null);
   const rankedRows = recScoredArticles.length > 0
     ? recScoredArticles.map(row => row.articleId)
     : recArticleIds;
@@ -190,30 +197,40 @@ export function RecDiagnostics({
   }, [autoLoad, load]);
 
   useEffect(() => {
-    const missingIds = rankedRows.filter(
-      id => !getArticleTitle(id) && !(id in lookupTitleById) && !(id in lookupAttemptedById),
+    const previewIds = rankedRows.slice(0, 12);
+    const missingIds = previewIds.filter(
+      id => !getArticleTitle(id) && !(id in lookupTitleById) && !(id in lookupMissingById),
     );
     if (missingIds.length === 0) return;
-    let cancelled = false;
-    setLookupAttemptedById(prev => ({
-      ...prev,
-      ...Object.fromEntries(missingIds.map(id => [id, true as const])),
-    }));
     if (!WORKER_BASE) return;
+    let cancelled = false;
     void fetchRecArticles(WORKER_BASE, missingIds)
-      .then((articles) => {
+      .then((response) => {
         if (cancelled) return;
-        if (articles.length === 0) return;
-        setLookupTitleById(prev => ({
-          ...prev,
-          ...Object.fromEntries(articles.map(a => [a.id, a.title])),
-        }));
+        setLookupCoverage({
+          found: response.found,
+          requested: response.requested,
+          missing: response.missing,
+          timingMs: response.timingMs,
+        });
+        if (response.articles.length > 0) {
+          setLookupTitleById(prev => ({
+            ...prev,
+            ...Object.fromEntries(response.articles.map(a => [a.id, a.title])),
+          }));
+        }
+        if (response.missing.length > 0) {
+          setLookupMissingById(prev => ({
+            ...prev,
+            ...Object.fromEntries(response.missing.map(id => [id, true as const])),
+          }));
+        }
       })
       .catch(() => {
         // Keep local fallback copy; missing ids stay unresolved for now.
       });
     return () => { cancelled = true; };
-  }, [rankedRows, getArticleTitle, lookupTitleById, lookupAttemptedById]);
+  }, [rankedRows, getArticleTitle, lookupTitleById, lookupMissingById]);
 
   if (!data && !loading && !error) {
     return (
@@ -274,6 +291,17 @@ export function RecDiagnostics({
   });
 
   const statusDot = recStatus === 'active' ? 'active' : recStatus === 'error' ? 'error' : 'idle';
+  const previewIds = recPreview.map(entry => entry.id);
+  const resolvedTitleCount = previewIds.filter(
+    id => Boolean(getArticleTitle(id) || lookupTitleById[id]),
+  ).length;
+  const titleLookupHint = lookupCoverage
+    ? `Resolved ${resolvedTitleCount}/${previewIds.length} titles`
+      + (lookupCoverage.missing.length > 0 ? ` (${lookupCoverage.missing.length} missing)` : '')
+      + (lookupCoverage.timingMs ? ` · ${Math.round(lookupCoverage.timingMs.total)}ms` : '')
+    : previewIds.length > 0
+      ? `Resolved ${resolvedTitleCount}/${previewIds.length} titles`
+      : null;
 
   return (
     <div className="rec-diag">
@@ -298,6 +326,7 @@ export function RecDiagnostics({
           <p className="settings-hint" style={{ marginBottom: 4 }}>
             Worker snapshot {formatModelAge(recGeneratedAt)}. Bars show collaborative scores
             and x-values show feed boost influence.
+            {titleLookupHint ? ` ${titleLookupHint}.` : ''}
           </p>
           <div className="rec-cf-list">
             {recPreviewWithPct.map(entry => (

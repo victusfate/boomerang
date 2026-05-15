@@ -2,8 +2,10 @@ import type { Env } from '../../env';
 import { corsHeaders } from '../../cors';
 import type { RecCoreResponse, RecResponse } from '@victusfate/ricochet';
 import { isValidEvent } from '@victusfate/ricochet';
+import { normalizeIdsParam, lookupArticleMetaByIds } from './articleMeta';
 
 export { RecDO } from './RecDO';
+export type { RecArticleMeta, RecArticlesResponse } from './articleMeta';
 
 const RATE_LIMIT_INTERACTIONS_MAX = 60;
 const RATE_LIMIT_RECS_MAX = 30;
@@ -15,8 +17,6 @@ const MAX_BATCH_SIZE = 200;
 const MAX_LIMIT = 200;
 const DEFAULT_LIMIT = 50;
 const CACHE_TTL_SECONDS = 300;
-const MAX_ARTICLE_IDS_LOOKUP = 50;
-const ARTICLE_META_TTL_SECONDS = 86_400;
 
 function json(data: unknown, request: Request, env: Env, init?: ResponseInit): Response {
   const headers = corsHeaders(request, env);
@@ -135,35 +135,6 @@ function buildObservedResponse(
   };
 }
 
-interface RecArticleMeta {
-  id: string;
-  title: string;
-  source: string;
-  sourceId: string;
-  publishedAt: string;
-  url: string;
-}
-
-function normalizeIdsParam(raw: string | null): string[] {
-  if (!raw) return [];
-  const ids = raw.split(',').map(s => s.trim()).filter(Boolean);
-  return Array.from(new Set(ids)).slice(0, MAX_ARTICLE_IDS_LOOKUP);
-}
-
-function articleMetaCacheKey(id: string): string {
-  return `rec:article-meta:${id}`;
-}
-
-async function loadCachedArticleMeta(env: Env, ids: string[]): Promise<Map<string, RecArticleMeta>> {
-  const out = new Map<string, RecArticleMeta>();
-  await Promise.all(ids.map(async (id) => {
-    const cached = await env.REC_STORE.get(articleMetaCacheKey(id), 'json') as RecArticleMeta | null;
-    if (cached) out.set(id, cached);
-  }));
-  return out;
-}
-
-
 export async function handleRec(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
@@ -266,16 +237,10 @@ export async function handleRec(request: Request, env: Env, _ctx: ExecutionConte
   if (pathname === '/rec/articles' && request.method === 'GET') {
     const ids = normalizeIdsParam(url.searchParams.get('ids'));
     if (ids.length === 0) {
-      return json({ ok: false, message: 'ids query parameter required' }, request, env, { status: 400 });
+      return json({ ok: true, requested: 0, found: 0, missing: [], articles: [] }, request, env);
     }
-
-    const cached = await loadCachedArticleMeta(env, ids);
-    const articles = ids.map(id => cached.get(id)).filter((v): v is RecArticleMeta => Boolean(v));
-    return json(
-      { ok: true, requested: ids.length, found: articles.length, missing: ids.filter(id => !cached.has(id)), articles },
-      request,
-      env,
-    );
+    const body = await lookupArticleMetaByIds(env, ids);
+    return json(body, request, env);
   }
 
   if (pathname === '/rec/debug' && request.method === 'GET') {

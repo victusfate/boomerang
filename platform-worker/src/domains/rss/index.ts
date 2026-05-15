@@ -3,10 +3,10 @@ import { corsHeaders } from '../../cors';
 import { DEFAULT_SOURCES, SOURCE_BY_ID, type NewsSource } from './sources';
 import { fetchFeedsStaggered } from './rssFetch';
 import { extractOgImageFromHtml, isAllowedOgFetchUrl } from './ogImage';
+import { persistArticleMeta, wireArticleFromFeed } from '../rec/articleMeta';
 
 const BUNDLE_CACHE_TTL_SEC = 300;
 const IMAGE_PROXY_CACHE_TTL_SEC = 86_400;
-const ARTICLE_META_TTL_SEC = 86_400;   // 24 h — kept alive across bundle refreshes
 const MAX_HTML_BYTES = 1 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -92,13 +92,7 @@ export async function handleRss(request: Request, env: Env, ctx: ExecutionContex
     );
     // Populate REC_STORE so /rec/articles can resolve titles without re-fetching feeds.
     ctx.waitUntil(
-      Promise.all(articles.map(a =>
-        env.REC_STORE.put(
-          `rec:article-meta:${a.id}`,
-          JSON.stringify({ id: a.id, title: a.title, source: a.source, sourceId: a.sourceId, publishedAt: a.publishedAt, url: a.url }),
-          { expirationTtl: ARTICLE_META_TTL_SEC },
-        ).catch(() => {}),
-      )),
+      persistArticleMeta(env, articles.map(wireArticleFromFeed)).catch(() => {}),
     );
     return response;
   }
