@@ -6,7 +6,9 @@ import { isPromptApiAvailable } from '../services/labelClassifier';
 import type { Article, CustomSource, Topic, UserLabel, UserPrefs } from '../types';
 import type { MetaStatus } from '../hooks/useMetaWorker';
 import type { SyncErrorDetails } from '../hooks/useSyncWorker';
+import type { RecStatus } from '../hooks/useRecWorker';
 import { TOPIC_META } from './TopicFilter';
+import { RecDiagnostics } from './RecDiagnostics';
 
 const ALL_TOPICS = (Object.keys(TOPIC_META) as Topic[]).filter(t => t !== 'general');
 
@@ -50,7 +52,8 @@ interface Props {
   onGenerateLink: () => Promise<void>;
   onRevoke: () => Promise<void>;
   onToggleAiBar: () => void;
-  onLogRecDiagnostics: () => Promise<void>;
+  recArticleIds: string[];
+  recStatus: RecStatus;
 }
 
 export function Settings({
@@ -60,7 +63,8 @@ export function Settings({
   onAddLabel, onDeleteLabel,   onSuggestLabels,
   syncActive, syncStatus, syncedAt, syncError, syncErrorDetails, syncUrl, syncEnvError,
   metaStatus, metaError, metaEnvError,
-  onForceMetaSync, onForceSync, onGenerateLink, onRevoke, onToggleAiBar, onLogRecDiagnostics,
+  onForceMetaSync, onForceSync, onGenerateLink, onRevoke, onToggleAiBar,
+  recArticleIds, recStatus,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
@@ -84,6 +88,12 @@ export function Settings({
   // Sync QR code (for live sync URL)
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [copied, setCopied]       = useState(false);
+
+  const getSourceName = useCallback((id: string) => {
+    const builtIn = DEFAULT_SOURCES.find(s => s.id === id);
+    if (builtIn) return builtIn.name;
+    return prefs.customSources.find(s => s.id === id)?.name ?? id;
+  }, [prefs.customSources]);
 
   useEffect(() => {
     previousFocusRef.current = document.activeElement;
@@ -608,12 +618,20 @@ export function Settings({
           <button className="btn-reset-prefs" onClick={() => { onResetPrefs(); onClose(); }}>
             Reset learned preferences
           </button>
-          <p className="settings-hint" style={{ marginTop: '12px' }}>
-            Log collaborative filter state to the browser console (open DevTools to view).
+        </section>
+
+        {/* ── Recommendations ──────────────────────────────────────────── */}
+        <section className="settings-section">
+          <h3>Recommendations</h3>
+          <p className="settings-hint">
+            Collaborative filter state — topic affinity and source engagement scored by interaction weight
+            (save 2×, upvote 1×, read 0.5×, seen 0.1×, downvote −1×).
           </p>
-          <button className="btn-reset-prefs" onClick={() => void onLogRecDiagnostics()}>
-            Log rec diagnostics
-          </button>
+          <RecDiagnostics
+            recArticleIds={recArticleIds}
+            recStatus={recStatus}
+            getSourceName={getSourceName}
+          />
         </section>
 
         {/* ── About ──────────────────────────────────────────────────── */}
