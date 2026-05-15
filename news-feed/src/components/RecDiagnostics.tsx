@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { loadRecStats, engagementScore, ACTION_WEIGHT, type ActionCounts } from '../services/recStats';
-import { fetchRecDiagnostics, type RecDebugInfo, type RecResponseWithScores } from '../services/recWorker';
+import { fetchRecArticles, fetchRecDiagnostics, type RecDebugInfo, type RecResponseWithScores } from '../services/recWorker';
 import { resolveWorkerUrl } from '../config/workerEnv';
 import { TOPIC_META } from './TopicFilter';
 import type { RecStatus } from '../hooks/useRecWorker';
@@ -38,6 +38,7 @@ interface Props {
   recGeneratedAt: number | null;
   recStatus: RecStatus;
   getSourceName: (id: string) => string;
+  getArticleTitle: (id: string) => string | null;
   autoLoad?: boolean;
 }
 
@@ -154,11 +155,17 @@ export function RecDiagnostics({
   recGeneratedAt,
   recStatus,
   getSourceName,
+  getArticleTitle,
   autoLoad,
 }: Props) {
   const [data, setData]       = useState<DiagData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
+  const [lookupTitleById, setLookupTitleById] = useState<Record<string, string>>({});
+  const [lookupAttemptedById, setLookupAttemptedById] = useState<Record<string, true>>({});
+  const rankedRows = recScoredArticles.length > 0
+    ? recScoredArticles.map(row => row.articleId)
+    : recArticleIds;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -181,6 +188,32 @@ export function RecDiagnostics({
   useEffect(() => {
     if (autoLoad) void load();
   }, [autoLoad, load]);
+
+  useEffect(() => {
+    const missingIds = rankedRows.filter(
+      id => !getArticleTitle(id) && !(id in lookupTitleById) && !(id in lookupAttemptedById),
+    );
+    if (missingIds.length === 0) return;
+    let cancelled = false;
+    setLookupAttemptedById(prev => ({
+      ...prev,
+      ...Object.fromEntries(missingIds.map(id => [id, true as const])),
+    }));
+    if (!WORKER_BASE) return;
+    void fetchRecArticles(WORKER_BASE, missingIds)
+      .then((articles) => {
+        if (cancelled) return;
+        if (articles.length === 0) return;
+        setLookupTitleById(prev => ({
+          ...prev,
+          ...Object.fromEntries(articles.map(a => [a.id, a.title])),
+        }));
+      })
+      .catch(() => {
+        // Keep local fallback copy; missing ids stay unresolved for now.
+      });
+    return () => { cancelled = true; };
+  }, [rankedRows, getArticleTitle, lookupTitleById, lookupAttemptedById]);
 
   if (!data && !loading && !error) {
     return (
@@ -213,9 +246,6 @@ export function RecDiagnostics({
   const maxSource = sourceEntries[0] ? Math.abs(sourceEntries[0].score) : 1;
   const maxTopic  = topicEntries[0]?.score || 1;
   const maxTag    = tagEntries[0]?.score   || 1;
-  const rankedRows = recScoredArticles.length > 0
-    ? recScoredArticles.map(row => row.articleId)
-    : recArticleIds;
   const recPreview = rankedRows.slice(0, 12).map((id, idx) => {
     const boost = cfBoostAtRank(idx, rankedRows.length);
     const score = recScoreById[id];
@@ -279,6 +309,9 @@ export function RecDiagnostics({
                     s{entry.score !== undefined ? entry.score.toFixed(3) : 'n/a'}
                   </span>
                   <span className="rec-cf-boost">x{entry.boost.toFixed(2)}</span>
+                </div>
+                <div className="rec-cf-title" title={getArticleTitle(entry.id) ?? lookupTitleById[entry.id] ?? undefined}>
+                  {getArticleTitle(entry.id) ?? lookupTitleById[entry.id] ?? '(title not in local article pool yet)'}
                 </div>
                 <div className="rec-cf-track">
                   <div className="rec-cf-fill" style={{ width: `${entry.pct}%` }} />

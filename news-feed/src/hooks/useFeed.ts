@@ -1001,6 +1001,7 @@ export function useFeed(options?: UseFeedOptions) {
   articleTagsMapRef.current = articleTagsMap;
 
   return {
+    allArticles,
     visibleArticles: allArticles.slice(0, visibleCount),
     savedArticles,
     hasMore:     visibleCount < allArticles.length,

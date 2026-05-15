@@ -97,6 +97,7 @@ export default function App() {
   } = useRecWorker();
 
   const {
+    allArticles,
     visibleArticles, savedArticles, hasMore, totalLoaded,
     loading, refreshing, fetching, error, prefs, lastRefresh, feedEnterIds,
     onOpen, onSave, onUpvote, onDownvote, onSeen, onLoadMore,
@@ -124,6 +125,18 @@ export default function App() {
     if (builtIn) return builtIn.name;
     return prefs.customSources.find(s => s.id === id)?.name ?? id;
   }, [prefs.customSources]);
+  const articleTitleById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const article of allArticles) map.set(article.id, article.title);
+    for (const article of savedArticles) {
+      if (!map.has(article.id)) map.set(article.id, article.title);
+    }
+    return map;
+  }, [allArticles, savedArticles]);
+  const getArticleTitle = useCallback(
+    (id: string) => articleTitleById.get(id) ?? null,
+    [articleTitleById],
+  );
 
   const [view, setView] = useState<FeedView>('feed');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>(null);
@@ -443,6 +456,7 @@ export default function App() {
             recGeneratedAt={recGeneratedAt}
             recStatus={recStatus}
             getSourceName={getSourceName}
+            getArticleTitle={getArticleTitle}
           />
         ) : (
           <>

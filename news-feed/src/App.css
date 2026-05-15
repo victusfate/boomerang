@@ -1409,6 +1409,14 @@ html, body {
   color: var(--sub);
   font-variant-numeric: tabular-nums;
 }
+.rec-cf-title {
+  margin-top: -1px;
+  font-size: 11px;
+  color: var(--sub);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .rec-cf-track {
   height: 7px;
   background: var(--border);

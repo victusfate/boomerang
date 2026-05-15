@@ -2,6 +2,8 @@ import type { Env } from '../../env';
 import { corsHeaders } from '../../cors';
 import type { RecCoreResponse, RecResponse } from '@victusfate/ricochet';
 import { isValidEvent } from '@victusfate/ricochet';
+import { DEFAULT_SOURCES } from '../rss/sources';
+import { fetchFeedsStaggered } from '../rss/rssFetch';
 
 export { RecDO } from './RecDO';
 
@@ -15,6 +17,8 @@ const MAX_BATCH_SIZE = 200;
 const MAX_LIMIT = 200;
 const DEFAULT_LIMIT = 50;
 const CACHE_TTL_SECONDS = 300;
+const MAX_ARTICLE_IDS_LOOKUP = 50;
+const ARTICLE_META_TTL_SECONDS = 86_400;
 
 function json(data: unknown, request: Request, env: Env, init?: ResponseInit): Response {
   const headers = corsHeaders(request, env);
@@ -133,6 +137,54 @@ function buildObservedResponse(
   };
 }
 
+interface RecArticleMeta {
+  id: string;
+  title: string;
+  source: string;
+  sourceId: string;
+  publishedAt: string;
+  url: string;
+}
+
+function normalizeIdsParam(raw: string | null): string[] {
+  if (!raw) return [];
+  const ids = raw.split(',').map(s => s.trim()).filter(Boolean);
+  return Array.from(new Set(ids)).slice(0, MAX_ARTICLE_IDS_LOOKUP);
+}
+
+function articleMetaCacheKey(id: string): string {
+  return `rec:article-meta:${id}`;
+}
+
+async function loadCachedArticleMeta(env: Env, ids: string[]): Promise<Map<string, RecArticleMeta>> {
+  const out = new Map<string, RecArticleMeta>();
+  await Promise.all(ids.map(async (id) => {
+    const cached = await env.REC_STORE.get(articleMetaCacheKey(id), 'json') as RecArticleMeta | null;
+    if (cached) out.set(id, cached);
+  }));
+  return out;
+}
+
+async function hydrateArticleMetaFromFeeds(env: Env, missingIds: string[]): Promise<Map<string, RecArticleMeta>> {
+  const target = new Set(missingIds);
+  const { articles } = await fetchFeedsStaggered(DEFAULT_SOURCES.filter(s => s.enabled));
+  const resolved = new Map<string, RecArticleMeta>();
+  for (const article of articles) {
+    if (!target.has(article.id)) continue;
+    resolved.set(article.id, {
+      id: article.id,
+      title: article.title,
+      source: article.source,
+      sourceId: article.sourceId,
+      publishedAt: article.publishedAt,
+      url: article.url,
+    });
+  }
+  await Promise.all(Array.from(resolved.values()).map(meta =>
+    env.REC_STORE.put(articleMetaCacheKey(meta.id), JSON.stringify(meta), { expirationTtl: ARTICLE_META_TTL_SECONDS })));
+  return resolved;
+}
+
 export async function handleRec(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
@@ -230,6 +282,31 @@ export async function handleRec(request: Request, env: Env, _ctx: ExecutionConte
       },
     );
     return json(response, request, env);
+  }
+
+  if (pathname === '/rec/articles' && request.method === 'GET') {
+    const ids = normalizeIdsParam(url.searchParams.get('ids'));
+    if (ids.length === 0) {
+      return json({ ok: false, message: 'ids query parameter required' }, request, env, { status: 400 });
+    }
+
+    const cached = await loadCachedArticleMeta(env, ids);
+    const missing = ids.filter(id => !cached.has(id));
+    if (missing.length > 0) {
+      try {
+        const fetched = await hydrateArticleMetaFromFeeds(env, missing);
+        for (const [id, meta] of fetched) cached.set(id, meta);
+      } catch {
+        // Partial response is acceptable: return whatever is already cached/resolved.
+      }
+    }
+
+    const articles = ids.map(id => cached.get(id)).filter((v): v is RecArticleMeta => Boolean(v));
+    return json(
+      { ok: true, requested: ids.length, found: articles.length, missing: ids.filter(id => !cached.has(id)), articles },
+      request,
+      env,
+    );
   }
 
   if (pathname === '/rec/debug' && request.method === 'GET') {
