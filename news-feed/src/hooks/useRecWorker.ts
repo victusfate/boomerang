@@ -21,6 +21,7 @@ export type RecStatus = 'disabled' | 'active' | 'error';
 export interface UseRecWorkerResult {
   sendInteraction: (input: RecInteractionInput) => void;
   recArticleIds:   string[];
+  recGeneratedAt:  number | null;
   recStatus:       RecStatus;
   recEnvError:     string | null;
   recBootstrapDone: boolean;
@@ -32,6 +33,7 @@ export function useRecWorker(): UseRecWorkerResult {
     WORKER_BASE ? null : missingWorkerEnvMessage('VITE_REC_WORKER_URL'),
   );
   const [recArticleIds, setRecArticleIds] = useState<string[]>([]);
+  const [recGeneratedAt, setRecGeneratedAt] = useState<number | null>(null);
   const [recStatus, setRecStatus] = useState<RecStatus>(() =>
     WORKER_BASE ? 'active' : 'disabled',
   );
@@ -60,6 +62,7 @@ export function useRecWorker(): UseRecWorkerResult {
     try {
       const recs = await fetchRecommendations(WORKER_BASE, userIdRef.current);
       setRecArticleIds(recs.articleIds);
+      setRecGeneratedAt(Number.isFinite(recs.generatedAt) ? recs.generatedAt : null);
       setRecStatus('active');
       setRecBootstrapError(null);
     } catch {
@@ -80,6 +83,7 @@ export function useRecWorker(): UseRecWorkerResult {
           const recs = await fetchRecommendations(WORKER_BASE, id);
           if (!cancelled) {
             setRecArticleIds(recs.articleIds);
+            setRecGeneratedAt(Number.isFinite(recs.generatedAt) ? recs.generatedAt : null);
             setRecStatus('active');
             setRecBootstrapDone(true);
             setRecBootstrapError(null);
@@ -125,5 +129,13 @@ export function useRecWorker(): UseRecWorkerResult {
     if (bufferRef.current.length >= FLUSH_BATCH_SIZE) void flush();
   }, [flush]);
 
-  return { sendInteraction, recArticleIds, recStatus, recEnvError, recBootstrapDone, recBootstrapError };
+  return {
+    sendInteraction,
+    recArticleIds,
+    recGeneratedAt,
+    recStatus,
+    recEnvError,
+    recBootstrapDone,
+    recBootstrapError,
+  };
 }

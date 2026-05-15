@@ -29,6 +29,7 @@ const ACTION_LABEL: Record<Action, string> = {
 
 interface Props {
   recArticleIds: string[];
+  recGeneratedAt: number | null;
   recStatus: RecStatus;
   getSourceName: (id: string) => string;
   autoLoad?: boolean;
@@ -41,6 +42,23 @@ interface DiagData {
 
 function counts(c: ActionCounts, action: Action): number {
   return (c as Record<string, number>)[action] ?? 0;
+}
+
+function cfBoostAtRank(index: number, total: number): number {
+  if (total <= 1) return 1.8;
+  const rank01 = index / Math.max(total - 1, 1);
+  return 1.0 + (1.0 - rank01) * 0.8;
+}
+
+function formatModelAge(generatedAt: number | null): string {
+  if (!generatedAt) return 'unknown';
+  const deltaMs = Date.now() - generatedAt;
+  if (deltaMs < 0) return 'just now';
+  const mins = Math.floor(deltaMs / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  return `${hours}h ago`;
 }
 
 // Source row: stacked bar where each segment width = action's contribution to score
@@ -119,7 +137,7 @@ function TopicBar({ label, color, score, maxScore }: {
   );
 }
 
-export function RecDiagnostics({ recArticleIds, recStatus, getSourceName, autoLoad }: Props) {
+export function RecDiagnostics({ recArticleIds, recGeneratedAt, recStatus, getSourceName, autoLoad }: Props) {
   const [data, setData]       = useState<DiagData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
@@ -177,6 +195,16 @@ export function RecDiagnostics({ recArticleIds, recStatus, getSourceName, autoLo
   const maxSource = sourceEntries[0] ? Math.abs(sourceEntries[0].score) : 1;
   const maxTopic  = topicEntries[0]?.score || 1;
   const maxTag    = tagEntries[0]?.score   || 1;
+  const recPreview = recArticleIds.slice(0, 12).map((id, idx) => {
+    const boost = cfBoostAtRank(idx, recArticleIds.length);
+    return {
+      id,
+      rank: idx + 1,
+      boost,
+      // 1.0x..1.8x maps to 0..100%
+      pct: ((boost - 1.0) / 0.8) * 100,
+    };
+  });
 
   const statusDot = recStatus === 'active' ? 'active' : recStatus === 'error' ? 'error' : 'idle';
 
@@ -196,6 +224,33 @@ export function RecDiagnostics({ recArticleIds, recStatus, getSourceName, autoLo
         </span>
         <button type="button" className="rec-diag-reload" onClick={load} title="Refresh">↺</button>
       </div>
+
+      <p className="rec-chart-title">Collaborative ranking influence</p>
+      {recPreview.length > 0 ? (
+        <>
+          <p className="settings-hint" style={{ marginBottom: 4 }}>
+            Worker snapshot {formatModelAge(recGeneratedAt)}. Higher-ranked ids get more feed influence (up to 1.8x).
+          </p>
+          <div className="rec-cf-list">
+            {recPreview.map(entry => (
+              <div key={entry.id} className="rec-cf-row">
+                <div className="rec-cf-header">
+                  <span className="rec-cf-rank">#{entry.rank}</span>
+                  <span className="rec-cf-id" title={entry.id}>{entry.id}</span>
+                  <span className="rec-cf-boost">x{entry.boost.toFixed(2)}</span>
+                </div>
+                <div className="rec-cf-track">
+                  <div className="rec-cf-fill" style={{ width: `${entry.pct}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p className="settings-hint">
+          No collaborative ranking ids yet (cold start or offline).
+        </p>
+      )}
 
       {/* Source engagement — primary focus */}
       {sourceEntries.length > 0 ? (
