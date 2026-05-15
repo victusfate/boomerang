@@ -81,7 +81,20 @@ export default function App() {
     metaTagsMap, feedTaggedArticle, endTaggingPass, forceMetaSync, metaStatus, metaError, metaEnvError, metaSyncCooldownMs,
   } = useMetaWorker(articleIds);
 
-  const { sendInteraction, recArticleIds, recGeneratedAt, recStatus, recBootstrapDone, recBootstrapError } = useRecWorker();
+  const {
+    sendInteraction,
+    recArticleIds,
+    recScoreById,
+    recScoredArticles,
+    recModelDiagnostics,
+    recTrace,
+    recCacheInfo,
+    recTimingMs,
+    recGeneratedAt,
+    recStatus,
+    recBootstrapDone,
+    recBootstrapError,
+  } = useRecWorker();
 
   const {
     visibleArticles, savedArticles, hasMore, totalLoaded,
@@ -421,6 +434,12 @@ export default function App() {
           <RecDiagnostics
             autoLoad
             recArticleIds={recArticleIds}
+            recScoreById={recScoreById}
+            recScoredArticles={recScoredArticles}
+            recModelDiagnostics={recModelDiagnostics}
+            recTrace={recTrace}
+            recCacheInfo={recCacheInfo}
+            recTimingMs={recTimingMs}
             recGeneratedAt={recGeneratedAt}
             recStatus={recStatus}
             getSourceName={getSourceName}

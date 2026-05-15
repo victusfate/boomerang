@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { loadRecStats, engagementScore, ACTION_WEIGHT, type ActionCounts } from '../services/recStats';
-import { fetchRecDiagnostics, type RecDebugInfo } from '../services/recWorker';
+import { fetchRecDiagnostics, type RecDebugInfo, type RecResponseWithScores } from '../services/recWorker';
 import { resolveWorkerUrl } from '../config/workerEnv';
 import { TOPIC_META } from './TopicFilter';
 import type { RecStatus } from '../hooks/useRecWorker';
@@ -29,6 +29,12 @@ const ACTION_LABEL: Record<Action, string> = {
 
 interface Props {
   recArticleIds: string[];
+  recScoreById: Record<string, number>;
+  recScoredArticles: RecResponseWithScores['scoredArticleIds'];
+  recModelDiagnostics: RecResponseWithScores['diagnostics'] | null;
+  recTrace: RecResponseWithScores['trace'] | null;
+  recCacheInfo: RecResponseWithScores['cache'] | null;
+  recTimingMs: RecResponseWithScores['timingMs'] | null;
   recGeneratedAt: number | null;
   recStatus: RecStatus;
   getSourceName: (id: string) => string;
@@ -137,7 +143,19 @@ function TopicBar({ label, color, score, maxScore }: {
   );
 }
 
-export function RecDiagnostics({ recArticleIds, recGeneratedAt, recStatus, getSourceName, autoLoad }: Props) {
+export function RecDiagnostics({
+  recArticleIds,
+  recScoreById,
+  recScoredArticles,
+  recModelDiagnostics,
+  recTrace,
+  recCacheInfo,
+  recTimingMs,
+  recGeneratedAt,
+  recStatus,
+  getSourceName,
+  autoLoad,
+}: Props) {
   const [data, setData]       = useState<DiagData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
@@ -195,14 +213,33 @@ export function RecDiagnostics({ recArticleIds, recGeneratedAt, recStatus, getSo
   const maxSource = sourceEntries[0] ? Math.abs(sourceEntries[0].score) : 1;
   const maxTopic  = topicEntries[0]?.score || 1;
   const maxTag    = tagEntries[0]?.score   || 1;
-  const recPreview = recArticleIds.slice(0, 12).map((id, idx) => {
-    const boost = cfBoostAtRank(idx, recArticleIds.length);
+  const rankedRows = recScoredArticles.length > 0
+    ? recScoredArticles.map(row => row.articleId)
+    : recArticleIds;
+  const recPreview = rankedRows.slice(0, 12).map((id, idx) => {
+    const boost = cfBoostAtRank(idx, rankedRows.length);
+    const score = recScoreById[id];
     return {
       id,
       rank: idx + 1,
+      score,
       boost,
-      // 1.0x..1.8x maps to 0..100%
-      pct: ((boost - 1.0) / 0.8) * 100,
+    };
+  });
+  const scoreValues = recPreview
+    .map(entry => entry.score)
+    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  const minScore = scoreValues.length > 0 ? Math.min(...scoreValues) : 0;
+  const maxScore = scoreValues.length > 0 ? Math.max(...scoreValues) : 1;
+  const scoreSpan = maxScore - minScore;
+  const recPreviewWithPct = recPreview.map(entry => {
+    const pctFromScore = entry.score !== undefined
+      ? (scoreSpan <= 1e-9 ? 100 : ((entry.score - minScore) / scoreSpan) * 100)
+      : null;
+    const pctFromBoost = ((entry.boost - 1.0) / 0.8) * 100;
+    return {
+      ...entry,
+      pct: pctFromScore ?? pctFromBoost,
     };
   });
 
@@ -229,14 +266,18 @@ export function RecDiagnostics({ recArticleIds, recGeneratedAt, recStatus, getSo
       {recPreview.length > 0 ? (
         <>
           <p className="settings-hint" style={{ marginBottom: 4 }}>
-            Worker snapshot {formatModelAge(recGeneratedAt)}. Higher-ranked ids get more feed influence (up to 1.8x).
+            Worker snapshot {formatModelAge(recGeneratedAt)}. Bars show collaborative scores
+            and x-values show feed boost influence.
           </p>
           <div className="rec-cf-list">
-            {recPreview.map(entry => (
+            {recPreviewWithPct.map(entry => (
               <div key={entry.id} className="rec-cf-row">
                 <div className="rec-cf-header">
                   <span className="rec-cf-rank">#{entry.rank}</span>
                   <span className="rec-cf-id" title={entry.id}>{entry.id}</span>
+                  <span className="rec-cf-score">
+                    s{entry.score !== undefined ? entry.score.toFixed(3) : 'n/a'}
+                  </span>
                   <span className="rec-cf-boost">x{entry.boost.toFixed(2)}</span>
                 </div>
                 <div className="rec-cf-track">
@@ -250,6 +291,68 @@ export function RecDiagnostics({ recArticleIds, recGeneratedAt, recStatus, getSo
         <p className="settings-hint">
           No collaborative ranking ids yet (cold start or offline).
         </p>
+      )}
+
+      {(recModelDiagnostics || recCacheInfo || recTimingMs || recTrace) && (
+        <>
+          <p className="rec-chart-title">CF request observability</p>
+          <div className="rec-observability-grid">
+            {recModelDiagnostics && (
+              <>
+                <div className="rec-observability-item">
+                  <span className="rec-observability-label">model</span>
+                  <span className="rec-observability-value">{recModelDiagnostics.modelVersion}</span>
+                </div>
+                <div className="rec-observability-item">
+                  <span className="rec-observability-label">candidates</span>
+                  <span className="rec-observability-value">{recModelDiagnostics.candidateCount}</span>
+                </div>
+                <div className="rec-observability-item">
+                  <span className="rec-observability-label">ranked</span>
+                  <span className="rec-observability-value">{recModelDiagnostics.rankedCount}</span>
+                </div>
+                <div className="rec-observability-item">
+                  <span className="rec-observability-label">excluded downvotes</span>
+                  <span className="rec-observability-value">{recModelDiagnostics.excludedDownvotes}</span>
+                </div>
+                <div className="rec-observability-item">
+                  <span className="rec-observability-label">cold start</span>
+                  <span className="rec-observability-value">{recModelDiagnostics.coldStart ? 'yes' : 'no'}</span>
+                </div>
+              </>
+            )}
+            {recCacheInfo && (
+              <>
+                <div className="rec-observability-item">
+                  <span className="rec-observability-label">cache</span>
+                  <span className="rec-observability-value">{recCacheInfo.status}</span>
+                </div>
+                <div className="rec-observability-item">
+                  <span className="rec-observability-label">cache age</span>
+                  <span className="rec-observability-value">{recCacheInfo.ageSec}s</span>
+                </div>
+              </>
+            )}
+            {recTimingMs && (
+              <>
+                <div className="rec-observability-item">
+                  <span className="rec-observability-label">total</span>
+                  <span className="rec-observability-value">{recTimingMs.total.toFixed(1)}ms</span>
+                </div>
+                <div className="rec-observability-item">
+                  <span className="rec-observability-label">do fetch</span>
+                  <span className="rec-observability-value">{recTimingMs.doFetch.toFixed(1)}ms</span>
+                </div>
+              </>
+            )}
+            {recTrace && (
+              <div className="rec-observability-item rec-observability-item--wide">
+                <span className="rec-observability-label">request id</span>
+                <span className="rec-observability-value rec-observability-mono">{recTrace.requestId}</span>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {/* Source engagement — primary focus */}

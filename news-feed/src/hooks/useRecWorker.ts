@@ -5,6 +5,7 @@ import {
   postInteractions,
   fetchRecommendations,
   type RecInteractionInput,
+  type RecResponseWithScores,
 } from '../services/recWorker';
 import { recordInteraction } from '../services/recStats';
 
@@ -21,6 +22,12 @@ export type RecStatus = 'disabled' | 'active' | 'error';
 export interface UseRecWorkerResult {
   sendInteraction: (input: RecInteractionInput) => void;
   recArticleIds:   string[];
+  recScoreById:    Record<string, number>;
+  recScoredArticles: RecResponseWithScores['scoredArticleIds'];
+  recModelDiagnostics: RecResponseWithScores['diagnostics'] | null;
+  recTrace: RecResponseWithScores['trace'] | null;
+  recCacheInfo: RecResponseWithScores['cache'] | null;
+  recTimingMs: RecResponseWithScores['timingMs'] | null;
   recGeneratedAt:  number | null;
   recStatus:       RecStatus;
   recEnvError:     string | null;
@@ -33,6 +40,12 @@ export function useRecWorker(): UseRecWorkerResult {
     WORKER_BASE ? null : missingWorkerEnvMessage('VITE_REC_WORKER_URL'),
   );
   const [recArticleIds, setRecArticleIds] = useState<string[]>([]);
+  const [recScoreById, setRecScoreById] = useState<Record<string, number>>({});
+  const [recScoredArticles, setRecScoredArticles] = useState<RecResponseWithScores['scoredArticleIds']>([]);
+  const [recModelDiagnostics, setRecModelDiagnostics] = useState<RecResponseWithScores['diagnostics'] | null>(null);
+  const [recTrace, setRecTrace] = useState<RecResponseWithScores['trace'] | null>(null);
+  const [recCacheInfo, setRecCacheInfo] = useState<RecResponseWithScores['cache'] | null>(null);
+  const [recTimingMs, setRecTimingMs] = useState<RecResponseWithScores['timingMs'] | null>(null);
   const [recGeneratedAt, setRecGeneratedAt] = useState<number | null>(null);
   const [recStatus, setRecStatus] = useState<RecStatus>(() =>
     WORKER_BASE ? 'active' : 'disabled',
@@ -62,6 +75,12 @@ export function useRecWorker(): UseRecWorkerResult {
     try {
       const recs = await fetchRecommendations(WORKER_BASE, userIdRef.current);
       setRecArticleIds(recs.articleIds);
+      setRecScoreById(recs.scoreById);
+      setRecScoredArticles(recs.scoredArticleIds);
+      setRecModelDiagnostics(recs.diagnostics);
+      setRecTrace(recs.trace);
+      setRecCacheInfo(recs.cache);
+      setRecTimingMs(recs.timingMs);
       setRecGeneratedAt(Number.isFinite(recs.generatedAt) ? recs.generatedAt : null);
       setRecStatus('active');
       setRecBootstrapError(null);
@@ -83,6 +102,12 @@ export function useRecWorker(): UseRecWorkerResult {
           const recs = await fetchRecommendations(WORKER_BASE, id);
           if (!cancelled) {
             setRecArticleIds(recs.articleIds);
+            setRecScoreById(recs.scoreById);
+            setRecScoredArticles(recs.scoredArticleIds);
+            setRecModelDiagnostics(recs.diagnostics);
+            setRecTrace(recs.trace);
+            setRecCacheInfo(recs.cache);
+            setRecTimingMs(recs.timingMs);
             setRecGeneratedAt(Number.isFinite(recs.generatedAt) ? recs.generatedAt : null);
             setRecStatus('active');
             setRecBootstrapDone(true);
@@ -132,6 +157,12 @@ export function useRecWorker(): UseRecWorkerResult {
   return {
     sendInteraction,
     recArticleIds,
+    recScoreById,
+    recScoredArticles,
+    recModelDiagnostics,
+    recTrace,
+    recCacheInfo,
+    recTimingMs,
     recGeneratedAt,
     recStatus,
     recEnvError,

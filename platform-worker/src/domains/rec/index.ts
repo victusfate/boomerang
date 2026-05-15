@@ -1,6 +1,6 @@
 import type { Env } from '../../env';
 import { corsHeaders } from '../../cors';
-import type { RecResponse } from '@victusfate/ricochet';
+import type { RecCoreResponse, RecResponse } from '@victusfate/ricochet';
 import { isValidEvent } from '@victusfate/ricochet';
 
 export { RecDO } from './RecDO';
@@ -14,6 +14,7 @@ const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 const MAX_BATCH_SIZE = 200;
 const MAX_LIMIT = 200;
 const DEFAULT_LIMIT = 50;
+const CACHE_TTL_SECONDS = 300;
 
 function json(data: unknown, request: Request, env: Env, init?: ResponseInit): Response {
   const headers = corsHeaders(request, env);
@@ -70,6 +71,68 @@ function getRecDOStub(env: Env): DurableObjectStub {
   return env.REC_DO.get(id);
 }
 
+function nowMs(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
+function ageSeconds(generatedAt: number): number {
+  return Math.max(0, Math.floor((Date.now() - generatedAt) / 1000));
+}
+
+function normalizeCoreResponse(
+  raw: Partial<RecCoreResponse> & Record<string, unknown>,
+  limit: number,
+): RecCoreResponse {
+  const rawRecord = raw as Record<string, unknown>;
+  const articleIds = Array.isArray(rawRecord.articleIds) ? rawRecord.articleIds.filter(id => typeof id === 'string') : [];
+  const generatedAt = typeof raw.generatedAt === 'number' ? raw.generatedAt : Date.now();
+  const scoredRaw = rawRecord.scoredArticleIds;
+  const scoredArticleIds = Array.isArray(scoredRaw)
+    ? scoredRaw.reduce<RecCoreResponse['scoredArticleIds']>((acc, row) => {
+      if (!row || typeof row !== 'object') return acc;
+      const item = row as Record<string, unknown>;
+      if (typeof item.articleId !== 'string' || typeof item.score !== 'number') return acc;
+      acc.push({ articleId: item.articleId, score: item.score });
+      return acc;
+    }, [])
+    : articleIds.map((articleId, index) => ({
+      articleId,
+      score: 1 - (index / Math.max(articleIds.length - 1, 1)),
+    }));
+  const d = rawRecord.diagnostics && typeof rawRecord.diagnostics === 'object'
+    ? rawRecord.diagnostics as Record<string, unknown>
+    : {};
+  const diagnostics = {
+    model: 'biased-mf' as const,
+    modelVersion: typeof d.modelVersion === 'string' ? d.modelVersion : 'unknown',
+    factorCount: typeof d.factorCount === 'number' ? d.factorCount : 0,
+    candidateCount: typeof d.candidateCount === 'number' ? d.candidateCount : articleIds.length,
+    rankedCount: typeof d.rankedCount === 'number' ? d.rankedCount : scoredArticleIds.length,
+    returnedCount: typeof d.returnedCount === 'number' ? d.returnedCount : articleIds.length,
+    excludedDownvotes: typeof d.excludedDownvotes === 'number' ? d.excludedDownvotes : 0,
+    coldStart: typeof d.coldStart === 'boolean' ? d.coldStart : articleIds.length === 0,
+    limit: typeof d.limit === 'number' ? d.limit : limit,
+  };
+  return { articleIds, generatedAt, scoredArticleIds, diagnostics };
+}
+
+function buildObservedResponse(
+  request: Request,
+  core: RecCoreResponse,
+  cache: { status: 'hit' | 'miss'; key: string; ageSec: number; ttlSec: number },
+  timing: { total: number; cacheLookup: number; doFetch: number; cacheWrite: number },
+): RecResponse {
+  return {
+    ...core,
+    trace: {
+      requestId: crypto.randomUUID(),
+      cfRay: request.headers.get('cf-ray') ?? undefined,
+    },
+    cache,
+    timingMs: timing,
+  };
+}
+
 export async function handleRec(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
@@ -118,22 +181,55 @@ export async function handleRec(request: Request, env: Env, _ctx: ExecutionConte
     const limited = checkRateLimit(request, 'recs', RATE_LIMIT_RECS_MAX);
     if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
 
+    const tStart = nowMs();
     const userId = recsMatch[1];
     const rawLimit = parseInt(url.searchParams.get('limit') ?? String(DEFAULT_LIMIT), 10);
     const limit = Math.min(isNaN(rawLimit) || rawLimit < 1 ? DEFAULT_LIMIT : rawLimit, MAX_LIMIT);
 
     const cacheKey = `recs:${userId}`;
-    const cached = await env.REC_STORE.get(cacheKey, 'json') as RecResponse | null;
-    if (cached) return json(cached, request, env);
+    const tAfterCacheLookupStart = nowMs();
+    const cachedRaw = await env.REC_STORE.get(cacheKey, 'json') as (Partial<RecCoreResponse> & Record<string, unknown>) | null;
+    const cacheLookupMs = nowMs() - tAfterCacheLookupStart;
+    if (cachedRaw) {
+      const cached = normalizeCoreResponse(cachedRaw, limit);
+      const response = buildObservedResponse(
+        request,
+        cached,
+        { status: 'hit', key: cacheKey, ageSec: ageSeconds(cached.generatedAt), ttlSec: CACHE_TTL_SECONDS },
+        {
+          total: nowMs() - tStart,
+          cacheLookup: cacheLookupMs,
+          doFetch: 0,
+          cacheWrite: 0,
+        },
+      );
+      return json(response, request, env);
+    }
 
     const stub = getRecDOStub(env);
+    const tDoFetchStart = nowMs();
     const doRes = await stub.fetch(
       new Request(`http://do-internal/recs/${encodeURIComponent(userId)}?limit=${limit}`),
     );
-    const recBody = await doRes.json() as RecResponse;
+    const doFetchMs = nowMs() - tDoFetchStart;
+    const recCoreRaw = await doRes.json() as (Partial<RecCoreResponse> & Record<string, unknown>);
+    const recCore = normalizeCoreResponse(recCoreRaw, limit);
 
-    await env.REC_STORE.put(cacheKey, JSON.stringify(recBody), { expirationTtl: 300 });
-    return json(recBody, request, env);
+    const tCacheWriteStart = nowMs();
+    await env.REC_STORE.put(cacheKey, JSON.stringify(recCore), { expirationTtl: CACHE_TTL_SECONDS });
+    const cacheWriteMs = nowMs() - tCacheWriteStart;
+    const response = buildObservedResponse(
+      request,
+      recCore,
+      { status: 'miss', key: cacheKey, ageSec: 0, ttlSec: CACHE_TTL_SECONDS },
+      {
+        total: nowMs() - tStart,
+        cacheLookup: cacheLookupMs,
+        doFetch: doFetchMs,
+        cacheWrite: cacheWriteMs,
+      },
+    );
+    return json(response, request, env);
   }
 
   if (pathname === '/rec/debug' && request.method === 'GET') {
