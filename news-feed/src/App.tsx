@@ -12,6 +12,7 @@ import { suggestLabels } from './services/labelSuggester';
 import { isPromptApiAvailable } from './services/labelClassifier';
 import { sameIdsInOrder } from './services/metaSyncTrigger';
 import { DEFAULT_SOURCES } from './services/newsService';
+import { saveTitles, loadTitleCache } from './services/titleCache';
 import type { ActiveFilter, FeedView } from './types';
 
 const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
@@ -125,14 +126,23 @@ export default function App() {
     if (builtIn) return builtIn.name;
     return prefs.customSources.find(s => s.id === id)?.name ?? id;
   }, [prefs.customSources]);
-  const articleTitleById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const article of allArticles) map.set(article.id, article.title);
-    for (const article of savedArticles) {
-      if (!map.has(article.id)) map.set(article.id, article.title);
-    }
-    return map;
+  const [persistedTitles, setPersistedTitles] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    void loadTitleCache().then(setPersistedTitles);
+  }, []);
+
+  useEffect(() => {
+    const articles = [...allArticles, ...savedArticles];
+    if (articles.length > 0) void saveTitles(articles);
   }, [allArticles, savedArticles]);
+
+  const articleTitleById = useMemo(() => {
+    const map = new Map<string, string>(Object.entries(persistedTitles));
+    for (const article of allArticles) map.set(article.id, article.title);
+    for (const article of savedArticles) map.set(article.id, article.title);
+    return map;
+  }, [allArticles, savedArticles, persistedTitles]);
   const getArticleTitle = useCallback(
     (id: string) => articleTitleById.get(id) ?? null,
     [articleTitleById],
