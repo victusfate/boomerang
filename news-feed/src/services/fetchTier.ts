@@ -1,5 +1,5 @@
 import type { Article, NewsSource } from '../types';
-import rssSourcesJson from '../../../shared/rss-sources.json';
+import rssSourcesJson from '../../../shared/rss-sources.json' with { type: 'json' };
 
 const BUILTIN: NewsSource[] = rssSourcesJson as NewsSource[];
 

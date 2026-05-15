@@ -1,4 +1,9 @@
-/** Client parsing for GET /rec/articles (no worker fetch / kv deps). */
+/**
+ * Client parsing for GET /rec/articles (no worker fetch / kv deps).
+ * RecArticleMeta and RecArticlesResponse intentionally mirror the types in
+ * `platform-worker/src/domains/rec/articleMetaContract.ts` — kept separate
+ * to avoid bundling worker code into the client. Keep both in sync when fields change.
+ */
 
 export interface RecArticleMeta {
   id: string;

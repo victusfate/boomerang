@@ -20,8 +20,10 @@ function article(id: string, sourceId = 'hn'): Article {
 describe('feedScoreBreakdown', () => {
   it('buildRecRankMap normalises ends', () => {
     const m = buildRecRankMap(['a', 'b', 'c']);
-    assert.equal(m.get('a'), 0);
-    assert.equal(m.get('c'), 1);
+    assert.equal(m.get('a')?.rank01, 0);
+    assert.equal(m.get('c')?.rank01, 1);
+    assert.equal(m.get('a')?.listRank, 1);
+    assert.equal(m.get('c')?.listRank, 3);
   });
 
   it('computeFeedScoreInsight includes mf and boost', () => {
@@ -33,7 +35,6 @@ describe('feedScoreBreakdown', () => {
       counts,
       buildRecRankMap(recIds),
       { a: 0.42 },
-      recIds,
     );
     assert.equal(insight.mfScore, 0.42);
     assert.equal(insight.recListRank, 2);
