@@ -1,6 +1,11 @@
-/** Article catalog — primary store: ARTICLE_META KV `meta:<id>`. */
+/**
+ * Article catalog — primary store: ARTICLE_META KV `meta:<id>`.
+ * RecArticleMeta and RecArticlesResponse are intentionally mirrored in
+ * `news-feed/src/services/recArticlesLookup.ts` to avoid bundling worker
+ * code into the client bundle. Keep both in sync when fields change.
+ */
 
-import { ARTICLE_RECORD_TTL_SECONDS } from '../../../../shared/articleRecordCatalog';
+import { ARTICLE_RECORD_TTL_SECONDS } from '../../../../shared/articleRecordCatalog.ts';
 
 /** @deprecated Legacy REC_STORE keys; read fallback only during migration */
 export const ARTICLE_META_KEY_PREFIX = 'rec:article-meta:';

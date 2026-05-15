@@ -1,6 +1,6 @@
 /** Unified per-article KV record in ARTICLE_META (tags + catalog fields). */
 
-export { ARTICLE_RECORD_TTL_SECONDS } from '../../../../shared/articleRecordCatalog';
+export { ARTICLE_RECORD_TTL_SECONDS } from '../../../../shared/articleRecordCatalog.ts';
 
 export const ARTICLE_RECORD_KV_PREFIX = 'meta:';
 
@@ -82,7 +82,8 @@ export function mergeCatalogIntoRecord(
   return {
     articleId: catalog.id,
     tags: existing?.tags ?? [],
-    updatedAt: Date.now(),
+    // Preserve existing updatedAt for catalog-only writes; tag writes set their own timestamp.
+    updatedAt: existing?.updatedAt ?? Date.now(),
     title: catalog.title,
     source: catalog.source,
     sourceId: catalog.sourceId,

@@ -3,6 +3,7 @@ import { useFeed } from './hooks/useFeed';
 import { useSyncWorker, type SyncStatus } from './hooks/useSyncWorker';
 import { useMetaWorker } from './hooks/useMetaWorker';
 import { useRecWorker } from './hooks/useRecWorker';
+import { useRecHistoryReplay } from './hooks/useRecHistoryReplay';
 import { useOGImageBatch } from './hooks/useOGImageBatch';
 import { ArticleCard } from './components/ArticleCard';
 import { TopicFilter } from './components/TopicFilter';
@@ -127,6 +128,8 @@ export default function App() {
     recCandidateMode: recModelDiagnostics?.candidateMode,
     onArticlePoolIds: setArticlePoolIds,
   });
+
+  useRecHistoryReplay(prefs, allArticles, savedArticles, recUserId, recBootstrapDone);
 
   const { syncActive, syncStatus, syncedAt, syncError, syncErrorDetails, syncUrl, syncEnvError, syncCooldownMs, forceSync, generateLink, revoke } =
     useSyncWorker(prefs, articleTags, labelHits, savedArticles, onRemoteSync, syncReady);
@@ -541,7 +544,6 @@ export default function App() {
                       feedSourceCounts,
                       recRankMap,
                       recScoreById,
-                      recArticleIds,
                     )
                     : undefined}
                 />

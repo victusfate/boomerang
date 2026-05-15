@@ -17,7 +17,7 @@ import {
   dedupeArticleIds,
   mergeFeedPoolRecResponses,
   type RecResponseWithScores,
-} from './recPoolMerge.ts';
+} from './recPoolMerge';
 
 export type { RecArticleMeta, RecArticlesLookupTiming, RecArticlesResponse } from './recArticlesLookup';
 export { normalizeRecArticleMeta, parseRecArticlesResponse } from './recArticlesLookup';
@@ -34,7 +34,7 @@ export interface RecInteractionInput {
 }
 
 export type { RecResponse };
-export type { RecResponseWithScores } from './recPoolMerge.ts';
+export type { RecResponseWithScores } from './recPoolMerge';
 export {
   REC_MAX_CANDIDATES,
   REC_POOL_CANDIDATE_CAP,
@@ -42,7 +42,7 @@ export {
   dedupeArticleIds,
   chunkArticleIds,
   mergeFeedPoolRecResponses,
-} from './recPoolMerge.ts';
+} from './recPoolMerge';
 
 const USER_ID_KEY = 'rec:userId';
 
