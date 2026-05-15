@@ -1,31 +1,41 @@
 # Boomerang News
 
-Algorithmic RSS news feed — React PWA backed by several Cloudflare Workers.
+Algorithmic RSS news feed — React PWA backed by a unified Cloudflare Worker.
 
 Live at [boomerang-news.com](https://boomerang-news.com)
 
 ## Architecture
 
 The frontend (`news-feed/`) is a React + Vite PWA that stores all user state
-locally in **native IndexedDB** (via a thin `kvStore.ts` wrapper). Four workers
-handle the server-side concerns:
+locally in **native IndexedDB** (via a thin `kvStore.ts` wrapper). A single
+**platform-worker** handles all server-side concerns across four domains:
 
-| Package | Role |
-|---------|------|
-| **`rss-worker/`** | Aggregates built-in and custom RSS feeds → **`GET /bundle`** (staggered fetches, full HTML5 entity decoding). Serves **`GET /og-image`** for lazy card thumbnails. Reads the shared KV namespace to inline AI tags from `meta-worker`. |
-| **`meta-worker/`** | Per-article shared metadata (AI-derived tags). **`GET /meta?ids=…`** for bulk reads; **`POST /meta/tags`** for batched writes. One global Durable Object (`MetaDO`) coordinates writes; KV namespace shared with `rss-worker`. |
-| **`sync-worker/`** | Cross-device sync of prefs, bookmarks, and labels over R2. **`POST /sync/room`** creates a room; **`GET/PUT /sync/{roomId}/meta`** and **`GET/PUT /sync/{roomId}/blocks/{cid}`** transfer data. Share links carry `roomId:token:workerUrl` in the URL fragment — the raw token never travels in query strings. |
-| **[ricochet](https://github.com/victusfate/ricochet) (external)** | Edge collaborative filtering. **`POST /interactions`** ingests anonymous events; **`GET /recommendations/:userId`** returns ranked article IDs via a global BiasedMF Durable Object (SQLite). Lives in its own repo, port `8790` locally. |
+| Domain | Routes | Role |
+|--------|--------|------|
+| **RSS** | `GET /bundle` · `GET /og-image` · `GET /image` | Aggregates built-in and custom RSS feeds (staggered fetches, full HTML5 entity decoding). `og-image` proxies lazy card thumbnails. `image` proxies article images. On each `/bundle` response, article metadata (title, source, URL) is written to `ARTICLE_META` KV via `ctx.waitUntil` for later title resolution. |
+| **Meta** | `GET /meta` · `POST /meta/tags` · `GET /ws` | Per-article shared metadata. Bulk KV reads on `GET /meta`; batched AI-tag writes on `POST /meta/tags`. One global Durable Object (`MetaDO`, SQLite-backed) coordinates real-time tag broadcasts over `GET /ws` WebSocket. |
+| **Sync** | `POST /sync/room` · `GET/PUT /sync/{roomId}/meta` · `GET/PUT /sync/{roomId}/blocks/{cid}` | Cross-device sync of prefs, bookmarks, and labels over R2. Share links carry `roomId:token:workerUrl` in the URL fragment — the raw token never travels in query strings. |
+| **Rec** | `POST /interactions` · `GET /recommendations/:userId` · `POST /recommendations/:userId` · `GET /rec/articles` | Edge collaborative filtering via [ricochet](https://github.com/victusfate/ricochet). Ingests anonymous interaction events (read, save, upvote, downvote, seen); ranks a feed-pool of candidate article IDs using a global BiasedMF Durable Object (`RecDO`, SQLite). `GET /rec/articles` resolves article titles and metadata by ID from `ARTICLE_META` KV. |
 
-`VITE_RSS_WORKER_URL`, `VITE_SYNC_WORKER_URL`, and `VITE_META_WORKER_URL` are
-required at build time. `VITE_REC_WORKER_URL` (ricochet) is optional — the app
-degrades gracefully without it. See `news-feed/.env.example` for local ports.
+### Cloudflare resources
+
+| Resource | Used by |
+|----------|---------|
+| **KV `ARTICLE_META`** | Unified per-article store: AI tags + catalog fields (title, source, URL). Written by both Meta (tag updates) and RSS (catalog on bundle fetch). 180-day TTL. |
+| **KV `REC_STORE`** | Legacy rec metadata (read-only fallback during migration). |
+| **R2 `boomerang`** | Sync room blocks (prefs, bookmarks, labels). |
+| **DO `MetaDO`** | Global WebSocket hub for real-time tag updates; SQLite index for catch-up queries. |
+| **DO `RecDO`** | Global BiasedMF model; SQLite tables for interactions, user/item factors. |
+
+`VITE_PLATFORM_WORKER_URL` is required at build time. The app degrades
+gracefully when the rec model has no history (cold-start falls back to
+recency × diversity ranking). See `news-feed/.env.example` for local ports.
 
 ## Local development
 
 ### Prerequisites
 
-- **Node.js 22+** (required for `--experimental-strip-types` in `news-feed` tests)
+- **Node.js 22+** (required for `--experimental-strip-types` in tests)
 - [Wrangler](https://developers.cloudflare.com/workers/wrangler/install-and-update/) (`npm i -g wrangler`)
 
 ### 1. Install dependencies
@@ -47,7 +57,9 @@ make worker-platform   # terminal 1 → http://localhost:8787
 make dev               # terminal 2 → http://localhost:5173/
 ```
 
-All domains (RSS, sync, meta, rec) run on the unified **platform-worker**. Set `VITE_PLATFORM_WORKER_URL` in `news-feed/.env` (see `.env.example`).
+All domains (RSS, sync, meta, rec) run on the unified **platform-worker** on
+port **8787**. Set `VITE_PLATFORM_WORKER_URL=http://localhost:8787` in
+`news-feed/.env` (see `.env.example`).
 
 ### Makefile quick reference
 
@@ -55,24 +67,23 @@ All domains (RSS, sync, meta, rec) run on the unified **platform-worker**. Set `
 |--------|-------------|
 | `make` / `make dev` | Vite dev server → http://localhost:5173/ |
 | `make preview-pages` | GitHub Pages–style build + preview → http://localhost:4173/boomerang |
-| `make worker-platform` | platform-worker (RSS, sync, meta, rec) → http://localhost:8787 |
+| `make worker-platform` | platform-worker (all domains) → http://localhost:8787 |
 | `make stop-worker-platform` | Stop the local platform-worker on port 8787 |
-| `make install` | `npm ci` in all four packages |
-| `make test` | Tests in all four packages |
-| `make deploy` | Deploy rss + sync + meta workers |
-| `make deploy-rss/sync/meta` | Deploy individual workers |
-| `make create-kv` | One-time: create ARTICLE_META KV namespace |
-| `make create-r2` | One-time: create boomerang R2 bucket |
+| `make install` | `npm ci` in all packages |
+| `make test` | Tests in all packages |
+| `make deploy` | Deploy platform-worker |
+| `make deploy-platform` | Deploy platform-worker only |
+| `make create-kv` | One-time: create `ARTICLE_META` KV namespace |
+| `make create-r2` | One-time: create `boomerang` R2 bucket |
 
 ## Repo layout
 
 | Path | What it is |
 |------|------------|
-| `news-feed/` | React + Vite PWA. Storage: native IndexedDB (`boomerang-kv` DB). GitHub Pages base path `/boomerang` when `GITHUB_PAGES=true`. |
-| `rss-worker/` | RSS bundle + og-image proxy. |
-| `meta-worker/` | Shared article metadata — KV-backed, DO-coordinated. |
-| `sync-worker/` | R2-backed room sync for prefs, bookmarks, and labels. |
-| `shared/rss-sources.json` | Canonical built-in RSS source list (imported at build by `news-feed` and `rss-worker`). |
+| `news-feed/` | React + Vite PWA. Storage: native IndexedDB. GitHub Pages base path `/boomerang` when `GITHUB_PAGES=true`. |
+| `platform-worker/` | Unified Cloudflare Worker — RSS, sync, meta, and rec domains in one deploy. |
+| `shared/rss-sources.json` | Canonical built-in RSS source list (imported at build by both `news-feed` and `platform-worker`). |
+| `shared/articleRecordCatalog.ts` | Shared TTL constants and label helpers for the article metadata KV schema. |
 | `docs/` | Feature design docs (design → PRD → plan → TDD log per feature slug). |
 
 ## Deploy
@@ -82,29 +93,28 @@ All domains (RSS, sync, meta, rec) run on the unified **platform-worker**. Set `
 GitHub Actions (`.github/workflows/deploy.yml`) builds `news-feed/` on push to
 `main` and publishes `news-feed/dist` to **GitHub Pages**.
 
-Required repository variables (no trailing slashes):
+Required repository variable (no trailing slash):
 
 | Variable | Required | Notes |
 |----------|----------|-------|
-| `VITE_RSS_WORKER_URL` | ✅ | RSS bundle worker |
-| `VITE_SYNC_WORKER_URL` | ✅ | Cross-device sync worker |
-| `VITE_META_WORKER_URL` | ✅ | Shared article tags worker |
-| `VITE_REC_WORKER_URL` | optional | Ricochet rec worker — app works without it |
+| `VITE_PLATFORM_WORKER_URL` | ✅ | All worker domains (RSS, sync, meta, rec) |
 | `CANONICAL_URL` | optional | If set, skips app build and emits a redirect-only `index.html` |
 
-### Workers
+### Worker
 
 ```bash
-make deploy         # rss + sync + meta
-make deploy-rss     # rss-worker only
-make deploy-sync    # sync-worker only
-make deploy-meta    # meta-worker only
-# ricochet: cd /path/to/ricochet && npm run deploy
+make deploy-platform   # deploy platform-worker (all domains)
 ```
 
 ## Cost guardrails (Cloudflare free tier)
 
-- **Durable Objects**: ~100k requests/day free. The metadata read path (`GET /meta`)
-  reads KV directly and does not hit the DO. Normal browsing keeps DO usage near zero.
-- Only explicit tag submissions (`POST /meta/tags`) touch the `meta-worker` DO.
-- Validate after deploy: `wrangler tail meta-worker` — no DO exceptions during normal browsing.
+- **Durable Objects**: ~100k requests/day free. Normal feed browsing reads KV
+  directly and does not touch either DO.
+- `MetaDO` is only invoked by `POST /meta/tags` (tag writes) and `GET /ws`
+  (WebSocket upgrades). Tag writes happen via `ctx.waitUntil` — they do not
+  block feed load.
+- `RecDO` is invoked on `POST /interactions` and `/recommendations/:userId`.
+  KV caches rec responses for 5 minutes; repeated feed loads within that window
+  hit KV only.
+- Validate after deploy: `wrangler tail platform-worker` — no DO exceptions
+  during normal browsing.
