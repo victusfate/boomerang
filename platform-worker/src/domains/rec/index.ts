@@ -23,7 +23,10 @@ const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 const MAX_BATCH_SIZE = 200;
 const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 50;
+/** TTL hint when feed-pool ranking bypasses KV (observability only). */
 const CACHE_TTL_SECONDS = 300;
+/** KV expiration for global recommendations — stable key per user+limit. */
+const GLOBAL_REC_KV_TTL_SECONDS = 3600;
 function parseLimit(rawLimit: unknown): number {
   if (typeof rawLimit === 'number' && Number.isFinite(rawLimit)) {
     return Math.max(1, Math.min(MAX_LIMIT, Math.trunc(rawLimit)));
@@ -320,31 +323,45 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
       );
     }
 
-    const cacheKey = await buildRecCacheKey(
-      userId,
-      limit,
-      candidateModeProvided ? (candidateArticleIds ?? []) : undefined,
-    );
-    const tAfterCacheLookupStart = nowMs();
-    const cachedRaw = await env.REC_STORE.get(cacheKey, 'json') as (Partial<RecCoreResponse> & Record<string, unknown>) | null;
-    const cacheLookupMs = nowMs() - tAfterCacheLookupStart;
-    if (cachedRaw?.scoredArticleIds && cachedRaw?.diagnostics) {
-      const cached = normalizeCoreResponse(cachedRaw, limit);
-      const response = buildObservedResponse(
-        request,
-        cached,
-        { status: 'hit', key: cacheKey, ageSec: ageSeconds(cached.generatedAt), ttlSec: CACHE_TTL_SECONDS },
-        {
-          total: nowMs() - tStart,
-          cacheLookup: cacheLookupMs,
-          doFetch: 0,
-          cacheWrite: 0,
-        },
-      );
-      return json(response, request, env);
+    // Feed-pool ranking (explicit candidateArticleIds or ?candidates=) would need a new KV key
+    // for almost every pool/chunk — daily KV put limits fill fast. Skip KV; DO scoring is cheap.
+    const useKvCache = !candidateModeProvided;
+
+    const cacheKey = useKvCache
+      ? await buildRecCacheKey(userId, limit, undefined)
+      : `recs:${encodeURIComponent(userId)}:feed-pool:kv-skip`;
+
+    let cacheLookupMs = 0;
+    let cachedRaw: (Partial<RecCoreResponse> & Record<string, unknown>) | null = null;
+    if (useKvCache) {
+      const tAfterCacheLookupStart = nowMs();
+      cachedRaw = await env.REC_STORE.get(cacheKey, 'json') as (Partial<RecCoreResponse> & Record<string, unknown>) | null;
+      cacheLookupMs = nowMs() - tAfterCacheLookupStart;
+      if (cachedRaw?.scoredArticleIds && cachedRaw?.diagnostics) {
+        const cached = normalizeCoreResponse(cachedRaw, limit);
+        const response = buildObservedResponse(
+          request,
+          cached,
+          {
+            status: 'hit',
+            key: cacheKey,
+            ageSec: ageSeconds(cached.generatedAt),
+            ttlSec: GLOBAL_REC_KV_TTL_SECONDS,
+          },
+          {
+            total: nowMs() - tStart,
+            cacheLookup: cacheLookupMs,
+            doFetch: 0,
+            cacheWrite: 0,
+          },
+        );
+        return json(response, request, env);
+      }
     }
 
-    const cacheStatus: 'hit' | 'miss' | 'bypass' = cachedRaw ? 'bypass' : 'miss';
+    const cacheStatus: 'hit' | 'miss' | 'bypass' = useKvCache
+      ? (cachedRaw ? 'bypass' : 'miss')
+      : 'bypass';
 
     const stub = getRecDOStub(env);
     const tDoFetchStart = nowMs();
@@ -388,13 +405,30 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
     }
     const recCore = normalizeCoreResponse(recCoreRaw, limit);
 
-    const tCacheWriteStart = nowMs();
-    await env.REC_STORE.put(cacheKey, JSON.stringify(recCore), { expirationTtl: CACHE_TTL_SECONDS });
-    const cacheWriteMs = nowMs() - tCacheWriteStart;
+    let cacheWriteMs = 0;
+    if (useKvCache) {
+      const tCacheWriteStart = nowMs();
+      try {
+        await env.REC_STORE.put(
+          cacheKey,
+          JSON.stringify(recCore),
+          { expirationTtl: GLOBAL_REC_KV_TTL_SECONDS },
+        );
+        cacheWriteMs = nowMs() - tCacheWriteStart;
+      } catch {
+        // Best-effort: KV write can still fail (quota, etc.). Ranking already succeeded.
+        cacheWriteMs = nowMs() - tCacheWriteStart;
+      }
+    }
     const response = buildObservedResponse(
       request,
       recCore,
-      { status: cacheStatus, key: cacheKey, ageSec: 0, ttlSec: CACHE_TTL_SECONDS },
+      {
+        status: cacheStatus,
+        key: cacheKey,
+        ageSec: 0,
+        ttlSec: useKvCache ? GLOBAL_REC_KV_TTL_SECONDS : CACHE_TTL_SECONDS,
+      },
       {
         total: nowMs() - tStart,
         cacheLookup: cacheLookupMs,
