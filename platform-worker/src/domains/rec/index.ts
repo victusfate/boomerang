@@ -211,6 +211,28 @@ function buildObservedResponse(
   };
 }
 
+/** Consistent JSON error for /recommendations (and related rec failures). */
+function recErrorJson(
+  request: Request,
+  env: Env,
+  status: number,
+  error: string,
+  message: string,
+  extra?: Record<string, unknown>,
+): Response {
+  return json(
+    { ok: false, error, message, ...extra },
+    request,
+    env,
+    { status },
+  );
+}
+
+function errorDetail(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
 export async function handleRec(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
@@ -256,7 +278,8 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
 
   const recsMatch = pathname.match(/^\/recommendations\/(.+)$/);
   if (recsMatch && (request.method === 'GET' || request.method === 'POST')) {
-    const limited = checkRateLimit(request, 'recs', RATE_LIMIT_RECS_MAX);
+    try {
+      const limited = checkRateLimit(request, 'recs', RATE_LIMIT_RECS_MAX);
     if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
 
     const tStart = nowMs();
@@ -338,15 +361,31 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
       );
     const doFetchMs = nowMs() - tDoFetchStart;
     if (!doRes.ok) {
-      const errorText = await doRes.text();
-      return json(
-        { ok: false, message: errorText || 'Failed to rank recommendations' },
+      const raw = await doRes.text();
+      let message = raw.trim() || 'Recommendation durable object returned an error';
+      try {
+        const parsed = JSON.parse(raw) as { message?: string };
+        if (typeof parsed?.message === 'string' && parsed.message.length > 0) message = parsed.message;
+      } catch {
+        /* plain text body */
+      }
+      const outStatus = doRes.status >= 400 && doRes.status < 600 ? doRes.status : 502;
+      return recErrorJson(request, env, outStatus, 'rec_do_failed', message, {
+        doStatus: doRes.status,
+      });
+    }
+    let recCoreRaw: Partial<RecCoreResponse> & Record<string, unknown>;
+    try {
+      recCoreRaw = await doRes.json() as (Partial<RecCoreResponse> & Record<string, unknown>);
+    } catch {
+      return recErrorJson(
         request,
         env,
-        { status: doRes.status },
+        502,
+        'rec_do_invalid_json',
+        'Recommendation service returned a non-JSON body after a successful status.',
       );
     }
-    const recCoreRaw = await doRes.json() as (Partial<RecCoreResponse> & Record<string, unknown>);
     const recCore = normalizeCoreResponse(recCoreRaw, limit);
 
     const tCacheWriteStart = nowMs();
@@ -364,6 +403,16 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
       },
     );
     return json(response, request, env);
+    } catch (err) {
+      return recErrorJson(
+        request,
+        env,
+        500,
+        'rec_internal_error',
+        'Recommendation ranking failed.',
+        { detail: errorDetail(err) },
+      );
+    }
   }
 
   if (pathname === '/rec/articles' && request.method === 'GET') {

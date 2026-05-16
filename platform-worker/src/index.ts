@@ -48,7 +48,22 @@ export default {
 
     // ── Rec domain ────────────────────────────────────────────────────────────
     if (path === '/interactions' || path.startsWith('/recommendations/') || path === '/rec/debug' || path === '/rec/articles') {
-      return handleRec(request, env, ctx);
+      try {
+        return await handleRec(request, env, ctx);
+      } catch (err) {
+        const h = corsHeaders(request, env);
+        h.set('Content-Type', 'application/json; charset=utf-8');
+        const detail = err instanceof Error ? err.message : String(err);
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: 'rec_handler_crash',
+            message: 'Rec domain threw an unexpected error.',
+            detail,
+          }),
+          { status: 500, headers: h },
+        );
+      }
     }
 
     const h = corsHeaders(request, env);
