@@ -27,6 +27,11 @@ const DEFAULT_LIMIT = 50;
 const CACHE_TTL_SECONDS = 300;
 /** KV expiration for global recommendations — stable key per user+limit. */
 const GLOBAL_REC_KV_TTL_SECONDS = 3600;
+/**
+ * When true: no REC_STORE get/put on /recommendations (avoids shared KV quota errors).
+ * Set false and `REC_ENABLE_RANK_KV=1` to re-enable global-only rank caching later.
+ */
+const PAUSE_REC_RANK_KV = true;
 function parseLimit(rawLimit: unknown): number {
   if (typeof rawLimit === 'number' && Number.isFinite(rawLimit)) {
     return Math.max(1, Math.min(MAX_LIMIT, Math.trunc(rawLimit)));
@@ -140,6 +145,11 @@ function checkRateLimit(
     }
   }
   return { limited: false };
+}
+
+function isRankKvEnabled(env: Env): boolean {
+  const v = env.REC_ENABLE_RANK_KV?.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
 }
 
 function getRecDOStub(env: Env): DurableObjectStub {
@@ -323,19 +333,22 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
       );
     }
 
-    // Feed-pool ranking (explicit candidateArticleIds or ?candidates=) would need a new KV key
-    // for almost every pool/chunk — daily KV put limits fill fast. Skip KV; DO scoring is cheap.
-    const useKvCache = !candidateModeProvided;
+    // Feed-pool: never KV. Global: only if unpause + REC_ENABLE_RANK_KV (see PAUSE_REC_RANK_KV).
+    const useKvCache = !PAUSE_REC_RANK_KV && !candidateModeProvided && isRankKvEnabled(env);
 
     const cacheKey = useKvCache
       ? await buildRecCacheKey(userId, limit, undefined)
-      : `recs:${encodeURIComponent(userId)}:feed-pool:kv-skip`;
+      : `recs:${encodeURIComponent(userId)}:ranking:kv-off`;
 
     let cacheLookupMs = 0;
     let cachedRaw: (Partial<RecCoreResponse> & Record<string, unknown>) | null = null;
     if (useKvCache) {
       const tAfterCacheLookupStart = nowMs();
-      cachedRaw = await env.REC_STORE.get(cacheKey, 'json') as (Partial<RecCoreResponse> & Record<string, unknown>) | null;
+      try {
+        cachedRaw = await env.REC_STORE.get(cacheKey, 'json') as (Partial<RecCoreResponse> & Record<string, unknown>) | null;
+      } catch {
+        cachedRaw = null;
+      }
       cacheLookupMs = nowMs() - tAfterCacheLookupStart;
       if (cachedRaw?.scoredArticleIds && cachedRaw?.diagnostics) {
         const cached = normalizeCoreResponse(cachedRaw, limit);

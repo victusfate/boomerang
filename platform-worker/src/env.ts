@@ -9,4 +9,6 @@ export interface Env {
   REC_DO:  DurableObjectNamespace;
   // Optional
   EXTRA_CORS_ORIGINS?: string;
+  /** When PAUSE_REC_RANK_KV is false in rec/index.ts: set "1"/"true" to cache global (no pool) rankings in REC_STORE. */
+  REC_ENABLE_RANK_KV?: string;
 }
