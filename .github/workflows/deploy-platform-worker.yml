@@ -1,0 +1,36 @@
+name: Deploy Platform Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform-worker/**'
+      - 'shared/**'
+      - '.github/workflows/deploy-platform-worker.yml'
+
+concurrency:
+  group: deploy-platform-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        working-directory: platform-worker
+        run: npm ci
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: platform-worker
