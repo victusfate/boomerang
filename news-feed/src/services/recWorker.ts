@@ -227,6 +227,7 @@ export interface RecDebugInfo {
   userFactorsCount: { count: number };
   itemFactorsCount: { count: number };
   interactionsCount: { count: number };
+  kvCounters?: { reads: number; writes: number; memHits: number };
 }
 
 export async function fetchRecDiagnostics(workerBase: string): Promise<RecDebugInfo> {
