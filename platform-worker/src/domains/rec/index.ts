@@ -10,7 +10,7 @@ import {
   getKvCounters,
 } from './articleMeta';
 
-export { RecDO } from './RecDO';
+export { RecDO } from '@victusfate/ricochet/worker';
 export type { RecArticleMeta, RecArticlesResponse } from './articleMeta';
 
 const RATE_LIMIT_INTERACTIONS_MAX = 60;

@@ -6,7 +6,7 @@ import { handleMeta, scheduledMeta } from './domains/meta/index';
 import { handleRec, scheduledRec } from './domains/rec/index';
 
 export { MetaDO } from './domains/meta/MetaDO';
-export { RecDO } from './domains/rec/RecDO';
+export { RecDO } from './domains/rec/index';
 
 function json(data: unknown, status = 200, extraHeaders?: Headers): Response {
   const headers = extraHeaders ?? new Headers();
