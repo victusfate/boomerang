@@ -49,10 +49,20 @@ export async function persistArticleMeta(env: Env, entries: RecArticleMeta[]): P
   await Promise.all(entries.map(async (catalog) => {
     const key = articleRecordKey(catalog.id);
     const existing = await env.ARTICLE_META.get(key, 'json');
-    const record = mergeCatalogIntoRecord(
-      isArticleRecord(existing) ? existing : null,
-      catalog,
-    );
+    const existingRecord = isArticleRecord(existing) ? existing : null;
+
+    // Skip write if catalog fields are already stored — avoids burning KV write quota
+    // on every bundle fetch for articles that haven't changed.
+    if (
+      existingRecord &&
+      existingRecord.title === catalog.title &&
+      existingRecord.source === catalog.source &&
+      existingRecord.sourceId === catalog.sourceId &&
+      existingRecord.publishedAt === catalog.publishedAt &&
+      existingRecord.url === catalog.url
+    ) return;
+
+    const record = mergeCatalogIntoRecord(existingRecord, catalog);
     await env.ARTICLE_META.put(key, JSON.stringify(record), {
       expirationTtl: ARTICLE_RECORD_TTL_SECONDS,
     });
