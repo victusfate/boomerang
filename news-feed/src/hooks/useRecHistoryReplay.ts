@@ -6,10 +6,16 @@ import { resolveWorkerUrl } from '../config/workerEnv';
 
 const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_REC_WORKER_URL);
 
-/** Cap total ids to avoid flooding the rate limiter (200 events / batch max). */
 const MAX_REPLAY_IDS = 180;
+const REPLAY_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 h
 
-/** sourceId → [topic] from built-in source list; custom- sources fall back to ['general']. */
+// localStorage keys — client-side only, no Cloudflare KV reads
+const LS_REPLAY_AT  = 'rec:last-replay-at';
+const LS_SRC_CACHE  = 'rec:article-source-cache:v1';
+const MAX_SRC_CACHE = 500;
+
+type SourceEntry = { sourceId: string; topics: string[] };
+
 const SOURCE_TOPIC_MAP = new Map<string, string[]>(
   DEFAULT_SOURCES.map(s => [s.id, [s.category]]),
 );
@@ -19,16 +25,41 @@ function inferTopics(sourceId: string): string[] {
   return SOURCE_TOPIC_MAP.get(sourceId) ?? ['general'];
 }
 
+// ── localStorage helpers (synchronous, no Cloudflare KV) ─────────────────────
+
+function lsGetNumber(key: string): number | null {
+  try { const v = localStorage.getItem(key); return v ? parseInt(v, 10) : null; } catch { return null; }
+}
+
+function lsSet(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch { /* storage full */ }
+}
+
+function loadSourceCache(): Map<string, SourceEntry> {
+  try {
+    const raw = localStorage.getItem(LS_SRC_CACHE);
+    if (!raw) return new Map();
+    return new Map(Object.entries(JSON.parse(raw) as Record<string, SourceEntry>));
+  } catch { return new Map(); }
+}
+
+function saveSourceCache(cache: Map<string, SourceEntry>): void {
+  try {
+    let entries = [...cache.entries()];
+    if (entries.length > MAX_SRC_CACHE) entries = entries.slice(entries.length - MAX_SRC_CACHE);
+    lsSet(LS_SRC_CACHE, JSON.stringify(Object.fromEntries(entries)));
+  } catch { /* ignore */ }
+}
+
 /**
- * Once per page load (guarded by replayedRef), replay strong-signal interactions
- * (save, upvote, downvote, read) from local prefs so the CF model sees historical
- * preference data — not just live-session events.
+ * Once per 6 h (localStorage cooldown), replay strong-signal interactions
+ * (save, upvote, downvote, read) from local prefs so the CF model sees
+ * historical preference data — not just live-session events.
  *
- * Safe to run on every load: RecDO deduplicates on (userId, articleId, action).
- * Duplicate events only update the stored timestamp; no MF gradient step is taken.
- *
- * For saved articles not in the current feed pool, metadata (sourceId → topics) is
- * resolved via GET /rec/articles so historical saves are included in the replay.
+ * Article sourceId/topics for articles that have aged out of the feed are
+ * resolved from a localStorage cache first, then /rec/articles for any
+ * remaining misses. This keeps Cloudflare KV reads near-zero after the
+ * first replay.
  */
 export function useRecHistoryReplay(
   prefs: UserPrefs,
@@ -38,13 +69,12 @@ export function useRecHistoryReplay(
   recBootstrapDone: boolean,
 ): void {
   const replayedRef = useRef(false);
-  // Use refs so the effect dep array stays minimal but we always read fresh data.
-  const allArticlesRef = useRef<Article[]>(allArticles);
-  const savedArticlesRef = useRef<Article[]>(savedArticles);
-  const prefsRef = useRef<UserPrefs>(prefs);
-  allArticlesRef.current = allArticles;
+  const allArticlesRef    = useRef<Article[]>(allArticles);
+  const savedArticlesRef  = useRef<Article[]>(savedArticles);
+  const prefsRef          = useRef<UserPrefs>(prefs);
+  allArticlesRef.current   = allArticles;
   savedArticlesRef.current = savedArticles;
-  prefsRef.current = prefs;
+  prefsRef.current         = prefs;
 
   const articlesReady = allArticles.length > 0 || savedArticles.length > 0;
 
@@ -53,81 +83,86 @@ export function useRecHistoryReplay(
     if (replayedRef.current) return;
     replayedRef.current = true;
 
+    // Cooldown check — synchronous localStorage read, no network
+    const lastReplay = lsGetNumber(LS_REPLAY_AT);
+    if (lastReplay !== null && Date.now() - lastReplay < REPLAY_COOLDOWN_MS) {
+      console.info('[rec] history replay: skipped (within 6 h cooldown)');
+      return;
+    }
+
     void (async () => {
       const p = prefsRef.current;
       const articleById = new Map<string, Article>();
-      for (const a of allArticlesRef.current) articleById.set(a.id, a);
-      for (const a of savedArticlesRef.current) articleById.set(a.id, a);
+      for (const a of allArticlesRef.current)   articleById.set(a.id, a);
+      for (const a of savedArticlesRef.current)  articleById.set(a.id, a);
 
       const now = Date.now();
       type PendingEvent = { articleId: string; action: 'save' | 'upvote' | 'downvote' | 'read'; ts: number };
       const pending: PendingEvent[] = [];
       const seen = new Set<string>();
 
-      // Priority order: save > upvote > downvote > read
       for (const id of p.savedIds) {
-        if (seen.has(id)) continue;
-        seen.add(id);
+        if (seen.has(id)) continue; seen.add(id);
         pending.push({ articleId: id, action: 'save', ts: p.savedAtById?.[id] ?? now });
       }
       for (const id of p.upvotedIds ?? []) {
-        if (seen.has(id)) continue;
-        seen.add(id);
+        if (seen.has(id)) continue; seen.add(id);
         pending.push({ articleId: id, action: 'upvote', ts: now });
       }
       for (const id of p.downvotedIds ?? []) {
-        if (seen.has(id)) continue;
-        seen.add(id);
+        if (seen.has(id)) continue; seen.add(id);
         pending.push({ articleId: id, action: 'downvote', ts: now });
       }
-      // Read IDs = click-through opens; good signal but lower priority than explicit votes/saves.
       for (const id of p.readIds ?? []) {
-        if (seen.has(id)) continue;
-        seen.add(id);
+        if (seen.has(id)) continue; seen.add(id);
         pending.push({ articleId: id, action: 'read', ts: now });
       }
 
       const capped = pending.slice(0, MAX_REPLAY_IDS);
-
-      // Split: articles resolvable from local pool vs those that have aged out of the feed.
+      const sourceCache = loadSourceCache(); // synchronous localStorage read
       type ResolvedEvent = { articleId: string; sourceId: string; topics: string[]; action: string; ts: number };
       const resolved: ResolvedEvent[] = [];
-      const unresolvedIds: string[] = [];
+      const needsKvFetch: string[] = [];
 
       for (const { articleId, action, ts } of capped) {
         const a = articleById.get(articleId);
         if (a?.sourceId && a.topics.length) {
+          // In current feed pool — use directly and update the local cache
           resolved.push({ articleId, sourceId: a.sourceId, topics: a.topics, action, ts });
+          sourceCache.set(articleId, { sourceId: a.sourceId, topics: a.topics });
         } else {
-          unresolvedIds.push(articleId);
+          const cached = sourceCache.get(articleId);
+          if (cached) {
+            // Already resolved from a previous replay — no KV read needed
+            resolved.push({ articleId, sourceId: cached.sourceId, topics: cached.topics, action, ts });
+          } else {
+            needsKvFetch.push(articleId);
+          }
         }
       }
 
-      // For articles not in the current pool, fetch metadata from /rec/articles.
-      // sourceId from KV + category from DEFAULT_SOURCES → topics.
-      if (unresolvedIds.length > 0 && WORKER_BASE) {
+      // Only fetch from /rec/articles for IDs not in localStorage cache
+      if (needsKvFetch.length > 0) {
         try {
-          const meta = await fetchRecArticles(WORKER_BASE, unresolvedIds);
+          const meta = await fetchRecArticles(WORKER_BASE, needsKvFetch);
           const metaById = new Map(meta.articles.map(m => [m.id, m]));
           for (const { articleId, action, ts } of capped) {
-            if (articleById.has(articleId)) continue; // already resolved above
+            if (!needsKvFetch.includes(articleId)) continue;
             const m = metaById.get(articleId);
             if (!m?.sourceId) continue;
-            resolved.push({
-              articleId,
-              sourceId: m.sourceId,
-              topics: inferTopics(m.sourceId),
-              action,
-              ts,
-            });
+            const topics = inferTopics(m.sourceId);
+            resolved.push({ articleId, sourceId: m.sourceId, topics, action, ts });
+            sourceCache.set(articleId, { sourceId: m.sourceId, topics });
           }
         } catch {
           // /rec/articles unavailable — proceed with what we have
         }
       }
 
+      saveSourceCache(sourceCache); // write updated cache back to localStorage
+
       if (resolved.length === 0) {
-        console.info('[rec] history replay: no resolvable interactions (articles not in pool or KV)');
+        console.info('[rec] history replay: no resolvable interactions');
         return;
       }
 
@@ -138,10 +173,13 @@ export function useRecHistoryReplay(
       console.info('[rec] history replay: posting to platform worker', {
         total: resolved.length,
         skipped: pending.length - resolved.length,
+        fromCache: resolved.length - needsKvFetch.filter(id => resolved.some(r => r.articleId === id)).length,
+        kvFetched: needsKvFetch.length,
         ...summary,
       });
 
       await postInteractions(WORKER_BASE, recUserId, resolved as Parameters<typeof postInteractions>[2]);
+      lsSet(LS_REPLAY_AT, String(Date.now()));
       console.info('[rec] history replay: done');
     })().catch((e) => { console.warn('[rec] history replay failed', e); });
   }, [recBootstrapDone, recUserId, articlesReady]);
