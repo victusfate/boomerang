@@ -7,6 +7,7 @@ import {
   lookupArticleMetaByIds,
   hydrateArticleMetaFromFeeds,
   defaultBundleCacheRequest,
+  getKvCounters,
 } from './articleMeta';
 
 export { RecDO } from './RecDO';
@@ -87,9 +88,10 @@ async function buildRecCacheKey(
   return `recs:${userId}:pool:${poolHash}:limit:${limit}`;
 }
 
-function json(data: unknown, request: Request, env: Env, init?: ResponseInit): Response {
+function json(data: unknown, request: Request, env: Env, init?: ResponseInit, cacheMaxAge?: number): Response {
   const headers = corsHeaders(request, env);
   headers.set('Content-Type', 'application/json; charset=utf-8');
+  if (cacheMaxAge !== undefined) headers.set('Cache-Control', `public, max-age=${cacheMaxAge}`);
   return new Response(JSON.stringify(data), { ...init, headers });
 }
 
@@ -379,7 +381,7 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
         hydrateArticleMetaFromFeeds(env, body.missing, bundleCacheReq).catch(() => {}),
       );
     }
-    return json(body, request, env);
+    return json(body, request, env, undefined, 3600);
   }
 
   if (pathname === '/rec/debug' && request.method === 'GET') {
@@ -391,7 +393,7 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
       stub.fetch('http://do-internal/debug/interactions-count').then(r => r.json()),
     ]);
     return json(
-      { globalState: gs, userFactorsCount: uc, itemFactorsCount: ic, interactionsCount: iic },
+      { globalState: gs, userFactorsCount: uc, itemFactorsCount: ic, interactionsCount: iic, kvCounters: getKvCounters() },
       request, env,
     );
   }

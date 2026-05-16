@@ -533,6 +533,25 @@ export function RecDiagnostics({
                 <div className="rec-stat-label">global mean</div>
               </div>
             </div>
+            {data.debug.kvCounters && (
+              <>
+                <p className="rec-chart-title" style={{ marginTop: 12 }}>KV quota (isolate)</p>
+                <div className="rec-stat-grid">
+                  <div className="rec-stat-card">
+                    <div className="rec-stat-value">{data.debug.kvCounters.reads.toLocaleString()}</div>
+                    <div className="rec-stat-label">KV reads</div>
+                  </div>
+                  <div className="rec-stat-card">
+                    <div className="rec-stat-value">{data.debug.kvCounters.writes.toLocaleString()}</div>
+                    <div className="rec-stat-label">KV writes</div>
+                  </div>
+                  <div className="rec-stat-card">
+                    <div className="rec-stat-value">{data.debug.kvCounters.memHits.toLocaleString()}</div>
+                    <div className="rec-stat-label">mem hits</div>
+                  </div>
+                </div>
+              </>
+            )}
           </>
         )}
 
