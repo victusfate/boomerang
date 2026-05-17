@@ -1,7 +1,11 @@
 import type { Article } from '../types';
-import { inferFetchTier } from './fetchTier.ts';
-
-const BACKGROUND_TIER_SCORE_MULTIPLIER = 0.2;
+import {
+  inferFetchTier,
+  recencyScore,
+  diversityScore,
+  recBoostScore,
+  BACKGROUND_TIER_SCORE_MULTIPLIER,
+} from './algorithm.ts';
 
 /** Mirrors `rankFeed` / `scoreArticle` in `algorithm.ts` for card UI. */
 export interface FeedScoreInsight {
@@ -40,12 +44,11 @@ export function computeFeedScoreInsight(
   recRankMap: Map<string, RecRankEntry>,
   mfScoreById: Record<string, number>,
 ): FeedScoreInsight {
-  const ageHours = (Date.now() - article.publishedAt.getTime()) / 3_600_000;
-  const recency = Math.exp(-0.0578 * ageHours);
-  const diversity = 1 / (1 + Math.log1p(sourceCounts[article.sourceId] ?? 0));
+  const recency = recencyScore(article.publishedAt);
+  const diversity = diversityScore(sourceCounts, article.sourceId);
   const rankEntry = recRankMap.get(article.id);
   const recRank01 = rankEntry?.rank01;
-  const recBoost = recRank01 !== undefined ? 1.0 + (1.0 - recRank01) * 0.8 : 1.0;
+  const recBoost = recBoostScore(recRank01);
   const fetchTier = inferFetchTier(article);
   const tierMultiplier = fetchTier === 'background' ? BACKGROUND_TIER_SCORE_MULTIPLIER : 1;
   const composite = recency * diversity * recBoost * tierMultiplier;
