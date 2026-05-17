@@ -29,12 +29,9 @@ async function makeCacheKey(userId: string, limit: number, candidateIds?: string
  * Zero KV quota consumption — all ranking results cached in Durable Object storage.
  */
 export class RecDO extends BaseRecDO {
-  private readonly _state: DurableObjectState;
-
   constructor(state: DurableObjectState, env: RecWorkerEnv) {
     super(state, env);
-    this._state = state;
-    this._state.storage.sql.exec(`
+    this.state.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS ranking_cache (
         cache_key  TEXT    PRIMARY KEY,
         payload    TEXT    NOT NULL,
@@ -52,7 +49,7 @@ export class RecDO extends BaseRecDO {
     }
 
     if (url.pathname === '/prune' && request.method === 'POST') {
-      this._state.storage.sql.exec(
+      this.state.storage.sql.exec(
         `DELETE FROM ranking_cache WHERE expires_at <= ?`,
         Date.now(),
       );
@@ -61,7 +58,7 @@ export class RecDO extends BaseRecDO {
 
     if (url.pathname === '/debug/rank-cache-count' && request.method === 'GET') {
       type CountRow = { count: number };
-      const [row] = [...this._state.storage.sql.exec<CountRow>(
+      const [row] = [...this.state.storage.sql.exec<CountRow>(
         `SELECT COUNT(*) AS count FROM ranking_cache WHERE expires_at > ?`,
         Date.now(),
       )];
@@ -113,7 +110,7 @@ export class RecDO extends BaseRecDO {
     const cacheKey = await makeCacheKey(userId, limit, candidateIds);
     const now = Date.now();
 
-    const [cached] = [...this._state.storage.sql.exec<CacheRow>(
+    const [cached] = [...this.state.storage.sql.exec<CacheRow>(
       `SELECT payload, expires_at FROM ranking_cache WHERE cache_key = ? AND expires_at > ?`,
       cacheKey,
       now,
@@ -136,7 +133,7 @@ export class RecDO extends BaseRecDO {
     const payload = await baseRes.text();
     const ttlMs = candidateIds !== undefined ? FEED_POOL_CACHE_TTL_MS : GLOBAL_CACHE_TTL_MS;
 
-    this._state.storage.sql.exec(
+    this.state.storage.sql.exec(
       `INSERT OR REPLACE INTO ranking_cache (cache_key, payload, expires_at) VALUES (?, ?, ?)`,
       cacheKey,
       payload,
