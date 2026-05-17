@@ -1,12 +1,7 @@
 import { RecDO as BaseRecDO } from '@victusfate/ricochet/worker';
 import type { RecWorkerEnv } from '@victusfate/ricochet/worker';
-
-/** Feed-pool results change per refresh; 5 min avoids re-scoring the same chunk within one session. */
-const FEED_POOL_CACHE_TTL_MS = 5 * 60 * 1000;
-/** Global-mode results are stable; 1 h matches the old KV TTL. */
-const GLOBAL_CACHE_TTL_MS = 60 * 60 * 1000;
-
-type CacheRow = { payload: string; expires_at: number };
+import { REC_FEED_POOL_CACHE_TTL_MS, REC_GLOBAL_CACHE_TTL_MS } from '@victusfate/ricochet';
+import type { RankingCacheEntry } from '@victusfate/ricochet';
 
 async function poolHash(ids: string[]): Promise<string> {
   const sorted = [...ids].sort();
@@ -110,7 +105,7 @@ export class RecDO extends BaseRecDO {
     const cacheKey = await makeCacheKey(userId, limit, candidateIds);
     const now = Date.now();
 
-    const [cached] = [...this.state.storage.sql.exec<CacheRow>(
+    const [cached] = [...this.state.storage.sql.exec<RankingCacheEntry>(
       `SELECT payload, expires_at FROM ranking_cache WHERE cache_key = ? AND expires_at > ?`,
       cacheKey,
       now,
@@ -131,7 +126,7 @@ export class RecDO extends BaseRecDO {
     if (!baseRes.ok) return baseRes;
 
     const payload = await baseRes.text();
-    const ttlMs = candidateIds !== undefined ? FEED_POOL_CACHE_TTL_MS : GLOBAL_CACHE_TTL_MS;
+    const ttlMs = candidateIds !== undefined ? REC_FEED_POOL_CACHE_TTL_MS : REC_GLOBAL_CACHE_TTL_MS;
 
     this.state.storage.sql.exec(
       `INSERT OR REPLACE INTO ranking_cache (cache_key, payload, expires_at) VALUES (?, ?, ?)`,
