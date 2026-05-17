@@ -10,7 +10,7 @@ import {
   getKvCounters,
 } from './articleMeta';
 
-export { RecDO } from '@victusfate/ricochet/worker';
+export { RecDO } from './RecDO';
 export type { RecArticleMeta, RecArticlesResponse } from './articleMeta';
 
 const RATE_LIMIT_INTERACTIONS_MAX = 60;
@@ -23,15 +23,6 @@ const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 const MAX_BATCH_SIZE = 200;
 const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 50;
-/** TTL hint when feed-pool ranking bypasses KV (observability only). */
-const CACHE_TTL_SECONDS = 300;
-/** KV expiration for global recommendations — stable key per user+limit. */
-const GLOBAL_REC_KV_TTL_SECONDS = 3600;
-/**
- * When true: no REC_STORE get/put on /recommendations (avoids shared KV quota errors).
- * Set false and `REC_ENABLE_RANK_KV=1` to re-enable global-only rank caching later.
- */
-const PAUSE_REC_RANK_KV = true;
 function parseLimit(rawLimit: unknown): number {
   if (typeof rawLimit === 'number' && Number.isFinite(rawLimit)) {
     return Math.max(1, Math.min(MAX_LIMIT, Math.trunc(rawLimit)));
@@ -78,23 +69,6 @@ function parseCandidatesCsv(raw: string | null): string[] | undefined {
   return deduped;
 }
 
-async function hashCandidateArticleIds(candidateArticleIds: string[]): Promise<string> {
-  const sorted = [...candidateArticleIds].sort();
-  const payload = new TextEncoder().encode(sorted.join(','));
-  const digest = await crypto.subtle.digest('SHA-256', payload);
-  const bytes = new Uint8Array(digest);
-  return Array.from(bytes).slice(0, 12).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function buildRecCacheKey(
-  userId: string,
-  limit: number,
-  candidateArticleIds?: string[],
-): Promise<string> {
-  if (candidateArticleIds === undefined) return `recs:${userId}:limit:${limit}`;
-  const poolHash = await hashCandidateArticleIds(candidateArticleIds);
-  return `recs:${userId}:pool:${poolHash}:limit:${limit}`;
-}
 
 function json(data: unknown, request: Request, env: Env, init?: ResponseInit, cacheMaxAge?: number): Response {
   const headers = corsHeaders(request, env);
@@ -147,10 +121,6 @@ function checkRateLimit(
   return { limited: false };
 }
 
-function isRankKvEnabled(env: Env): boolean {
-  const v = env.REC_ENABLE_RANK_KV?.trim().toLowerCase();
-  return v === '1' || v === 'true' || v === 'yes';
-}
 
 function getRecDOStub(env: Env): DurableObjectStub {
   const id = env.REC_DO.idFromName('global');
@@ -333,49 +303,6 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
       );
     }
 
-    // Feed-pool: never KV. Global: only if unpause + REC_ENABLE_RANK_KV (see PAUSE_REC_RANK_KV).
-    const useKvCache = !PAUSE_REC_RANK_KV && !candidateModeProvided && isRankKvEnabled(env);
-
-    const cacheKey = useKvCache
-      ? await buildRecCacheKey(userId, limit, undefined)
-      : `recs:${encodeURIComponent(userId)}:ranking:kv-off`;
-
-    let cacheLookupMs = 0;
-    let cachedRaw: (Partial<RecCoreResponse> & Record<string, unknown>) | null = null;
-    if (useKvCache) {
-      const tAfterCacheLookupStart = nowMs();
-      try {
-        cachedRaw = await env.REC_STORE.get(cacheKey, 'json') as (Partial<RecCoreResponse> & Record<string, unknown>) | null;
-      } catch {
-        cachedRaw = null;
-      }
-      cacheLookupMs = nowMs() - tAfterCacheLookupStart;
-      if (cachedRaw?.scoredArticleIds && cachedRaw?.diagnostics) {
-        const cached = normalizeCoreResponse(cachedRaw, limit);
-        const response = buildObservedResponse(
-          request,
-          cached,
-          {
-            status: 'hit',
-            key: cacheKey,
-            ageSec: ageSeconds(cached.generatedAt),
-            ttlSec: GLOBAL_REC_KV_TTL_SECONDS,
-          },
-          {
-            total: nowMs() - tStart,
-            cacheLookup: cacheLookupMs,
-            doFetch: 0,
-            cacheWrite: 0,
-          },
-        );
-        return json(response, request, env);
-      }
-    }
-
-    const cacheStatus: 'hit' | 'miss' | 'bypass' = useKvCache
-      ? (cachedRaw ? 'bypass' : 'miss')
-      : 'bypass';
-
     const stub = getRecDOStub(env);
     const tDoFetchStart = nowMs();
     const doRes = candidateModeProvided
@@ -418,36 +345,11 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
     }
     const recCore = normalizeCoreResponse(recCoreRaw, limit);
 
-    let cacheWriteMs = 0;
-    if (useKvCache) {
-      const tCacheWriteStart = nowMs();
-      try {
-        await env.REC_STORE.put(
-          cacheKey,
-          JSON.stringify(recCore),
-          { expirationTtl: GLOBAL_REC_KV_TTL_SECONDS },
-        );
-        cacheWriteMs = nowMs() - tCacheWriteStart;
-      } catch {
-        // Best-effort: KV write can still fail (quota, etc.). Ranking already succeeded.
-        cacheWriteMs = nowMs() - tCacheWriteStart;
-      }
-    }
     const response = buildObservedResponse(
       request,
       recCore,
-      {
-        status: cacheStatus,
-        key: cacheKey,
-        ageSec: 0,
-        ttlSec: useKvCache ? GLOBAL_REC_KV_TTL_SECONDS : CACHE_TTL_SECONDS,
-      },
-      {
-        total: nowMs() - tStart,
-        cacheLookup: cacheLookupMs,
-        doFetch: doFetchMs,
-        cacheWrite: cacheWriteMs,
-      },
+      { status: 'bypass', key: '', ageSec: 0, ttlSec: 0 },
+      { total: nowMs() - tStart, cacheLookup: 0, doFetch: doFetchMs, cacheWrite: 0 },
     );
     return json(response, request, env);
     } catch (err) {

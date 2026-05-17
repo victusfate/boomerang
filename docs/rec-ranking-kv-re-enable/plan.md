@@ -1,92 +1,98 @@
-# Plan: safely re-enabling recommendation KV cache
+# Plan: DO-local ranking cache (replaces KV ranking cache)
 
 **Feature slug:** `rec-ranking-kv-re-enable`  
-**Scope:** `platform-worker` `/recommendations` — optional read-through / write-back to `REC_STORE` (ranking cache only).
-
-## Why it is off today
-
-- `REC_STORE` is **shared** with other writers (e.g. bundle-time article metadata prewarm). Ranking cache **puts** share the same **daily KV write budget**.
-- **Feed-pool** ranking (POST with `candidateArticleIds` or GET with `candidates=`) must **never** use a per-pool KV key at scale — it caused a **write storm** (many unique keys per pool/chunk).
-- Code therefore gates ranking KV behind:
-  - **`PAUSE_REC_RANK_KV`** in `platform-worker/src/domains/rec/index.ts` — when `true`, **no** `REC_STORE.get` / `put` on the recommendations path.
-  - When pause is lifted, **`REC_ENABLE_RANK_KV`** (env) must be truthy **and** the request must be **global** mode only (no explicit candidate list).
-
-Re-enabling is **global-only, low-volume** by design.
-
-## What “global” vs “feed-pool” means here
-
-| Client pattern | `candidateModeProvided` | KV eligible (if unpaused + env on) |
-|----------------|-------------------------|--------------------------------------|
-| `GET /recommendations/:userId?limit=n` (no `candidates`) | no | yes |
-| `POST` body **without** `candidateArticleIds` | no | yes |
-| `POST` with `candidateArticleIds` or GET with `candidates=` | yes | **no** (always bypass KV) |
-
-Boomerang’s **news-feed** ranks the feed pool via **POST + chunks** → **feed-pool only** → KV is **not** used for normal app traffic even after re-enable. Caching helps **global** discovery-style calls if you add them later.
-
-## Preconditions (do not skip)
-
-1. **KV quota healthy** — In Cloudflare dashboard, confirm `REC_STORE` namespace is not at daily **write** limits. If limits were exceeded, wait for reset or upgrade plan.
-2. **Other writers under control** — Review volume of non-ranking `REC_STORE` usage (e.g. RSS/article paths). Ranking cache adds **at most** one **put** per cache miss per stable key: `recs:{userId}:limit:{limit}`.
-3. **Observability** — Platform worker logs / traces for `/recommendations`; optional: alert on `rec_internal_error` or KV-related failures.
-
-## Rollout phases
-
-### Phase 0 — Baseline (current)
-
-- `PAUSE_REC_RANK_KV === true` → zero ranking KV I/O.
-- Deploy and confirm no ranking KV errors for several days.
-
-### Phase 1 — Env only (no code change)
-
-Leave **`PAUSE_REC_RANK_KV` true**. Optionally set **`REC_ENABLE_RANK_KV=1`** in Wrangler / dashboard — it has **no effect** until pause is false (documents intent, harmless).
-
-### Phase 2 — Unpause in a branch / preview first
-
-1. Set **`PAUSE_REC_RANK_KV = false`** in `platform-worker/src/domains/rec/index.ts`.
-2. Set **`REC_ENABLE_RANK_KV=1`** for the **preview / staging** worker only (separate KV namespace id if possible).
-3. Smoke-test:
-   - **Feed:** normal usage — expect **`cache.status`: `bypass`**, key contains `ranking:kv-off` or bypass semantics (no pool caching).
-   - **Global:** `GET /recommendations/:testUser?limit=50` without candidates — expect possible **`hit`** / **`miss`** / **`bypass`** and non-zero `cacheLookup` / `cacheWrite` in `timingMs` on miss.
-4. Monitor KV metrics and error rates for **24–48 hours**.
-
-### Phase 3 — Production
-
-1. Merge after Phase 2 is clean.
-2. Set production **`REC_ENABLE_RANK_KV=1`** (Wrangler `vars` or dashboard secret per your policy).
-3. Deploy production with **`PAUSE_REC_RANK_KV = false`**.
-4. Rollback plan: set **`PAUSE_REC_RANK_KV = true`** and redeploy **immediately** (no need to remove env var first; pause overrides).
-
-## Rollback (fast)
-
-1. Set **`PAUSE_REC_RANK_KV = true`** in `rec/index.ts`.
-2. Deploy. Ranking continues to work; only KV read/write on `/recommendations` stops again.
-
-## TTL and keys (reference)
-
-- Global cache key: `recs:{userId}:limit:{limit}` (see `buildRecCacheKey` with no pool).
-- TTL constant: `GLOBAL_REC_KV_TTL_SECONDS` (currently 3600s) in `rec/index.ts`.
-
-## Files to touch when re-enabling
-
-| File | Change |
-|------|--------|
-| `platform-worker/src/domains/rec/index.ts` | `PAUSE_REC_RANK_KV = false` |
-| `platform-worker/wrangler.jsonc` (or dashboard) | `REC_ENABLE_RANK_KV=1` |
-| `platform-worker/src/env.ts` | Optional type already includes `REC_ENABLE_RANK_KV?` |
-
-## Out of scope
-
-- Caching **feed-pool** responses in KV without a new design (e.g. separate namespace, coarser keys, or DO-local cache) — **not** recommended on free/low KV tiers.
-- Moving ranking cache to **Durable Object storage** — valid future work if KV remains contentious.
-
-## Checklist summary
-
-- [ ] KV write quota OK for namespace  
-- [ ] Staging: pause off + env on → smoke global GET + normal feed POST  
-- [ ] Monitor staging KV + errors  
-- [ ] Production: same + rollback path verified  
-- [ ] Document any change to `GLOBAL_REC_KV_TTL_SECONDS` if ops changes cadence  
+**Updated:** 2026-05-17  
+**Scope:** `platform-worker` `/recommendations` — ranking results cached in `RecDO` SQLite storage, replacing the former KV-based ranking cache.
 
 ---
 
-*Related: `docs/article-metadata-lookup/ricochet-feed-pool-interface.md` (feed pool ↔ worker); `docs/edge-recommendations/boomerang-context.md` (IDs and rec conventions).*
+## Why KV ranking cache was removed
+
+- Cloudflare KV quota is **account-wide** (free tier: 1 k writes/day, 100 k reads/day); both `ARTICLE_META` and `REC_STORE` share this limit.
+- **Feed-pool** ranking (POST with `candidateArticleIds`) used per-pool SHA-256 hash keys — every unique candidate set created a new `.put`, causing a **write storm** that hit the daily limit.
+- Code response: hard-coded `PAUSE_REC_RANK_KV = true` in `rec/index.ts` — zero KV I/O on `/recommendations` until a safer architecture was ready.
+
+---
+
+## Implemented: DO-local SQLite ranking cache
+
+### Architecture
+
+`platform-worker/src/domains/rec/RecDO.ts` extends the ricochet `RecDO` base class with a `ranking_cache` table in the DO's own SQLite storage:
+
+```sql
+CREATE TABLE IF NOT EXISTS ranking_cache (
+  cache_key  TEXT    PRIMARY KEY,
+  payload    TEXT    NOT NULL,
+  expires_at INTEGER NOT NULL
+)
+```
+
+The subclass overrides `fetch()` to intercept `GET/POST /recs/:userId` requests:
+1. Compute a deterministic cache key.
+2. On **cache hit** (key exists and not expired): return stored JSON directly.
+3. On **cache miss**: call `super.fetch(request)`, store the response payload, return it.
+
+Cache eviction runs in the `/prune` handler (already called hourly by the cron) via `DELETE FROM ranking_cache WHERE expires_at <= ?`.
+
+### Cache key and TTL
+
+| Mode | Key format | TTL |
+|------|------------|-----|
+| **Feed-pool** (POST with candidates / GET with `candidates=`) | `recs:{userId}:pool:{sha256_12hex}:{limit}` | **5 min** |
+| **Global** (GET or POST without candidates) | `recs:{userId}:global:{limit}` | **1 hour** |
+
+The SHA-256 pool hash uses the **sorted** candidate IDs so that reordering the same pool hits the cache.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `platform-worker/src/domains/rec/RecDO.ts` | **New** — extended `RecDO` with `ranking_cache` table and cache-through logic |
+| `platform-worker/src/domains/rec/index.ts` | Export `RecDO` from `./RecDO` instead of `@victusfate/ricochet/worker` |
+
+### Properties
+
+- **Zero KV quota consumption** for ranking — DO storage has no shared daily write limit.
+- **Sub-millisecond reads** — SQLite is in-process in the DO.
+- **Single global DO** — all users share the same DO instance (`idFromName('global')`), so cache entries are shared across the worker's lifetime.
+- **Debug endpoint**: `GET http://do-internal/debug/rank-cache-count` returns `{ activeCacheEntries: N }`.
+
+---
+
+## Current state of KV ranking code in `rec/index.ts`
+
+`PAUSE_REC_RANK_KV = true` remains in `rec/index.ts`. With the DO-local cache implemented, global KV ranking cache is no longer the goal — it can be left paused permanently.
+
+Dead code that can be removed in a future cleanup PR:
+- `hashCandidateArticleIds` function
+- `buildRecCacheKey` (pool-hash branch)
+- `GLOBAL_REC_KV_TTL_SECONDS` constant
+- `PAUSE_REC_RANK_KV` flag and related `useKvCache` logic
+
+---
+
+## Global vs feed-pool mode (reference)
+
+| Client pattern | `candidateModeProvided` | DO cache TTL |
+|----------------|-------------------------|--------------|
+| `GET /recommendations/:userId?limit=n` (no `candidates`) | no | 1 hour |
+| `POST` body **without** `candidateArticleIds` | no | 1 hour |
+| `POST` with `candidateArticleIds` or GET with `candidates=` | yes | 5 min |
+
+Boomerang's **news-feed** ranks the feed pool via **POST + chunks** → always feed-pool mode → 5-min DO cache.
+
+---
+
+## Remaining follow-up work (out of scope for this branch)
+
+| Item | Priority | Notes |
+|------|----------|-------|
+| Remove legacy `REC_STORE` fallback read in `articleMetaKv.ts` | Medium | Unnecessary read quota; safe to remove after `ARTICLE_META` migration confirmed |
+| Delete `PAUSE_REC_RANK_KV` + dead pool-hash code from `rec/index.ts` | Low | Cosmetic; pause is harmless now that DO cache exists |
+| CF Cache API layer for `GET /recommendations/:userId` (global mode only) | Low | Complementary edge cache, free; only helps GET callers |
+| Move article metadata to DO SQLite (eliminates `ARTICLE_META` KV entirely) | Future | See `design.md` Option D |
+
+---
+
+*See `design.md` in this folder for the full KV budget audit and architecture options.*
