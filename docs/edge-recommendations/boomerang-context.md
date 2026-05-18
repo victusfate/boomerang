@@ -159,15 +159,18 @@ export async function getOrCreateRecUserId(): Promise<string> {
 For reference — the rec-worker should complement, not duplicate this:
 
 ```
-score = recency(publishedAt)        // exp decay, half-life 12 h
-      × sourceWeight[sourceId]
-      × mean(topicWeight[topics])
-      × diversityPenalty(sourceCount)  // 1 / (1 + log1p(n))
-      + tanh(sum(keywordWeights)) × 0.5
+feedScore = recencyScore(publishedAt)          // max(exp(−0.00320 × ageHours), 0.1)
+          × diversityScore(sourceCounts, sourceId) // 1 / (1 + log1p(sourceCount))
+          × recBoostScore(recRank01)           // 1.0 + (1.0 − rank01) × 0.8, range [1.0, 1.8]
+          × tierMultiplier                     // 0.2 for background-tier, 1.0 otherwise
 ```
 
-Background-tier articles (P2 + custom) are multiplied by 0.2 post-score so
-P1 sources naturally lead the feed.
+- `recencyScore`: exponential decay with floor. Half-life ≈ 8.5 days; floor of 0.1 at 30 days so old-but-unseen articles remain visible.  
+- `diversityScore`: penalises sources that appear many times in the pool.  
+- `recBoostScore`: articles at the top of the worker's ranked list get up to ×1.8 boost; articles absent from the worker list get ×1.0 (neutral).  
+- `tierMultiplier`: background-tier (P2 + custom) sources are multiplied by 0.2 so P1 sources naturally lead the feed.
+
+Source: `news-feed/src/services/algorithm.ts` (`recencyScore`, `diversityScore`, `recBoostScore`, `scoreArticle`).
 
 ---
 
@@ -176,13 +179,15 @@ P1 sources naturally lead the feed.
 `news-feed/src/hooks/useRecWorker.ts` — the hook that:
 - Resolves/creates the anonymous userId on mount
 - Buffers `RecInteractionInput` events (in-memory)
-- Flushes every 30 s or when buffer hits 50 events via `POST /interactions`
-- After each flush, fetches fresh recommendations via `GET /recommendations/:userId`
-- Returns `sendInteraction`, `recArticleIds`, `recStatus`, `recEnvError`
+- Flushes every 30 s or when buffer hits 50 events via `POST /interactions` (flush does NOT trigger a rec re-fetch)
+- Fetches recommendations when the article pool changes (1.5 s debounce) via `POST /recommendations/:userId` with `candidateArticleIds`
+- Refreshes recommendations on a 5-minute timer aligned with the DO SQLite cache TTL
+- Returns: `sendInteraction`, `recArticleIds`, `recScoreById`, `recScoredArticles`, `recModelDiagnostics`, `recTrace`, `recCacheInfo`, `recTimingMs`, `recGeneratedAt`, `recStatus`, `recBootstrapDone`, `recBootstrapError`, `recUserId`, `recEnvError`
 
 `useFeed.ts` accepts `recInteract?: (input: RecInteractionInput) => void` via
 `UseFeedOptions` and calls it inside all five interaction handlers (read, save,
-upvote, downvote, seen).
+upvote, downvote, seen). Pool candidates are sent from `useFeed` via `onArticlePoolIds`
+after the pool snapshot is stable (post-cache-load or post-fetch), pre-sorted by local score.
 
 Env: `VITE_PLATFORM_WORKER_URL` (or `VITE_REC_WORKER_URL`), local default `http://localhost:8787` (unified platform-worker).
 
@@ -220,10 +225,16 @@ analogue. It uses:
 ## Interface boundary — what rec-worker exposes
 
 ```
-POST /interactions          — ingest a batch of interaction events
-GET  /recommendations/:userId  — return ranked article IDs
-GET  /health                — { ok: true, service: 'ricochet-rec' }
+POST /interactions              — ingest a batch of interaction events
+POST /recommendations/:userId   — feed-pool ranked article IDs (preferred; body: RecRankRequest)
+GET  /recommendations/:userId   — legacy global mode (query: ?candidates=&limit=)
+GET  /health                    — { ok: true, service: 'ricochet-rec' }
 ```
+
+**CORS**: The standalone ricochet worker defaults to `localhost` origins and accepts
+production origins via the `EXTRA_CORS_ORIGINS` environment variable. Boomerang
+**does not use the standalone worker** — ricochet is embedded inside `platform-worker`,
+which owns CORS for all routes including `/interactions` and `/recommendations`.
 
 ### Interaction event shape
 
@@ -242,8 +253,26 @@ interface InteractionEvent {
 
 ```ts
 interface RecResponse {
-  articleIds: string[];   // ordered; client filters against its live pool
-  generatedAt: number;
+  articleIds:       string[];          // ranked by personalised score, downvoted excluded
+  generatedAt:      number;            // epoch ms
+  scoredArticleIds: Array<{ articleId: string; score: number }>;
+  diagnostics: {
+    model:             'biased-mf';
+    modelVersion:      string;
+    factorCount:       number;
+    candidateMode?:    'feed-pool' | 'global';
+    candidateCount:    number;
+    rankedCount:       number;
+    returnedCount:     number;
+    excludedDownvotes: number;
+    coldItemCount?:    number;
+    warmItemCount?:    number;
+    coldStart:         boolean;
+    limit:             number;
+  };
+  trace:    { requestId: string; cfRay?: string };
+  cache:    { status: 'hit' | 'miss' | 'bypass'; key: string; ttlSec: number; ageSec: number };
+  timingMs: { total: number; cacheLookup: number; doFetch: number; cacheWrite: number };
 }
 ```
 

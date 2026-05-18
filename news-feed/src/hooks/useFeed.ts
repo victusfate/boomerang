@@ -225,6 +225,7 @@ export function useFeed(options?: UseFeedOptions) {
 
   const [classificationStatus, setClassificationStatus] = useState('');
   const [aiTaggingStarted, setAiTaggingStarted] = useState(false);
+  const [aiAllTagged, setAiAllTagged] = useState(false);
   const [taggingArticleId, setTaggingArticleId] = useState<string | null>(null);
   const aiModelPollTimerRef = useRef<number | null>(null);
 
@@ -310,8 +311,10 @@ export function useFeed(options?: UseFeedOptions) {
           });
           setTaggingArticleId(null);
           setClassificationStatus('');
+          setAiAllTagged(true);
           return;
         }
+        setAiAllTagged(false);
         setClassificationStatus(`Preparing on-device model… (${toTag.length} articles)`);
         let done = 0;
         try {
@@ -1077,6 +1080,7 @@ export function useFeed(options?: UseFeedOptions) {
     articleTagsMap,
     classificationStatus,
     aiTaggingStarted,
+    aiAllTagged,
     taggingArticleId,
     onStartAiTagging: handleStartAiTagging,
     onAddLabel:    handleAddLabel,

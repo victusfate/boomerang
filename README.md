@@ -27,6 +27,22 @@ locally in **native IndexedDB** (via a thin `kvStore.ts` wrapper). A single
 | **DO `MetaDO`** | Global WebSocket hub for real-time tag updates; SQLite index for catch-up queries. |
 | **DO `RecDO`** | Global BiasedMF model; SQLite tables for interactions, user/item factors. |
 
+### Personalisation
+
+Feed ranking combines local signals (recency decay, source diversity) with a
+**BiasedMF collaborative filter** (`ŷ = ȳ + bᵤ + bᵢ + ⟨vᵤ, vᵢ⟩`) trained
+online from anonymous interaction events. The MF model runs inside `RecDO` and
+produces a per-user ranked score for each article in the current feed pool; the
+client blends this as a `recBoost` multiplier (×1.0 – ×1.8) on top of the
+local recency × diversity score.
+
+- Full scoring pipeline and data-flow diagrams: [`docs/scoring/data-flow.md`](docs/scoring/data-flow.md)
+- BiasedMF design and hyperparameters: [ricochet — biased-mf-recs PRD](https://github.com/victusfate/ricochet/blob/main/docs/biased-mf-recs/prd.md)
+- HTTP API and type contracts: [ricochet interface reference](https://github.com/victusfate/ricochet/blob/main/docs/ricochet-interface.md)
+
+Cold-start users rank articles by item bias (`bᵢ`) alone — equivalent to
+global popularity — and receive personalised boosts as interactions accumulate.
+
 `VITE_PLATFORM_WORKER_URL` is required at build time. The app degrades
 gracefully when the rec model has no history (cold-start falls back to
 recency × diversity ranking). See `news-feed/.env.example` for local ports.
@@ -84,7 +100,7 @@ port **8787**. Set `VITE_PLATFORM_WORKER_URL=http://localhost:8787` in
 | `platform-worker/` | Unified Cloudflare Worker — RSS, sync, meta, and rec domains in one deploy. |
 | `shared/rss-sources.json` | Canonical built-in RSS source list (imported at build by both `news-feed` and `platform-worker`). |
 | `shared/articleRecordCatalog.ts` | Shared TTL constants and label helpers for the article metadata KV schema. |
-| `docs/` | Feature design docs (design → PRD → plan → TDD log per feature slug). |
+| `docs/` | Feature design docs (design → PRD → plan → TDD log per feature slug). Key entry points: [`docs/scoring/data-flow.md`](docs/scoring/data-flow.md) (full scoring pipeline + MF diagrams), [`docs/edge-recommendations/boomerang-context.md`](docs/edge-recommendations/boomerang-context.md) (ricochet integration context). |
 
 ## Deploy
 
