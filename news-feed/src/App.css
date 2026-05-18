@@ -21,22 +21,20 @@
   --settings-muted-surface: #18181c;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg:      #f5f5f5;
-    --surface: #ffffff;
-    --card:    #ffffff;
-    --border:  #e0e0e0;
-    --text:    #111111;
-    --sub:     #666666;
-    --settings-btn:        #e4e4ea;
-    --settings-btn-hover:  #d8d8e0;
-    --settings-btn-border: #b4b4c0;
-    --settings-btn-text:   #121218;
-    --settings-input-bg:   #fafafa;
-    --settings-input-border: #c8c8d0;
-    --settings-muted-surface: #f0f0f4;
-  }
+html[data-theme="light"] {
+  --bg:      #f5f5f5;
+  --surface: #ffffff;
+  --card:    #ffffff;
+  --border:  #e0e0e0;
+  --text:    #111111;
+  --sub:     #666666;
+  --settings-btn:        #e4e4ea;
+  --settings-btn-hover:  #d8d8e0;
+  --settings-btn-border: #b4b4c0;
+  --settings-btn-text:   #121218;
+  --settings-input-bg:   #fafafa;
+  --settings-input-border: #c8c8d0;
+  --settings-muted-surface: #f0f0f4;
 }
 
 html, body {
@@ -906,16 +904,14 @@ html, body {
   outline-offset: 2px;
 }
 
-@media (prefers-color-scheme: light) {
-  .btn-reset-prefs {
-    color: #b00020;
-    border-color: rgba(176, 0, 32, 0.45);
-  }
-  .btn-reset-prefs:hover {
-    background: rgba(176, 0, 32, 0.1);
-    color: #8a0018;
-    border-color: #b00020;
-  }
+html[data-theme="light"] .btn-reset-prefs {
+  color: #b00020;
+  border-color: rgba(176, 0, 32, 0.45);
+}
+html[data-theme="light"] .btn-reset-prefs:hover {
+  background: rgba(176, 0, 32, 0.1);
+  color: #8a0018;
+  border-color: #b00020;
 }
 
 /* ── Custom source row with inline toggle + remove ───────────────────────── */
@@ -1167,16 +1163,14 @@ html, body {
   outline-offset: 3px;
 }
 
-@media (prefers-color-scheme: light) {
-  .btn-bookmark {
-    border-color: #5c54d6;
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.25) inset,
-      0 2px 6px rgba(82, 72, 180, 0.35);
-  }
-  .btn-bookmark:focus-visible {
-    outline-color: var(--accent);
-  }
+html[data-theme="light"] .btn-bookmark {
+  border-color: #5c54d6;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.25) inset,
+    0 2px 6px rgba(82, 72, 180, 0.35);
+}
+html[data-theme="light"] .btn-bookmark:focus-visible {
+  outline-color: var(--accent);
 }
 
 .bookmark-import-row {
@@ -1208,17 +1202,15 @@ html, body {
   border-color: rgba(239, 154, 154, 0.35);
 }
 
-@media (prefers-color-scheme: light) {
-  .import-status.ok {
-    background: rgba(46, 125, 50, 0.1);
-    color: #1b5e20;
-    border-color: rgba(46, 125, 50, 0.25);
-  }
-  .import-status.error {
-    background: rgba(183, 28, 28, 0.08);
-    color: #b71c1c;
-    border-color: rgba(183, 28, 28, 0.2);
-  }
+html[data-theme="light"] .import-status.ok {
+  background: rgba(46, 125, 50, 0.1);
+  color: #1b5e20;
+  border-color: rgba(46, 125, 50, 0.25);
+}
+html[data-theme="light"] .import-status.error {
+  background: rgba(183, 28, 28, 0.08);
+  color: #b71c1c;
+  border-color: rgba(183, 28, 28, 0.2);
 }
 
 /* ── Pull-to-refresh indicator ──────────────────────────────────────────────── */

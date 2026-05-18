@@ -50,6 +50,7 @@ interface Props {
   onGenerateLink: () => Promise<void>;
   onRevoke: () => Promise<void>;
   onToggleAiBar: () => void;
+  onToggleTheme: () => void;
 }
 
 export function Settings({
@@ -59,7 +60,7 @@ export function Settings({
   onAddLabel, onDeleteLabel,   onSuggestLabels,
   syncActive, syncStatus, syncedAt, syncError, syncErrorDetails, syncUrl, syncEnvError,
   metaStatus, metaError, metaEnvError,
-  onForceMetaSync, onForceSync, onGenerateLink, onRevoke, onToggleAiBar,
+  onForceMetaSync, onForceSync, onGenerateLink, onRevoke, onToggleAiBar, onToggleTheme,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
@@ -590,6 +591,14 @@ export function Settings({
         <section className="settings-section">
           <h3>Preferences</h3>
           <p className="settings-hint">Clear viewed history to see previously read articles again.</p>
+          <label className="settings-toggle-row">
+            <input
+              type="checkbox"
+              checked={prefs.theme === 'light'}
+              onChange={onToggleTheme}
+            />
+            Light mode
+          </label>
           <label className="settings-toggle-row">
             <input
               type="checkbox"

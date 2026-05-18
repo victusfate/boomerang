@@ -115,7 +115,7 @@ export default function App() {
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
     articleTagsMap, classificationStatus, aiTaggingStarted, taggingArticleId, onStartAiTagging, onAddLabel, onDeleteLabel,
-    labelHits, articleTags, onToggleAiBar, onAddManualTag, onRemoveManualTag,
+    labelHits, articleTags, onToggleAiBar, onToggleTheme, onAddManualTag, onRemoveManualTag,
     onRemoteSync, syncReady,
   } = useFeed({
     metaCallbacks: { feedTaggedArticle, endTaggingPass },
@@ -135,6 +135,10 @@ export default function App() {
     useSyncWorker(prefs, articleTags, labelHits, savedArticles, onRemoteSync, syncReady);
 
   const [persistedTitles, setPersistedTitles] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = prefs.theme ?? 'dark';
+  }, [prefs.theme]);
 
   useEffect(() => {
     void loadTitleCache().then(setPersistedTitles);
@@ -610,6 +614,7 @@ export default function App() {
           onGenerateLink={generateLink}
           onRevoke={revoke}
           onToggleAiBar={onToggleAiBar}
+          onToggleTheme={onToggleTheme}
         />
       )}
     </>
