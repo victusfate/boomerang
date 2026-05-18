@@ -10,17 +10,6 @@
           }
         ]
       }
-    ],
-    "PostCompact": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash .claude/read-once/compact.sh"
-          }
-        ]
-      }
     ]
   }
 }
