@@ -805,6 +805,11 @@ export function useFeed(options?: UseFeedOptions) {
     updatePrefs({ ...prefsRef.current, hideAiBar: !prefsRef.current.hideAiBar });
   }, [updatePrefs]);
 
+  const handleToggleTheme = useCallback(() => {
+    const next = prefsRef.current.theme === 'light' ? 'dark' : 'light';
+    updatePrefs({ ...prefsRef.current, theme: next });
+  }, [updatePrefs]);
+
   const handleResetPrefs = useCallback(() => {
     const next = resetLearnedWeights(prefsRef.current);
     updatePrefs(next);
@@ -1057,6 +1062,7 @@ export function useFeed(options?: UseFeedOptions) {
     onToggleSource:      handleToggleSource,
     onToggleTopic:       handleToggleTopic,
     onToggleAiBar:       handleToggleAiBar,
+    onToggleTheme:       handleToggleTheme,
     onResetPrefs:        handleResetPrefs,
     onClearViewed:       handleClearViewed,
     onRefresh:           handleRefresh,

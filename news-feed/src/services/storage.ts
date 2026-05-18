@@ -21,6 +21,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   customSources:  [],
   userLabels:     [],
   hideAiBar:      false,
+  theme:          'dark',
 };
 
 // ── Keyword extraction ────────────────────────────────────────────────────────

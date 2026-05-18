@@ -85,6 +85,7 @@ export interface UserPrefs {
   customSources:  CustomSource[];
   userLabels:     UserLabel[];
   hideAiBar:      boolean;
+  theme:          'dark' | 'light';
 }
 
 export type FeedView = 'feed' | 'saved' | 'rec';
