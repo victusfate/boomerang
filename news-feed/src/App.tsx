@@ -114,7 +114,7 @@ export default function App() {
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
-    articleTagsMap, classificationStatus, aiTaggingStarted, taggingArticleId, onStartAiTagging, onAddLabel, onDeleteLabel,
+    articleTagsMap, classificationStatus, aiTaggingStarted, aiAllTagged, taggingArticleId, onStartAiTagging, onAddLabel, onDeleteLabel,
     labelHits, articleTags, onToggleAiBar, onToggleTheme, onAddManualTag, onRemoveManualTag,
     onRemoteSync, syncReady,
   } = useFeed({
@@ -449,7 +449,7 @@ export default function App() {
       {!prefs.hideAiBar && (
         <div className="ai-status" aria-live="polite">
           <span className={`ai-status-dot ${classificationStatus ? '' : 'idle'}`} />
-          {classificationStatus || 'Chrome AI tagging'}
+          {classificationStatus || (aiAllTagged ? 'All articles tagged' : 'Chrome AI tagging')}
           <a
             href="https://developer.chrome.com/docs/ai/get-started"
             target="_blank"
