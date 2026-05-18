@@ -258,7 +258,7 @@ Candidate pool sizes (boomerang-specific, in `recPoolMerge.ts`):
 | `REC_MAX_CANDIDATES` | 100 | Max ids per single POST /recommendations batch |
 | `REC_POOL_CANDIDATE_CAP` | 400 | Max pool ids sent total (client truncates before chunking) |
 
-Cache TTLs (from `@victusfate/ricochet` `src/types.ts`; used in boomerang's `RecDO.ts` SQLite cache):
+Cache TTLs (exported from `@victusfate/ricochet` public lib API since v1.3.1; used in boomerang's `RecDO.ts` SQLite cache):
 
 | Constant | Value | Scope |
 |----------|-------|-------|

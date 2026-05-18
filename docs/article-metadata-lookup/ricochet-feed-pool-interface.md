@@ -294,6 +294,7 @@ Boomerang embeds ricochet via `platform-worker` (`RecDO` export from `@victusfat
 | v1.2.2 | Expose `REC_MAX_CANDIDATES` as shared constant from lib |
 | v1.2.3 | `protected state/env` in RecDO; export `RankingCacheEntry` and cache TTL constants |
 | v1.3.0 | Export `REC_FEED_POOL_CACHE_TTL_MS` (5 min) and `REC_GLOBAL_CACHE_TTL_MS` (1 h) from lib |
+| v1.3.1 | Fix: `export * from './types'` in `lib.ts` — `RankingCacheEntry`, cache TTLs, and all types now importable from `@victusfate/ricochet` public lib entry (not just worker subpath) |
 
-Boomerang platform-worker: `github:victusfate/ricochet#v1.3.0`  
-Boomerang news-feed: `github:victusfate/ricochet#v1.2.2` (library only — types and scoring helpers)
+Boomerang platform-worker: `github:victusfate/ricochet#v1.3.1`  
+Boomerang news-feed: `github:victusfate/ricochet#v1.3.1`

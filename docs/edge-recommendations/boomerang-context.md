@@ -225,10 +225,16 @@ analogue. It uses:
 ## Interface boundary — what rec-worker exposes
 
 ```
-POST /interactions          — ingest a batch of interaction events
-GET  /recommendations/:userId  — return ranked article IDs
-GET  /health                — { ok: true, service: 'ricochet-rec' }
+POST /interactions              — ingest a batch of interaction events
+POST /recommendations/:userId   — feed-pool ranked article IDs (preferred; body: RecRankRequest)
+GET  /recommendations/:userId   — legacy global mode (query: ?candidates=&limit=)
+GET  /health                    — { ok: true, service: 'ricochet-rec' }
 ```
+
+**CORS**: The standalone ricochet worker defaults to `localhost` origins and accepts
+production origins via the `EXTRA_CORS_ORIGINS` environment variable. Boomerang
+**does not use the standalone worker** — ricochet is embedded inside `platform-worker`,
+which owns CORS for all routes including `/interactions` and `/recommendations`.
 
 ### Interaction event shape
 
