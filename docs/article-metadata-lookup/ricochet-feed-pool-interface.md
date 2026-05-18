@@ -2,7 +2,7 @@
 
 **Audience:** `@victusfate/ricochet` maintainers and Boomerang integrators.  
 **Related Boomerang docs:** [`design.md`](./design.md), [`prd.md`](./prd.md), [`plan.md`](./plan.md).  
-**Status:** Proposed — not yet implemented in ricochet or wired end-to-end in Boomerang.
+**Status:** ✅ Implemented — shipped in ricochet v1.2.0, integrated in boomerang platform-worker and news-feed.
 
 ---
 
@@ -165,11 +165,12 @@ For **each** id in `candidateArticleIds` (after dedupe):
 
 ## Limits and validation
 
-| Field | Suggested cap | Notes |
-|--------|----------------|-------|
-| `candidateArticleIds.length` | 500 | Boomerang feed pool size; reject 400 with clear error |
+| Field | Actual cap | Notes |
+|--------|------------|-------|
+| `candidateArticleIds.length` per batch | 100 (`REC_MAX_CANDIDATES`) | Batches chunked client-side; reject 400 with clear error |
+| Pool size before chunking | 400 (`REC_POOL_CANDIDATE_CAP`) | Client caps and chunks; merged by best score in `recPoolMerge.ts` |
 | `limit` | 500 | Default 50 |
-| Id format | non-empty string | 16-hex in Boomerang; ricochet can stay format-agnostic |
+| Id format | non-empty string | 16-hex in Boomerang; ricochet stays format-agnostic |
 
 Validation errors: `400` with `{ ok: false, message: "..." }` consistent with `/interactions`.
 
@@ -241,25 +242,24 @@ No change to `POST /interactions` or learning path.
 
 ---
 
-## Suggested implementation checklist (ricochet repo)
+## Implementation checklist (ricochet repo)
 
-- [ ] Add `parseCandidateIds()` helper (dedupe, cap, trim)  
-- [ ] Extend `RecDO.fetch` `/recs/:userId` for `candidates` query + optional POST body  
-- [ ] Implement `scoreAllCandidates()` (or extend `score()`) with cold-item branch  
-- [ ] Update `types.ts` + README + worker `GET /recommendations` handler  
-- [ ] Vitest: pool-only candidates, cold items, downvotes, limit, legacy global path  
-- [ ] Semver: **minor** bump (additive API); note cache-key guidance for integrators  
+- [x] Add `parseCandidateIds()` helper (dedupe, cap, trim)  
+- [x] Extend `RecDO.fetch` `/recs/:userId` for `candidates` query + optional POST body  
+- [x] `scoreCandidates()` scores all input ids; cold items use `zeroFactorRow` fallback  
+- [x] Update `types.ts` (`RecRankRequest`, `candidateMode`, `coldItemCount`, `warmItemCount`) + README  
+- [x] Shipped as **v1.2.0** (minor, additive); cache-key guidance documented  
 
 ---
 
-## Suggested Boomerang follow-up (after ricochet release)
+## Boomerang follow-up (completed)
 
-- [ ] Bump `@victusfate/ricochet` dependency  
-- [ ] `fetchRecommendations(base, userId, { candidateArticleIds, limit })` in `recWorker.ts`  
-- [ ] `useRecWorker(articlePoolIds)` — fetch when pool non-empty; debounce on pool change  
-- [ ] `useFeed` — re-apply `rankFeed` when pool-scoped `recArticleIds` updates  
-- [ ] Platform-worker: POST forward + pool-scoped KV cache key  
-- [ ] Rec diagnostics: optional note “ranked within current feed (N articles)”  
+- [x] `platform-worker` pinned to `github:victusfate/ricochet#v1.3.0`  
+- [x] `fetchFeedPoolRecommendations` in `recWorker.ts` — chunks pool into `REC_MAX_CANDIDATES` batches, merges by best score  
+- [x] `useRecWorker(articlePoolIds)` — debounces on pool change (1.5 s), 5-min periodic refresh  
+- [x] `useFeed` — re-applies `rankFeed` when pool-scoped `recArticleIds` updates  
+- [x] Platform-worker: POST forward + SQLite ranking cache in `RecDO` (overrides ricochet KV cache)  
+- [x] Rec diagnostics: `RecDiagnostics` panel shows `coldStart`, `coldItemCount`, `warmItemCount`, `candidateCount`, `candidateMode`  
 
 ---
 
@@ -285,7 +285,15 @@ Boomerang embeds ricochet via `platform-worker` (`RecDO` export from `@victusfat
 
 ---
 
-## Version targeting
+## Version history
 
-Proposed ricochet release: **v1.2.0** (minor, additive).  
-Boomerang will pin `github:victusfate/ricochet#<tag>` after publish.
+| ricochet | Change |
+|----------|--------|
+| v1.2.0 | Feed-pool candidate ranking shipped (`candidateArticleIds`, `candidateMode`, `coldItemCount`, `warmItemCount`) |
+| v1.2.1 | Enforce 100-candidate cap per batch (`REC_MAX_CANDIDATES`) |
+| v1.2.2 | Expose `REC_MAX_CANDIDATES` as shared constant from lib |
+| v1.2.3 | `protected state/env` in RecDO; export `RankingCacheEntry` and cache TTL constants |
+| v1.3.0 | Export `REC_FEED_POOL_CACHE_TTL_MS` (5 min) and `REC_GLOBAL_CACHE_TTL_MS` (1 h) from lib |
+
+Boomerang platform-worker: `github:victusfate/ricochet#v1.3.0`  
+Boomerang news-feed: `github:victusfate/ricochet#v1.2.2` (library only — types and scoring helpers)
