@@ -594,14 +594,6 @@ export function Settings({
           <label className="settings-toggle-row">
             <input
               type="checkbox"
-              checked={prefs.theme === 'light'}
-              onChange={onToggleTheme}
-            />
-            Light mode
-          </label>
-          <label className="settings-toggle-row">
-            <input
-              type="checkbox"
               checked={!prefs.hideAiBar}
               onChange={onToggleAiBar}
             />
