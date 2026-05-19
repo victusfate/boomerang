@@ -398,6 +398,14 @@ export default function App() {
           </button>
           <button
             className="icon-btn"
+            onClick={onToggleTheme}
+            aria-label={prefs.theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+            title={prefs.theme === 'light' ? 'Dark mode' : 'Light mode'}
+          >
+            {prefs.theme === 'light' ? '🌙' : '☀️'}
+          </button>
+          <button
+            className="icon-btn"
             onClick={() => setShowSettings(true)}
             aria-label="Settings"
             title="Settings"
