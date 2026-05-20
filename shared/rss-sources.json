@@ -19,6 +19,7 @@
   { "id": "phoronix",    "name": "Phoronix",          "feedUrl": "https://www.phoronix.com/phoronix-rss.php",                                "category": "technology",    "enabled": true,  "priority": 2 },
   { "id": "bleeping",    "name": "BleepingComputer",  "feedUrl": "https://www.bleepingcomputer.com/feed/",                                   "category": "technology",    "enabled": true,  "priority": 2 },
   { "id": "hfblog",      "name": "HuggingFace Blog",  "feedUrl": "https://huggingface.co/blog/feed.xml",                                     "category": "technology",    "enabled": true,  "priority": 2 },
+  { "id": "google-res",  "name": "Google Research",   "feedUrl": "https://research.google/blog/rss/",                                        "category": "technology",    "enabled": true,  "priority": 2 },
   { "id": "rustlang",    "name": "Rust Blog",         "feedUrl": "https://blog.rust-lang.org/feed.xml",                                      "category": "technology",    "enabled": true,  "priority": 2 },
   { "id": "k8s",         "name": "Kubernetes.io",     "feedUrl": "https://kubernetes.io/feed.xml",                                           "category": "technology",    "enabled": true,  "priority": 2 },
   { "id": "ghblog",      "name": "GitHub Blog",       "feedUrl": "https://github.blog/feed/",                                                "category": "technology",    "enabled": true,  "priority": 2 },
