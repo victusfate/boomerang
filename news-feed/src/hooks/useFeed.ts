@@ -145,7 +145,8 @@ export function useFeed(options?: UseFeedOptions) {
     recCandidateModeRef.current = options?.recCandidateMode;
   });
 
-  // Lock recommendation policy on bootstrap; re-apply when feed-pool recs refresh.
+  // Lock recommendation policy on bootstrap. Subsequent feed-pool rec refreshes update
+  // the stored IDs for the next explicit refresh but do NOT re-rank the live feed.
   useEffect(() => {
     if (!recBootstrapDoneRef.current) return;
     const pool = articlePoolRef.current;
@@ -170,7 +171,9 @@ export function useFeed(options?: UseFeedOptions) {
         }
       }
     } else if (isFeedPool && ids.length > 0) {
+      // Store updated rec IDs for the next explicit refresh; don't re-order the live feed.
       selectedRecRankIdsRef.current = [...ids];
+      return;
     } else {
       return;
     }
