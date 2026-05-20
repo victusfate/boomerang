@@ -28,6 +28,7 @@ import { fileURLToPath } from 'url';
 const __dir = dirname(fileURLToPath(import.meta.url));
 const SOURCES_PATH   = resolve(__dir, '../shared/rss-sources.json');
 const CANDIDATE_PATH = resolve(__dir, '../shared/rss-sources.candidate.json');
+const RESULTS_PATH   = resolve(__dir, '../shared/rss-sources.results.json');
 
 const sources = JSON.parse(readFileSync(SOURCES_PATH, 'utf-8'));
 
@@ -280,3 +281,16 @@ console.log(`${C.bold}Candidate written → shared/rss-sources.candidate.json${C
 console.log(`  ${sources.length} sources in  →  ${candidate.length} sources out  (${cut.length} removed)\n`);
 console.log('Review the candidate, then replace:');
 console.log('  cp shared/rss-sources.candidate.json shared/rss-sources.json\n');
+
+// ── Results JSON (for the source editor UI) ───────────────────────────────────
+const resultsMap = {};
+for (const r of results) {
+  resultsMap[r.id] = {
+    verdict: r.verdict, feedStatus: r.feedStatus, items: r.items,
+    avgDesc: r.avgDesc, articleStatus: r.articleStatus, notes: r.notes,
+  };
+}
+for (const s of ytSources) {
+  resultsMap[s.id] = { verdict: 'OK', feedStatus: 200, items: '—', avgDesc: '—', articleStatus: '—', notes: ['YouTube auto-pass'] };
+}
+writeFileSync(RESULTS_PATH, JSON.stringify({ timestamp: new Date().toISOString(), results: resultsMap }, null, 2) + '\n');
