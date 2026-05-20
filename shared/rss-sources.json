@@ -8,9 +8,7 @@
   { "id": "theregister", "name": "The Register",      "feedUrl": "https://www.theregister.com/headlines.atom",                               "category": "technology",    "enabled": true,  "priority": 1 },
   { "id": "themarkup",   "name": "The Markup",        "feedUrl": "https://themarkup.org/feeds/rss.xml",                                      "category": "technology",    "enabled": true,  "priority": 1 },
 
-  { "id": "tc",          "name": "TechCrunch",        "feedUrl": "https://techcrunch.com/feed/",                                             "category": "technology",    "enabled": true,  "priority": 2 },
   { "id": "engadget",    "name": "Engadget",          "feedUrl": "https://www.engadget.com/rss.xml",                                         "category": "technology",    "enabled": true,  "priority": 2 },
-  { "id": "ieee",        "name": "IEEE Spectrum",     "feedUrl": "https://spectrum.ieee.org/feeds/feed.rss",                                 "category": "technology",    "enabled": true,  "priority": 2 },
   { "id": "devto",       "name": "Dev.to",            "feedUrl": "https://dev.to/feed",                                                      "category": "technology",    "enabled": true,  "priority": 2 },
   { "id": "smash",       "name": "Smashing Magazine", "feedUrl": "https://www.smashingmagazine.com/feed/",                                   "category": "technology",    "enabled": true,  "priority": 2 },
   { "id": "techdirt",    "name": "Techdirt",          "feedUrl": "https://www.techdirt.com/feed/",                                           "category": "technology",    "enabled": true,  "priority": 2 },
@@ -37,7 +35,7 @@
   { "id": "popsci",      "name": "Popular Science",   "feedUrl": "https://www.popsci.com/feed/",                                             "category": "science",       "enabled": true,  "priority": 2 },
   { "id": "scidaily",    "name": "Science Daily",     "feedUrl": "https://www.sciencedaily.com/rss/top/science.xml",                         "category": "science",       "enabled": true,  "priority": 2 },
   { "id": "sciencealert","name": "ScienceAlert",      "feedUrl": "https://www.sciencealert.com/feed",                                        "category": "science",       "enabled": true,  "priority": 2 },
-  { "id": "nautilus",    "name": "Nautilus",          "feedUrl": "https://nautil.us/feed/",                                                  "category": "science",       "enabled": true,  "priority": 2 },
+  { "id": "aeon",        "name": "Aeon",              "feedUrl": "https://aeon.co/feed.rss",                                                 "category": "science",       "enabled": true,  "priority": 2 },
   { "id": "eurekalert",  "name": "EurekAlert",        "feedUrl": "https://www.eurekalert.org/rss/all.xml",                                   "category": "science",       "enabled": true,  "priority": 2 },
 
   { "id": "yale360",     "name": "Yale Env. 360",     "feedUrl": "https://e360.yale.edu/feed",                                               "category": "environment",   "enabled": true,  "priority": 2 },
@@ -45,11 +43,10 @@
   { "id": "grist",       "name": "Grist",             "feedUrl": "https://grist.org/feed/",                                                  "category": "environment",   "enabled": true,  "priority": 2 },
   { "id": "icn",         "name": "Inside Climate News","feedUrl": "https://insideclimatenews.org/feed/",                                     "category": "environment",   "enabled": true,  "priority": 2 },
 
-  { "id": "espn",        "name": "ESPN",              "feedUrl": "https://www.espn.com/espn/rss/news",                                       "category": "sports",        "enabled": true,  "priority": 2 },
+  { "id": "bbcsport",    "name": "BBC Sport",         "feedUrl": "https://feeds.bbci.co.uk/sport/rss.xml",                                   "category": "sports",        "enabled": true,  "priority": 2 },
 
-  { "id": "pitchfork",   "name": "Pitchfork",         "feedUrl": "https://pitchfork.com/rss/news/feed.xml",                                  "category": "entertainment", "enabled": true,  "priority": 2 },
-  { "id": "variety",     "name": "Variety",           "feedUrl": "https://variety.com/feed/",                                                "category": "entertainment", "enabled": true,  "priority": 2 },
-  { "id": "indiewire",   "name": "IndieWire",         "feedUrl": "https://www.indiewire.com/feed/",                                          "category": "entertainment", "enabled": true,  "priority": 2 },
+  { "id": "stereogum",   "name": "Stereogum",         "feedUrl": "https://www.stereogum.com/feed/",                                          "category": "entertainment", "enabled": true,  "priority": 2 },
+  { "id": "consequence", "name": "Consequence",       "feedUrl": "https://consequence.net/feed/",                                            "category": "entertainment", "enabled": true,  "priority": 2 },
 
   { "id": "yt-kurzgesagt", "name": "Kurzgesagt",       "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UCsXVk37bltHxD1rDPwtNM8Q", "category": "science",    "enabled": true,  "priority": 2 },
   { "id": "yt-veritasium", "name": "Veritasium",       "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UCHnyfMqiRRG1u-2MsSQLbXA", "category": "science",    "enabled": true,  "priority": 2 },
@@ -57,11 +54,5 @@
   { "id": "yt-ted",        "name": "TED",              "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UCAuUUnT6oDeKwE6v1NGQxug", "category": "general",    "enabled": true,  "priority": 2 },
   { "id": "yt-mkbhd",      "name": "MKBHD",            "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UCBJycsmduvYEL83R_U4JriQ", "category": "technology", "enabled": true,  "priority": 2 },
   { "id": "yt-smarter",    "name": "SmarterEveryDay",  "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UC6107grRI4m0o2-emgoDnAA", "category": "science",    "enabled": true,  "priority": 2 },
-  { "id": "yt-numberph",   "name": "Numberphile",      "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UCoxcjq-8xIDTYp3uz647V5A", "category": "science",    "enabled": true,  "priority": 2 },
-  { "id": "yt-tomscott",   "name": "Tom Scott",        "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UCBa659QWEk1AI4Tg--mrJ2A", "category": "general",    "enabled": false, "priority": 2 },
-  { "id": "yt-ltt",        "name": "Linus Tech Tips",  "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UCXuqSBlHAE6Xw-yeJA0Tunw", "category": "technology", "enabled": false, "priority": 2 },
-  { "id": "yt-wendover",   "name": "Wendover Prod.",   "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UC9RM-iSzvit8LxFzbkUsEyQ", "category": "general",    "enabled": false, "priority": 2 },
-  { "id": "yt-realeng",    "name": "Real Engineering", "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UCR1IuLEqb6UEA_zQ81kwXfg", "category": "science",    "enabled": false, "priority": 2 },
-  { "id": "yt-dw",         "name": "DW News",          "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UCknLrEdhRCp1aegoMqRaCZg", "category": "world",      "enabled": false, "priority": 2 },
-  { "id": "yt-pbs",        "name": "PBS NewsHour",     "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UC6ZFN9Tx6xh-skXa_NZk5eA", "category": "world",      "enabled": false, "priority": 2 }
+  { "id": "yt-numberph",   "name": "Numberphile",      "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=UCoxcjq-8xIDTYp3uz647V5A", "category": "science",    "enabled": true,  "priority": 2 }
 ]
