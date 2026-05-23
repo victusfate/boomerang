@@ -127,6 +127,10 @@ export function useFeed(options?: UseFeedOptions) {
   const recBootstrapErrorRef = useRef<string | null>(null);
   // Locked once: either server recommendations (ids) or local fallback (null).
   const selectedRecRankIdsRef = useRef<string[] | null | undefined>(undefined);
+  // True after articles have been committed to the display for the first time.
+  // Background onBatch calls and rec bootstrap silently update the pool / stored
+  // IDs but do NOT re-rank the live feed until the user explicitly refreshes.
+  const feedShownRef = useRef(false);
   useEffect(() => {
     recInteractRef.current = options?.recInteract;
     recArticleIdsRef.current = options?.recArticleIds ?? [];
@@ -177,6 +181,9 @@ export function useFeed(options?: UseFeedOptions) {
     } else {
       return;
     }
+
+    // Feed already committed — rec IDs captured above for the next refresh; don't re-rank live feed.
+    if (feedShownRef.current) return;
 
     const ranked = rankFeed(pool, prefsRef.current, getRankRecIds());
     allArticlesRef.current = ranked;
@@ -553,6 +560,7 @@ export function useFeed(options?: UseFeedOptions) {
         const ranked = rankFeed(cached.articles, mergePrefs(cleanedPrefs, prefsRef.current), getRankRecIds());
         allArticlesRef.current = ranked;
         setAllArticles(ranked);
+        feedShownRef.current = true; // cache committed — background updates must not re-rank
         if (ranked.length) setLoading(false);
 
         // Mark cache as valid so we skip the auto-fetch on startup
@@ -588,6 +596,7 @@ export function useFeed(options?: UseFeedOptions) {
       setLoading(true);
       setVisibleCount(PAGE_SIZE);   // reset pagination NOW so the sentinel is fresh
       markedSeenRef.current.clear();
+      feedShownRef.current = false; // unlock: batches during this refresh may update the display
     } else if (hadArticles) {
       setRefreshing(true);
     } else {
@@ -631,7 +640,12 @@ export function useFeed(options?: UseFeedOptions) {
         if (fetchIdRef.current !== myFetchId) return;
         articlePoolRef.current = accumulated;
         setArticlePool(accumulated);
-        applyRankedBatch(accumulated);
+        // Only update the displayed feed on explicit refresh or before articles are first shown.
+        // Background tier batches silently grow the pool without reordering visible cards.
+        if (explicit || !feedShownRef.current) {
+          applyRankedBatch(accumulated);
+          feedShownRef.current = true;
+        }
         setLoading(false);
         if (accumulated.length > 0) {
           setRefreshing(false);
@@ -662,7 +676,12 @@ export function useFeed(options?: UseFeedOptions) {
         setError(null);
         articlePoolRef.current = all;
         setArticlePool(all);
-        applyRankedBatch(all);
+        // Final rank: only for explicit refresh or first-ever show (non-explicit cold start).
+        // Background fetches have already staged the pool; skip the re-rank to keep cards stable.
+        if (explicit || !feedShownRef.current) {
+          applyRankedBatch(all);
+          feedShownRef.current = true;
+        }
         kvSet(CACHE_ID, { articles: dehydrate(all), fetchedAt: Date.now() }).catch(console.error);
         schedulePassRef.current([...allArticlesRef.current]);
       }
@@ -724,9 +743,12 @@ export function useFeed(options?: UseFeedOptions) {
   }, [updatePrefs]);
 
   const handleSave = useCallback((id: string) => {
+    const isSaving = !prefsRef.current.savedIds.includes(id); // true = star, false = unstar
     updatePrefs(toggleSaved(id, prefsRef.current));
+    // Only signal the rec backend on the initial save — unstar is a UI bookmark action,
+    // not a preference reversal (topic weights from reading are already permanent).
     const a = allArticlesRef.current.find(x => x.id === id);
-    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, tags: articleTagsMapRef.current.get(a.id), action: 'save', ts: Date.now() });
+    if (a && isSaving) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, tags: articleTagsMapRef.current.get(a.id), action: 'save', ts: Date.now() });
   }, [updatePrefs]);
 
   const handleUpvote = useCallback((article: Article) => {
