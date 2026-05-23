@@ -743,9 +743,12 @@ export function useFeed(options?: UseFeedOptions) {
   }, [updatePrefs]);
 
   const handleSave = useCallback((id: string) => {
+    const isSaving = !prefsRef.current.savedIds.includes(id); // true = star, false = unstar
     updatePrefs(toggleSaved(id, prefsRef.current));
+    // Only signal the rec backend on the initial save — unstar is a UI bookmark action,
+    // not a preference reversal (topic weights from reading are already permanent).
     const a = allArticlesRef.current.find(x => x.id === id);
-    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, tags: articleTagsMapRef.current.get(a.id), action: 'save', ts: Date.now() });
+    if (a && isSaving) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, tags: articleTagsMapRef.current.get(a.id), action: 'save', ts: Date.now() });
   }, [updatePrefs]);
 
   const handleUpvote = useCallback((article: Article) => {
