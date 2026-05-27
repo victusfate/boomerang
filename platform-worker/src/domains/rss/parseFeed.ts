@@ -62,10 +62,11 @@ function normalizeHttpUrl(raw: string): string {
   if (s.includes('&amp;')) s = s.replace(/&amp;/g, '&');
   try {
     const u = new URL(s);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return raw.trim();
+    // Reject any scheme other than http/https (blocks javascript:, data:, etc.)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return '';
     return u.href;
   } catch {
-    return raw.trim();
+    return '';
   }
 }
 
