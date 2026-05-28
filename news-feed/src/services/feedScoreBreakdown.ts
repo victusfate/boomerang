@@ -4,7 +4,7 @@ import {
   recencyScore,
   diversityScore,
   recBoostScore,
-  BACKGROUND_TIER_SCORE_MULTIPLIER,
+  backgroundTierPenalty,
 } from './algorithm.ts';
 
 /** Mirrors `rankFeed` / `scoreArticle` in `algorithm.ts` for card UI. */
@@ -50,7 +50,8 @@ export function computeFeedScoreInsight(
   const recRank01 = rankEntry?.rank01;
   const recBoost = recBoostScore(recRank01);
   const fetchTier = inferFetchTier(article);
-  const tierMultiplier = fetchTier === 'background' ? BACKGROUND_TIER_SCORE_MULTIPLIER : 1;
+  const ageHours = (Date.now() - article.publishedAt.getTime()) / 3_600_000;
+  const tierMultiplier = fetchTier === 'background' ? backgroundTierPenalty(ageHours) : 1;
   const composite = recency * diversity * recBoost * tierMultiplier;
   const mfRaw = mfScoreById[article.id];
   const mfScore = typeof mfRaw === 'number' && Number.isFinite(mfRaw) ? mfRaw : null;

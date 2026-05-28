@@ -21,9 +21,10 @@ const POOL_REC_DEBOUNCE_MS   = 1_500;
 export type RecStatus = 'disabled' | 'active' | 'error';
 
 export interface UseRecWorkerResult {
-  sendInteraction: (input: RecInteractionInput) => void;
-  recArticleIds:   string[];
-  recScoreById:    Record<string, number>;
+  sendInteraction:  (input: RecInteractionInput) => void;
+  setTopicWeights:  (weights: Record<string, number>) => void;
+  recArticleIds:    string[];
+  recScoreById:     Record<string, number>;
   recScoredArticles: RecResponseWithScores['scoredArticleIds'];
   recModelDiagnostics: RecResponseWithScores['diagnostics'] | null;
   recTrace: RecResponseWithScores['trace'] | null;
@@ -93,6 +94,7 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
   const poolFetchInFlightRef = useRef(false);
   const articlePoolIdsRef = useRef<string[]>(articlePoolIds);
   articlePoolIdsRef.current = articlePoolIds;
+  const topicWeightsRef = useRef<Record<string, number>>({});
 
   const poolKey = useMemo(() => poolRecKey(articlePoolIds), [articlePoolIds]);
 
@@ -129,13 +131,17 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
     }
   }, []);
 
+  const setTopicWeights = useCallback((weights: Record<string, number>) => {
+    topicWeightsRef.current = weights;
+  }, []);
+
   const fetchPoolRecs = useCallback(async (ids: string[]): Promise<boolean> => {
     if (!WORKER_BASE || poolFetchInFlightRef.current) return false;
     poolFetchInFlightRef.current = true;
     try {
       const userId = await ensureRecUserId();
       if (!userId) return false;
-      const recs = await fetchFeedPoolRecommendations(WORKER_BASE, userId, ids);
+      const recs = await fetchFeedPoolRecommendations(WORKER_BASE, userId, ids, topicWeightsRef.current);
       applyRecResponse(recs, recSetters);
       setRecStatus('active');
       setRecBootstrapError(null);
@@ -208,6 +214,7 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
 
   return {
     sendInteraction,
+    setTopicWeights,
     recArticleIds,
     recScoreById,
     recScoredArticles,
