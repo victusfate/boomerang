@@ -70,7 +70,7 @@ export async function postInteractions(
 export interface FetchRecommendationsOptions {
   candidateArticleIds?: string[];
   limit?: number;
-  topicWeights?: Record<string, number>;
+  topicWeights?: Partial<Record<string, number>>;
 }
 
 /** ETag cache: avoids redundant payload when the ranked list hasn't changed. */
@@ -81,7 +81,7 @@ export async function fetchFeedPoolRecommendations(
   workerBase: string,
   userId: string,
   candidateArticleIds: string[],
-  topicWeights?: Record<string, number>,
+  topicWeights?: Partial<Record<string, number>>,
 ): Promise<RecResponseWithScores> {
   const ids = capRecCandidateIds(dedupeArticleIds(candidateArticleIds));
   if (ids.length === 0) {
@@ -110,13 +110,18 @@ export async function fetchRecommendations(
     : options;
   const limit = opts.limit ?? 50;
   const useFeedPool = opts.candidateArticleIds !== undefined;
-  // Only send topicWeights when the user has actual learned weights — an empty object
-  // would still bypass ricochet's KV cache, wasting the ETag optimization.
-  const topicWeights = opts.topicWeights && Object.keys(opts.topicWeights).length > 0
-    ? opts.topicWeights
-    : undefined;
+  // Strip undefined values; only send when there are actual learned weights.
+  // An empty object bypasses ricochet's KV cache and prevents ETags from firing.
+  const weightEntries = opts.topicWeights
+    ? Object.entries(opts.topicWeights).filter((e): e is [string, number] => e[1] !== undefined)
+    : [];
+  const filteredWeights = weightEntries.length > 0 ? Object.fromEntries(weightEntries) : undefined;
 
-  const cached = recETagStore.get(userId);
+  // Per-chunk ETag key: candidateArticleIds[0] is stable across refreshes for the same chunk.
+  const etagKey = opts.candidateArticleIds && opts.candidateArticleIds.length > 0
+    ? `${userId}:${opts.candidateArticleIds[0]}`
+    : userId;
+  const cached = recETagStore.get(etagKey);
   const reqHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
   if (cached) reqHeaders['If-None-Match'] = cached.etag;
 
@@ -127,7 +132,7 @@ export async function fetchRecommendations(
       body: JSON.stringify({
         candidateArticleIds: opts.candidateArticleIds,
         limit,
-        ...(topicWeights ? { topicWeights } : {}),
+        ...(filteredWeights ? { topicWeights: filteredWeights } : {}),
       }),
     })
     : await fetch(
@@ -150,7 +155,7 @@ export async function fetchRecommendations(
     : deriveRankScores(articleIds);
   const result: RecResponseWithScores = { articleIds, generatedAt, scoredArticleIds, diagnostics, trace, cache, timingMs, scoreById };
   const etag = res.headers.get('ETag');
-  if (etag) recETagStore.set(userId, { etag, response: result });
+  if (etag) recETagStore.set(etagKey, { etag, response: result });
   return result;
 }
 

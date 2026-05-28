@@ -22,7 +22,7 @@ export type RecStatus = 'disabled' | 'active' | 'error';
 
 export interface UseRecWorkerResult {
   sendInteraction:  (input: RecInteractionInput) => void;
-  setTopicWeights:  (weights: Record<string, number>) => void;
+  setTopicWeights:  (weights: Partial<Record<string, number>>) => void;
   recArticleIds:    string[];
   recScoreById:     Record<string, number>;
   recScoredArticles: RecResponseWithScores['scoredArticleIds'];
@@ -94,7 +94,7 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
   const poolFetchInFlightRef = useRef(false);
   const articlePoolIdsRef = useRef<string[]>(articlePoolIds);
   articlePoolIdsRef.current = articlePoolIds;
-  const topicWeightsRef = useRef<Record<string, number>>({});
+  const topicWeightsRef = useRef<Partial<Record<string, number>>>({});
 
   const poolKey = useMemo(() => poolRecKey(articlePoolIds), [articlePoolIds]);
 
@@ -131,7 +131,7 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
     }
   }, []);
 
-  const setTopicWeights = useCallback((weights: Record<string, number>) => {
+  const setTopicWeights = useCallback((weights: Partial<Record<string, number>>) => {
     topicWeightsRef.current = weights;
   }, []);
 

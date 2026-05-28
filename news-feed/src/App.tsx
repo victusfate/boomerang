@@ -142,7 +142,7 @@ export default function App() {
   }, [prefs.theme]);
 
   useEffect(() => {
-    setTopicWeights(prefs.topicWeights as Record<string, number>);
+    setTopicWeights(prefs.topicWeights);
   }, [prefs.topicWeights, setTopicWeights]);
 
   useEffect(() => {

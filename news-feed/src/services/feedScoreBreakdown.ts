@@ -1,6 +1,7 @@
 import type { Article } from '../types';
 import {
   inferFetchTier,
+  articleAgeHours,
   recencyScore,
   diversityScore,
   recBoostScore,
@@ -50,8 +51,7 @@ export function computeFeedScoreInsight(
   const recRank01 = rankEntry?.rank01;
   const recBoost = recBoostScore(recRank01);
   const fetchTier = inferFetchTier(article);
-  const ageHours = (Date.now() - article.publishedAt.getTime()) / 3_600_000;
-  const tierMultiplier = fetchTier === 'background' ? backgroundTierPenalty(ageHours) : 1;
+  const tierMultiplier = fetchTier === 'background' ? backgroundTierPenalty(articleAgeHours(article.publishedAt)) : 1;
   const composite = recency * diversity * recBoost * tierMultiplier;
   const mfRaw = mfScoreById[article.id];
   const mfScore = typeof mfRaw === 'number' && Number.isFinite(mfRaw) ? mfRaw : null;
