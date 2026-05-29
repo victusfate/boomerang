@@ -257,9 +257,9 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
 
   const recsMatch = pathname.match(/^\/recommendations\/(.+)$/);
   if (recsMatch && (request.method === 'GET' || request.method === 'POST')) {
+    const recsRateLimit = checkRateLimit(request, 'recs', RATE_LIMIT_RECS_MAX);
+    if (recsRateLimit.limited) return tooManyRequests(request, env, recsRateLimit.retryAfterSeconds);
     try {
-      const limited = checkRateLimit(request, 'recs', RATE_LIMIT_RECS_MAX);
-    if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
 
     const tStart = nowMs();
     const userId = recsMatch[1];
@@ -315,15 +315,9 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
     const doFetchMs = nowMs() - tDoFetchStart;
     if (!doRes.ok) {
       const raw = await doRes.text();
-      let message = raw.trim() || 'Recommendation durable object returned an error';
-      try {
-        const parsed = JSON.parse(raw) as { message?: string };
-        if (typeof parsed?.message === 'string' && parsed.message.length > 0) message = parsed.message;
-      } catch {
-        /* plain text body */
-      }
+      console.error('[rec] DO error', doRes.status, raw.slice(0, 500));
       const outStatus = doRes.status >= 400 && doRes.status < 600 ? doRes.status : 502;
-      return recErrorJson(request, env, outStatus, 'rec_do_failed', message, {
+      return recErrorJson(request, env, outStatus, 'rec_do_failed', 'Recommendation service error.', {
         doStatus: doRes.status,
       });
     }
@@ -349,13 +343,13 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
     );
     return json(response, request, env);
     } catch (err) {
+      console.error('[rec] ranking error:', err);
       return recErrorJson(
         request,
         env,
         500,
         'rec_internal_error',
         'Recommendation ranking failed.',
-        { detail: errorDetail(err) },
       );
     }
   }
