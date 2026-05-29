@@ -1,3 +1,9 @@
+/**
+ * Sync-share URL builder and parser — encodes/decodes prefs + saved articles as a URL fragment.
+ * @module services/syncShare
+ * @category Sync
+ */
+
 import { DEFAULT_PREFS } from './storage.ts';
 import type { Article, ArticleTag, LabelHit, Topic, UserPrefs } from '../types.ts';
 
@@ -169,9 +175,13 @@ export function buildSyncShareUrl(
   labelHits: LabelHit[],
 ): string {
   if (typeof location === 'undefined') return '';
+  // Strip seenIds/readIds — they can reach thousands of entries, overrunning URL limits,
+  // and leaking browse history into browser history / Referer. The recipient re-builds
+  // their own seen/read state independently.
+  const { seenIds: _s, readIds: _r, ...shareablePrefs } = { ...DEFAULT_PREFS, ...prefs };
   const payload: SyncPayloadV1 = {
     v: 1,
-    prefs: { ...DEFAULT_PREFS, ...prefs },
+    prefs: { ...shareablePrefs, seenIds: [], readIds: [] },
     savedArticles: dehydrate(savedArticles),
     articleTags,
     labelHits,

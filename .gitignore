@@ -2,6 +2,9 @@ node_modules/
 dist/
 .env
 
+# TypeDoc HTML output (generated locally, not committed)
+docs/api/
+
 # wrangler files
 .wrangler
 .dev.vars*

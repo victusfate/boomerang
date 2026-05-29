@@ -10,10 +10,10 @@ function normalizeArticleNavUrl(raw: string): string {
   if (s.includes('&amp;')) s = s.replace(/&amp;/g, '&');
   try {
     const u = new URL(s);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return raw.trim();
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return '';
     return u.href;
   } catch {
-    return raw.trim();
+    return '';
   }
 }
 
@@ -276,9 +276,9 @@ export function ArticleCard({
             >
               {isVideo ? 'Watch →' : 'Read →'}
             </a>
-            {article.discussionUrl && (
+            {article.discussionUrl && normalizeArticleNavUrl(article.discussionUrl) && (
               <a
-                href={article.discussionUrl}
+                href={normalizeArticleNavUrl(article.discussionUrl)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn-discuss"

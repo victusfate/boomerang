@@ -2,12 +2,15 @@
   "name": "platform-worker",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev --port 8787",
     "cf-typegen": "wrangler types",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types src/domains/rec/articleMeta.node.test.ts"
+    "test": "node --test --experimental-strip-types src/domains/rec/articleMeta.node.test.ts",
+    "docs:api": "typedoc",
+    "test:integration": "node scripts/integration-test.mjs"
   },
   "dependencies": {
     "@victusfate/ricochet": "github:victusfate/ricochet",
@@ -16,6 +19,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260409.1",
+    "typedoc": "^0.28.19",
     "typescript": "^5.5.2",
     "wrangler": "^4.81.0"
   },

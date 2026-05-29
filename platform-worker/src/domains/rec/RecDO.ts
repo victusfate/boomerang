@@ -1,7 +1,13 @@
 import { RecDO as BaseRecDO } from '@victusfate/ricochet/worker';
 import type { RecWorkerEnv } from '@victusfate/ricochet/worker';
-import { REC_FEED_POOL_CACHE_TTL_MS, REC_GLOBAL_CACHE_TTL_MS } from '@victusfate/ricochet';
-import type { RankingCacheEntry } from '@victusfate/ricochet';
+
+const REC_FEED_POOL_CACHE_TTL_MS = 2 * 60 * 1_000;   // 2 min — per candidate-set
+const REC_GLOBAL_CACHE_TTL_MS    = 5 * 60 * 1_000;   // 5 min — matches ricochet internal
+
+interface RankingCacheEntry extends Record<string, SqlStorageValue> {
+  payload:    string;
+  expires_at: number;
+}
 
 async function poolHash(ids: string[]): Promise<string> {
   const sorted = [...ids].sort();

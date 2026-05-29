@@ -29,12 +29,7 @@ function tooManyRequests(request: Request, env: Env, retryAfterSeconds: number):
 }
 
 function getClientIp(request: Request): string | null {
-  const cfIp = request.headers.get('CF-Connecting-IP');
-  if (cfIp) return cfIp;
-  const forwarded = request.headers.get('X-Forwarded-For');
-  if (!forwarded) return null;
-  const first = forwarded.split(',')[0]?.trim();
-  return first || null;
+  return request.headers.get('CF-Connecting-IP');
 }
 
 function checkRateLimit(request: Request): { limited: false } | { limited: true; retryAfterSeconds: number } {

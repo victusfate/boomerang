@@ -1,4 +1,9 @@
-/** Canonical ARTICLE_META KV catalog TTL — shared by worker and news-feed UI. */
+/**
+ * Canonical ARTICLE_META KV catalog TTL constants and helpers.
+ * Shared verbatim between `platform-worker` and the `news-feed` UI.
+ * @module shared/articleRecordCatalog
+ * @category Shared
+ */
 
 const DAY_SECONDS = 24 * 60 * 60;
 
@@ -21,6 +26,7 @@ export function formatArticleCatalogCacheLabel(
   return days === 1 ? '1 day' : `${days} days`;
 }
 
+/** Placeholder title shown when an article's metadata is outside the KV cache window. */
 export function articleCatalogMissingTitleLabel(
   ttlSeconds: number = ARTICLE_RECORD_TTL_SECONDS,
 ): string {

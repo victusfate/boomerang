@@ -194,7 +194,9 @@ async function fetchBundleJson(
   if (!res.ok) {
     throw new Error(`Feed service returned ${res.status}`);
   }
-  return res.json();
+  const data = await res.json() as { articles?: unknown };
+  if (!Array.isArray(data?.articles)) throw new Error('Feed service returned unexpected shape');
+  return data as { articles: Array<Omit<Article, 'publishedAt' | 'score'> & { publishedAt: string }> };
 }
 
 /**

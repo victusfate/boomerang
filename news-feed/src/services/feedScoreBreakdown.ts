@@ -1,3 +1,9 @@
+/**
+ * Per-article score breakdown — mirrors `rankFeed`/`scoreArticle` for card-level UI inspection.
+ * @module services/feedScoreBreakdown
+ * @category Ranking
+ */
+
 import type { Article } from '../types';
 import {
   inferFetchTier,

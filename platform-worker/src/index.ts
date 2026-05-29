@@ -51,16 +51,11 @@ export default {
       try {
         return await handleRec(request, env, ctx);
       } catch (err) {
+        console.error('[rec] handler crash:', err);
         const h = corsHeaders(request, env);
         h.set('Content-Type', 'application/json; charset=utf-8');
-        const detail = err instanceof Error ? err.message : String(err);
         return new Response(
-          JSON.stringify({
-            ok: false,
-            error: 'rec_handler_crash',
-            message: 'Rec domain threw an unexpected error.',
-            detail,
-          }),
+          JSON.stringify({ ok: false, error: 'rec_handler_crash', message: 'Rec domain threw an unexpected error.' }),
           { status: 500, headers: h },
         );
       }

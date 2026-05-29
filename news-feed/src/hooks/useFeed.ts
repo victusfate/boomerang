@@ -433,7 +433,7 @@ export function useFeed(options?: UseFeedOptions) {
         if (merged.savedIds.length > 0) {
           const nextSavedAtById = { ...(merged.savedAtById ?? {}) };
           let addedAny = false;
-          const base = Date.now() - merged.savedIds.length;
+          const base = Date.now() - merged.savedIds.length * 60_000;
           merged.savedIds.forEach((id, idx) => {
             if (nextSavedAtById[id] === undefined) {
               nextSavedAtById[id] = base + idx;
