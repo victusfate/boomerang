@@ -11,11 +11,9 @@ _May 2026_
 
 ---
 
-### 2. TypeDoc not regenerated for v1.6.0
+### 2. ~~TypeDoc not regenerated for v1.6.0~~ ✅ Fixed in v1.7.0
 
-`docs/api/README.md` and `docs/api/globals.md` both read "Ricochet v1.5.0". The `RecRankRequest` interface page shows only `candidateArticleIds` and `limit` — `topicWeights` (added in v1.6.0) is absent entirely. A consumer reading the published API docs has no indication the field exists.
-
-**Suggested fix:** re-run TypeDoc as part of the v1.6.0 release and commit the updated `docs/api/` output.
+`.github/workflows/docs.yml` now auto-regenerates and commits TypeDoc on every push to `main` that touches `src/` or `typedoc.json`. Docs will stay current going forward.
 
 ---
 

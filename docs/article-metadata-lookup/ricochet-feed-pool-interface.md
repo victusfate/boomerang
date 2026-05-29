@@ -303,6 +303,7 @@ Boomerang embeds ricochet via `platform-worker` (`RecDO` export from `@victusfat
 | v1.5.0 | **Breaking:** `MfParams.clipGradient` renamed to `clipError`; `*.pages.dev` no longer auto-allowed in CORS. Non-breaking: `diagnostics.candidateStrategy` (`'diverse' \| 'top-bias' \| 'feed-pool'`) added |
 | v1.6.0 | `RecRankRequest.topicWeights?: Record<string, number>` — pass user learned topic weights to the DO for personalised ranking; bypasses KV cache when set |
 | v1.6.1 | `parseTopicWeights` exported from public lib entry (`dist/lib.d.ts`) — platform wrappers can import validation directly instead of reimplementing it |
+| v1.7.0 | Auto-docs CI: `.github/workflows/docs.yml` regenerates and commits TypeDoc on every push to `main` touching `src/` — no breaking or additive API changes |
 
-Boomerang platform-worker: `github:victusfate/ricochet#v1.6.1`  
-Boomerang news-feed: `github:victusfate/ricochet#v1.6.1`
+Boomerang platform-worker: `github:victusfate/ricochet#v1.7.0`  
+Boomerang news-feed: `github:victusfate/ricochet#v1.7.0`
