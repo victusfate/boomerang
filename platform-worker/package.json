@@ -18,5 +18,12 @@
     "@cloudflare/workers-types": "^4.20260409.1",
     "typescript": "^5.5.2",
     "wrangler": "^4.81.0"
+  },
+  "allowScripts": {
+    "esbuild@0.27.3": true,
+    "fsevents@2.3.3": true,
+    "sharp@0.34.5": true,
+    "workerd@1.20260526.1": true,
+    "github:victusfate/ricochet#cd06ce915543d7944940730d5e7610e32f741bfe": true
   }
 }
