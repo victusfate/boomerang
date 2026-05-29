@@ -2,7 +2,7 @@ node_modules/
 dist/
 .env
 
-# generated API docs (all output lives under docs/api/)
+# TypeDoc HTML output (generated locally, not committed)
 docs/api/
 
 # wrangler files

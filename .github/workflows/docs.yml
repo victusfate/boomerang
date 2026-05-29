@@ -1,27 +1,20 @@
-name: Publish API docs
+name: Update REST API docs
 
 on:
   push:
     branches: [main]
+    paths:
+      - platform-worker/src/apiRoutes.ts
   workflow_dispatch:
 
-# Required for GitHub Pages deployment via Actions
+# Path filter (apiRoutes.ts only) means the bot's commit to docs/api-rest.md
+# never re-triggers this workflow — no loop guard needed.
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-# Only one deployment at a time; cancel in-progress runs if a new push lands
-concurrency:
-  group: pages
-  cancel-in-progress: true
+  contents: write
 
 jobs:
-  deploy:
+  update-docs:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
 
     steps:
       - uses: actions/checkout@v4
@@ -29,24 +22,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            platform-worker/package-lock.json
-            news-feed/package-lock.json
 
-      - name: Install dependencies
+      - name: Generate REST API docs
+        run: node --experimental-strip-types scripts/gen-api-docs.mjs
+
+      - name: Commit if changed
         run: |
-          npm ci --prefix platform-worker
-          npm ci --prefix news-feed
-
-      - name: Generate docs
-        run: npm run docs:api
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/api
-
-      - name: Deploy to GitHub Pages
-        id: deploy
-        uses: actions/deploy-pages@v4
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/api-rest.md
+          git diff --staged --quiet && echo "docs unchanged, nothing to commit" && exit 0
+          git commit -m "docs: regenerate api-rest.md"
+          git push
