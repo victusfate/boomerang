@@ -54,6 +54,26 @@ function parseCandidateArticleIds(value: unknown): { ids?: string[]; message?: s
   return { ids: deduped };
 }
 
+function parseTopicWeights(value: unknown): { weights?: Record<string, number>; message?: string } {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    return { message: 'topicWeights must be an object mapping topic names to numeric weights' };
+  }
+  const raw = value as Record<string, unknown>;
+  const keys = Object.keys(raw);
+  if (keys.length > 20) return { message: 'topicWeights must not exceed 20 entries' };
+  const result: Record<string, number> = {};
+  for (const k of keys) {
+    const v = raw[k];
+    if (!k) return { message: 'topicWeights keys must be non-empty strings' };
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
+      return { message: `topicWeights["${k}"] must be a non-negative finite number` };
+    }
+    result[k] = Math.min(v, 10);
+  }
+  return { weights: result };
+}
+
 function parseCandidatesCsv(raw: string | null): string[] | undefined {
   if (raw === null) return undefined;
   if (!raw.trim()) return [];
@@ -220,6 +240,7 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
     const userId = recsMatch[1];
     let limit = parseLimit(url.searchParams.get('limit'));
     let candidateArticleIds: string[] | undefined;
+    let topicWeights: Record<string, number> | undefined;
     let candidateModeProvided = false;
 
     if (request.method === 'GET') {
@@ -243,6 +264,13 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
       }
       candidateArticleIds = parsed.ids;
       if (body?.limit !== undefined) limit = parseLimit(body.limit);
+      if (body?.topicWeights !== undefined) {
+        const parsedTw = parseTopicWeights(body.topicWeights);
+        if (parsedTw.message) {
+          return json({ ok: false, message: parsedTw.message }, request, env, { status: 400 });
+        }
+        topicWeights = parsedTw.weights;
+      }
     }
 
     if (candidateArticleIds && candidateArticleIds.length > REC_MAX_CANDIDATES) {
@@ -256,12 +284,16 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
 
     const stub = getRecDOStub(env);
     const tDoFetchStart = nowMs();
-    const doRes = candidateModeProvided
+    const doRes = (candidateModeProvided || topicWeights)
       ? await stub.fetch(
         new Request(`http://do-internal/recs/${encodeURIComponent(userId)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ candidateArticleIds: candidateArticleIds ?? [], limit }),
+          body: JSON.stringify({
+            ...(candidateModeProvided ? { candidateArticleIds: candidateArticleIds ?? [] } : {}),
+            ...(topicWeights ? { topicWeights } : {}),
+            limit,
+          }),
         }),
       )
       : await stub.fetch(
