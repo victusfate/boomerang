@@ -132,6 +132,9 @@ function normalizeCoreResponse(
     candidateMode: (d.candidateMode === 'feed-pool' || d.candidateMode === 'global')
       ? (d.candidateMode as 'feed-pool' | 'global')
       : undefined,
+    candidateStrategy: (d.candidateStrategy === 'diverse' || d.candidateStrategy === 'top-bias' || d.candidateStrategy === 'feed-pool')
+      ? (d.candidateStrategy as 'diverse' | 'top-bias' | 'feed-pool')
+      : undefined,
     candidateCount: typeof d.candidateCount === 'number' ? d.candidateCount : articleIds.length,
     rankedCount: typeof d.rankedCount === 'number' ? d.rankedCount : scoredArticleIds.length,
     returnedCount: typeof d.returnedCount === 'number' ? d.returnedCount : articleIds.length,
