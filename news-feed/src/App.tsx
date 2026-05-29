@@ -91,6 +91,7 @@ export default function App() {
 
   const {
     sendInteraction,
+    setTopicWeights,
     recArticleIds,
     recScoreById,
     recScoredArticles,
@@ -139,6 +140,10 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = prefs.theme ?? 'dark';
   }, [prefs.theme]);
+
+  useEffect(() => {
+    setTopicWeights(prefs.topicWeights);
+  }, [prefs.topicWeights, setTopicWeights]);
 
   useEffect(() => {
     void loadTitleCache().then(setPersistedTitles);

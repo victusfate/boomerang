@@ -97,19 +97,23 @@ export function useSyncWorker(
     extra?: Record<string, unknown>,
   ) => {
     const endpoint = typeof extra?.endpoint === 'string' ? extra.endpoint : undefined;
-    const details = {
+    // Redact full roomId and workerUrl from console output — they are sensitive
+    // tokens that should not appear in browser DevTools or log aggregators.
+    const roomIdHint = roomCtx?.roomId ? `${roomCtx.roomId.slice(0, 6)}…` : null;
+    const safeDetails = { phase, roomIdHint, endpoint };
+    console.error(`[sync] ${message}`, safeDetails);
+    // Full details go only to the in-memory debug log (never transmitted externally).
+    syncDebugLog('saved', `${phase}:error`, {
       phase,
       roomId: roomCtx?.roomId ?? null,
       workerUrl: roomCtx?.workerUrl ?? null,
       endpoint,
       ...extra,
-    };
-    console.error(`[sync] ${message}`, details);
-    syncDebugLog('saved', `${phase}:error`, details);
+    });
     setSyncErrorDetails({
-      phase: details.phase,
-      roomId: details.roomId,
-      workerUrl: details.workerUrl,
+      phase,
+      roomId: roomCtx?.roomId ?? null,
+      workerUrl: roomCtx?.workerUrl ?? null,
       endpoint,
     });
   }, []);

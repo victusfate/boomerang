@@ -29,12 +29,10 @@ function tooManyRequests(request: Request, env: Env, retryAfterSeconds: number):
 }
 
 function getClientIp(request: Request): string | null {
-  const cfIp = request.headers.get('CF-Connecting-IP');
-  if (cfIp) return cfIp;
-  const forwarded = request.headers.get('X-Forwarded-For');
-  if (!forwarded) return null;
-  const first = forwarded.split(',')[0]?.trim();
-  return first || null;
+  // CF-Connecting-IP is set by Cloudflare and cannot be spoofed.
+  // Do NOT fall back to X-Forwarded-For — it is user-controlled and allows
+  // rate-limit bypass by forging arbitrary source IPs.
+  return request.headers.get('CF-Connecting-IP');
 }
 
 function checkRateLimit(scope: string): { limited: false } | { limited: true; retryAfterSeconds: number } {
@@ -89,12 +87,13 @@ export async function handleSync(request: Request, env: Env, _ctx: ExecutionCont
     }
 
     if (request.method === 'PUT') {
-      const limited = checkRateLimit(`room:${roomId}`);
-      if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
+      // Auth before rate-limit: reject invalid tokens without consuming quota.
       const token = extractBearer(request);
       if (!token || !(await verifyToken(env.SYNC_BLOCKS, roomId, token))) {
         return unauthorized(request, env);
       }
+      const limited = checkRateLimit(`room:${roomId}`);
+      if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
       const existing = await env.SYNC_BLOCKS.head(`${roomId}/blocks/${cid}`);
       if (existing) {
         return new Response(null, { status: 204, headers: corsHeaders(request, env) });
@@ -120,12 +119,13 @@ export async function handleSync(request: Request, env: Env, _ctx: ExecutionCont
     }
 
     if (request.method === 'PUT') {
-      const limited = checkRateLimit(`room:${roomId}`);
-      if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
+      // Auth before rate-limit: reject invalid tokens without consuming quota.
       const token = extractBearer(request);
       if (!token || !(await verifyToken(env.SYNC_BLOCKS, roomId, token))) {
         return unauthorized(request, env);
       }
+      const limited = checkRateLimit(`room:${roomId}`);
+      if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
       const ifMatch = request.headers.get('If-Match');
       if (ifMatch) {
         const current = await env.SYNC_BLOCKS.head(`${roomId}/meta`);
@@ -144,12 +144,13 @@ export async function handleSync(request: Request, env: Env, _ctx: ExecutionCont
   const roomMatch = pathname.match(ROOM_RE);
   if (roomMatch && request.method === 'DELETE') {
     const [, roomId] = roomMatch;
-    const limited = checkRateLimit(`room:${roomId}`);
-    if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
+    // Auth before rate-limit: reject invalid tokens without consuming quota.
     const token = extractBearer(request);
     if (!token || !(await verifyToken(env.SYNC_BLOCKS, roomId, token))) {
       return unauthorized(request, env);
     }
+    const limited = checkRateLimit(`room:${roomId}`);
+    if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
     await deleteRoom(env.SYNC_BLOCKS, roomId);
     return new Response(null, { status: 200, headers: corsHeaders(request, env) });
   }

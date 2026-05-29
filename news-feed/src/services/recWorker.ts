@@ -70,13 +70,18 @@ export async function postInteractions(
 export interface FetchRecommendationsOptions {
   candidateArticleIds?: string[];
   limit?: number;
+  topicWeights?: Partial<Record<string, number>>;
 }
+
+/** ETag cache: avoids redundant payload when the ranked list hasn't changed. */
+const recETagStore = new Map<string, { etag: string; response: RecResponseWithScores }>();
 
 /** Rank the full feed pool in batches of ≤`REC_MAX_CANDIDATES`, merged by MF score for `rankFeed`. */
 export async function fetchFeedPoolRecommendations(
   workerBase: string,
   userId: string,
   candidateArticleIds: string[],
+  topicWeights?: Partial<Record<string, number>>,
 ): Promise<RecResponseWithScores> {
   const ids = capRecCandidateIds(dedupeArticleIds(candidateArticleIds));
   if (ids.length === 0) {
@@ -89,6 +94,7 @@ export async function fetchFeedPoolRecommendations(
     parts.push(await fetchRecommendations(workerBase, userId, {
       candidateArticleIds: chunk,
       limit: chunk.length,
+      topicWeights,
     }));
   }
   return mergeFeedPoolRecResponses(parts, ids.length);
@@ -104,18 +110,37 @@ export async function fetchRecommendations(
     : options;
   const limit = opts.limit ?? 50;
   const useFeedPool = opts.candidateArticleIds !== undefined;
+  // Strip undefined values; only send when there are actual learned weights.
+  // An empty object bypasses ricochet's KV cache and prevents ETags from firing.
+  const weightEntries = opts.topicWeights
+    ? Object.entries(opts.topicWeights).filter((e): e is [string, number] => e[1] !== undefined)
+    : [];
+  const filteredWeights = weightEntries.length > 0 ? Object.fromEntries(weightEntries) : undefined;
+
+  // Per-chunk ETag key: candidateArticleIds[0] is stable across refreshes for the same chunk.
+  const etagKey = opts.candidateArticleIds && opts.candidateArticleIds.length > 0
+    ? `${userId}:${opts.candidateArticleIds[0]}`
+    : userId;
+  const cached = recETagStore.get(etagKey);
+  const reqHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (cached) reqHeaders['If-None-Match'] = cached.etag;
+
   const res = useFeedPool
     ? await fetch(`${workerBase}/recommendations/${encodeURIComponent(userId)}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: reqHeaders,
       body: JSON.stringify({
         candidateArticleIds: opts.candidateArticleIds,
         limit,
+        ...(filteredWeights ? { topicWeights: filteredWeights } : {}),
       }),
     })
     : await fetch(
       `${workerBase}/recommendations/${encodeURIComponent(userId)}?limit=${limit}`,
+      { headers: reqHeaders },
     );
+
+  if (res.status === 304 && cached) return cached.response;
   if (!res.ok) throw new Error(`rec-worker ${res.status} ${res.statusText}`);
   const raw = await res.json() as Partial<RecResponse> & Record<string, unknown>;
   const articleIds = Array.isArray(raw.articleIds) ? raw.articleIds : [];
@@ -128,7 +153,10 @@ export async function fetchRecommendations(
   const scoreById = scoredArticleIds.length > 0
     ? Object.fromEntries(scoredArticleIds.map(row => [row.articleId, row.score]))
     : deriveRankScores(articleIds);
-  return { articleIds, generatedAt, scoredArticleIds, diagnostics, trace, cache, timingMs, scoreById };
+  const result: RecResponseWithScores = { articleIds, generatedAt, scoredArticleIds, diagnostics, trace, cache, timingMs, scoreById };
+  const etag = res.headers.get('ETag');
+  if (etag) recETagStore.set(etagKey, { etag, response: result });
+  return result;
 }
 
 function normalizeScoredArticles(

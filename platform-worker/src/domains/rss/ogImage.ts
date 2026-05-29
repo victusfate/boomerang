@@ -63,14 +63,14 @@ export function isAllowedOgFetchUrl(urlStr: string): boolean {
   const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
   if (ipv4) {
     const [a, b] = [parseInt(ipv4[1], 10), parseInt(ipv4[2], 10)];
-    if (a === 127) return false;
-    if (a === 10) return false;
-    if (a === 172 && b >= 16 && b <= 31) return false;
-    if (a === 192 && b === 168) return false;
-    if (a === 169 && b === 254) return false;
-    if (a === 100 && b >= 64 && b <= 127) return false;
-    if (a === 0) return false;
-    return false;
+    if (a === 127) return false;                              // 127.x.x.x  loopback
+    if (a === 10) return false;                               // 10.x.x.x   RFC-1918
+    if (a === 172 && b >= 16 && b <= 31) return false;        // 172.16-31  RFC-1918
+    if (a === 192 && b === 168) return false;                 // 192.168.x  RFC-1918
+    if (a === 169 && b === 254) return false;                 // 169.254.x  link-local
+    if (a === 100 && b >= 64 && b <= 127) return false;       // 100.64-127 shared (RFC-6598)
+    if (a === 0) return false;                                // 0.x.x.x    "this network"
+    return true; // public IPv4 — allowed
   }
 
   return true;
