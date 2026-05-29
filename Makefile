@@ -2,7 +2,7 @@
 # Default: Vite dev server (loads news-feed/.env for VITE_* worker URLs).
 
 .PHONY: help preview-pages run dev worker-platform stop-worker-platform \
-        install audit test \
+        install audit test test-integration \
         deploy-platform deploy \
         create-kv create-r2 create-rec-kv
 
@@ -71,6 +71,9 @@ audit:
 test:
 	cd news-feed && npm test
 	cd platform-worker && npm test
+
+test-integration: ## Run integration tests against local wrangler dev (start with: make worker-platform)
+	npm run test:integration
 
 # ── Deploy ────────────────────────────────────────────────────────────────────
 

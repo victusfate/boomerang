@@ -2,9 +2,8 @@ node_modules/
 dist/
 .env
 
-# generated API docs
+# generated API docs (all output lives under docs/api/)
 docs/api/
-docs/api-rest.md
 
 # wrangler files
 .wrangler

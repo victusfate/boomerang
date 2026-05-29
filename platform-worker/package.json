@@ -9,7 +9,8 @@
     "cf-typegen": "wrangler types",
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types src/domains/rec/articleMeta.node.test.ts",
-    "docs:api": "typedoc"
+    "docs:api": "typedoc",
+    "test:integration": "node scripts/integration-test.mjs"
   },
   "dependencies": {
     "@victusfate/ricochet": "github:victusfate/ricochet",
