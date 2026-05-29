@@ -321,9 +321,9 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
         doStatus: doRes.status,
       });
     }
-    let recCoreRaw: Partial<RecCoreResponse> & Record<string, unknown>;
+    let recCoreRaw;
     try {
-      recCoreRaw = await doRes.json() as (Partial<RecCoreResponse> & Record<string, unknown>);
+      recCoreRaw = await doRes.json() as Partial<RecCoreResponse> & Record<string, unknown>;
     } catch {
       return recErrorJson(
         request,

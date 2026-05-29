@@ -130,10 +130,6 @@ function nonYtChunkToParams(chunk: NonYtWorkItem[]): { ids: string[]; customSour
   return { ids, customSources };
 }
 
-function chunkIds(ids: string[], maxPerChunk: number): string[][] {
-  return chunkWorkQueue(ids, maxPerChunk);
-}
-
 /**
  * Fetches enabled sources via the Worker (`GET /bundle?include=...`).
  * Non–YouTube work (custom + built-in) and YouTube feeds are ordered by feed URL for stable
@@ -235,7 +231,7 @@ async function loadArticlesFromWorker(
 
   if (ytIds.length > 0) {
     const ytIdsSorted = sortIncludeIdsByFeedUrl(ytIds, sources);
-    const ytChunks = chunkIds(ytIdsSorted, MAX_FEEDS_PER_BUNDLE);
+    const ytChunks = chunkWorkQueue(ytIdsSorted, MAX_FEEDS_PER_BUNDLE);
     for (const idChunk of ytChunks) {
       const data = await fetchBundleJson(idChunk, [], sources);
       ytWire.push(...data.articles);

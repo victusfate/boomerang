@@ -37,6 +37,17 @@ interface ImportedSavesDoc    { articles: StoredArticle[] }
 interface ClassificationsDoc  { hits: LabelHit[] }
 interface ArticleTagsDoc      { hits: ArticleTag[] }
 
+function triggerDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function scrubPlaceholderSaves(
   prefs: UserPrefs,
   imported: Article[],
@@ -902,15 +913,7 @@ export function useFeed(options?: UseFeedOptions) {
       .map(id => savedById.get(id))
       .filter((article): article is Article => article !== undefined);
     const html = exportBookmarkHTML(allSaved);
-    const blob = new Blob([html], { type: 'text/html' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = 'boomerang-saves.html';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    triggerDownload(new Blob([html], { type: 'text/html' }), 'boomerang-saves.html');
   }, []);
 
   const handleImportBookmarks = useCallback((html: string): boolean => {
@@ -949,15 +952,7 @@ export function useFeed(options?: UseFeedOptions) {
   const handleExportOPML = useCallback(() => {
     const { disabledSourceIds = [], customSources = [] } = prefsRef.current;
     const xml = exportOPML(DEFAULT_SOURCES, customSources, disabledSourceIds);
-    const blob = new Blob([xml], { type: 'application/xml' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = 'boomerang-feeds.opml';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    triggerDownload(new Blob([xml], { type: 'application/xml' }), 'boomerang-feeds.opml');
   }, []);
 
   const handleImportOPML = useCallback((xml: string): boolean => {
