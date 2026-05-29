@@ -168,7 +168,7 @@ Ingest user interaction events for BiasedMF model training.
 
 **Rate limit:** Per-IP (60 req/min)
 
-**Request:** `{ events: InteractionEvent[] }` (max 200 events)
+**Request:** `{ events: InteractionEvent[] }` or bare `InteractionEvent[]` (max 200 events)
 
 **Response:** `{ ok: true, queued: number }`
 
