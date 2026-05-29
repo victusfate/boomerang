@@ -69,7 +69,10 @@ export function useSyncWorker(
   const etagRef         = useRef<string>('');
   const lastPushedRef   = useRef<string>('');
   const syncInFlightRef = useRef(false);
+  const cooldownUntilRef = useRef(0);
   const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const conflictRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const conflictDepthRef = useRef(0);
   const dirtyDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rateLimitBackoffStepRef = useRef(0);
   const roomRef = useRef<SyncRoom | null>(null);
@@ -119,14 +122,16 @@ export function useSyncWorker(
   }, []);
 
   const startSyncCooldown = useCallback((durationMs = MANUAL_SYNC_COOLDOWN_MS) => {
-    const cooldownUntil = Date.now() + durationMs;
+    const until = Date.now() + durationMs;
+    cooldownUntilRef.current = until;
     syncDebugLog('saved', 'cooldown:start', { durationMs });
     setSyncCooldownMs(durationMs);
     if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
     cooldownTimerRef.current = setInterval(() => {
-      const remaining = Math.max(0, cooldownUntil - Date.now());
+      const remaining = Math.max(0, until - Date.now());
       setSyncCooldownMs(remaining);
       if (remaining <= 0 && cooldownTimerRef.current) {
+        cooldownUntilRef.current = 0;
         clearInterval(cooldownTimerRef.current);
         cooldownTimerRef.current = null;
       }
@@ -207,7 +212,7 @@ export function useSyncWorker(
         merged = mergePayload(local, remote.payload);
 
         const newTags = merged.articleTags.filter(
-          t => !local.articleTags.some(l => l.articleId === t.articleId && l.tags.join() === t.tags.join()),
+          t => !local.articleTags.some(l => l.articleId === t.articleId && JSON.stringify([...l.tags].sort()) === JSON.stringify([...t.tags].sort())),
         );
         const newSaved = merged.savedArticles.filter(
           a => !local.savedArticles.some(l => l.id === a.id),
@@ -273,11 +278,24 @@ export function useSyncWorker(
     const result = await pushMeta(r, payload, etagRef.current || undefined);
     if (result.conflict) {
       syncDebugLog('saved', 'push:conflict', { roomId: r.roomId });
+      conflictDepthRef.current += 1;
+      if (conflictDepthRef.current > 3) {
+        conflictDepthRef.current = 0;
+        syncDebugLog('saved', 'push:conflict-max-retry');
+        return 'blocked';
+      }
       // Remote is ahead — pull first, then push again after a short delay
       const pollResult = await doPoll();
-      if (pollResult.status === 'ok') setTimeout(() => void doPush(pollResult.merged ?? undefined), 500);
+      if (pollResult.status === 'ok') {
+        if (conflictRetryRef.current) clearTimeout(conflictRetryRef.current);
+        conflictRetryRef.current = setTimeout(() => {
+          conflictRetryRef.current = null;
+          void doPush(pollResult.merged ?? undefined);
+        }, 500);
+      }
       return 'blocked'; // don't mark as pushed — retry will re-check
     }
+    conflictDepthRef.current = 0;
     if (result.unauthorized) {
       syncDebugLog('saved', 'push:unauthorized', { roomId: r.roomId });
       logSyncError('push', 'Unauthorized sync room/token during push', r, {
@@ -319,8 +337,9 @@ export function useSyncWorker(
       syncDebugLog('saved', 'force-sync:skip-in-flight');
       return;
     }
-    if (syncCooldownMs > 0) {
-      syncDebugLog('saved', 'force-sync:skip-cooldown', { syncCooldownMs });
+    const remainingCooldown = cooldownUntilRef.current - Date.now();
+    if (remainingCooldown > 0) {
+      syncDebugLog('saved', 'force-sync:skip-cooldown', { syncCooldownMs: remainingCooldown });
       return;
     }
     syncInFlightRef.current = true;
@@ -346,7 +365,7 @@ export function useSyncWorker(
       syncInFlightRef.current = false;
       if (!rateLimited) startSyncCooldown();
     }
-  }, [doPoll, doPush, startSyncCooldown, syncCooldownMs]);
+  }, [doPoll, doPush, startSyncCooldown]);
 
   // Activate sync with a room
   const activate = useCallback((r: SyncRoom) => {
@@ -492,6 +511,12 @@ export function useSyncWorker(
     setSyncCooldownMs(0);
     setHasDirtyData(false);
     etagRef.current = '';
+    cooldownUntilRef.current = 0;
+    conflictDepthRef.current = 0;
+    if (conflictRetryRef.current) {
+      clearTimeout(conflictRetryRef.current);
+      conflictRetryRef.current = null;
+    }
     if (cooldownTimerRef.current) {
       clearInterval(cooldownTimerRef.current);
       cooldownTimerRef.current = null;
@@ -502,6 +527,10 @@ export function useSyncWorker(
     if (cooldownTimerRef.current) {
       clearInterval(cooldownTimerRef.current);
       cooldownTimerRef.current = null;
+    }
+    if (conflictRetryRef.current) {
+      clearTimeout(conflictRetryRef.current);
+      conflictRetryRef.current = null;
     }
     if (dirtyDebounceRef.current) {
       clearTimeout(dirtyDebounceRef.current);

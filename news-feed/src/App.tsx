@@ -342,6 +342,7 @@ export default function App() {
     if (activeFilter?.kind === 'topic') list = list.filter(a => a.topics.includes(activeFilter.value));
     if (activeFilter?.kind === 'label') {
       const labelName = (prefs.userLabels ?? []).find(l => l.id === activeFilter.value)?.name?.toLowerCase() ?? '';
+      if (!labelName) return [];
       list = list.filter(a => (articleTagsMap.get(a.id) ?? []).some((t: string) => t.includes(labelName) || labelName.includes(t)));
     }
     return list;

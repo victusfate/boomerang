@@ -60,11 +60,12 @@ export async function postInteractions(
   inputs: RecInteractionInput[],
 ): Promise<void> {
   const events: InteractionEvent[] = inputs.map(e => ({ ...e, userId }));
-  await fetch(`${workerBase}/interactions`, {
+  const res = await fetch(`${workerBase}/interactions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ events }),
   });
+  if (!res.ok) throw new Error(`interactions ${res.status} ${res.statusText}`);
 }
 
 export interface FetchRecommendationsOptions {
@@ -73,8 +74,17 @@ export interface FetchRecommendationsOptions {
   topicWeights?: Partial<Record<string, number>>;
 }
 
-/** ETag cache: avoids redundant payload when the ranked list hasn't changed. */
+/** ETag cache: avoids redundant payload when the ranked list hasn't changed. Max 50 entries (LRU-evict oldest). */
+const REC_ETAG_STORE_MAX = 50;
 const recETagStore = new Map<string, { etag: string; response: RecResponseWithScores }>();
+
+function recETagSet(key: string, value: { etag: string; response: RecResponseWithScores }): void {
+  recETagStore.delete(key); // refresh insertion order (LRU move-to-end)
+  recETagStore.set(key, value);
+  if (recETagStore.size > REC_ETAG_STORE_MAX) {
+    recETagStore.delete(recETagStore.keys().next().value!);
+  }
+}
 
 /** Rank the full feed pool in batches of ≤`REC_MAX_CANDIDATES`, merged by MF score for `rankFeed`. */
 export async function fetchFeedPoolRecommendations(
@@ -117,9 +127,9 @@ export async function fetchRecommendations(
     : [];
   const filteredWeights = weightEntries.length > 0 ? Object.fromEntries(weightEntries) : undefined;
 
-  // Per-chunk ETag key: candidateArticleIds[0] is stable across refreshes for the same chunk.
+  // Per-chunk ETag key: include length to avoid collisions across pools sharing a leading ID.
   const etagKey = opts.candidateArticleIds && opts.candidateArticleIds.length > 0
-    ? `${userId}:${opts.candidateArticleIds[0]}`
+    ? `${userId}:${opts.candidateArticleIds.length}:${opts.candidateArticleIds[0]}`
     : userId;
   const cached = recETagStore.get(etagKey);
   const reqHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -155,7 +165,7 @@ export async function fetchRecommendations(
     : deriveRankScores(articleIds);
   const result: RecResponseWithScores = { articleIds, generatedAt, scoredArticleIds, diagnostics, trace, cache, timingMs, scoreById };
   const etag = res.headers.get('ETag');
-  if (etag) recETagStore.set(etagKey, { etag, response: result });
+  if (etag) recETagSet(etagKey, { etag, response: result });
   return result;
 }
 
