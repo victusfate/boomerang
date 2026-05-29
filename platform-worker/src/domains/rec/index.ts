@@ -88,11 +88,7 @@ function tooManyRequests(request: Request, env: Env, retryAfterSeconds: number):
 }
 
 function getClientIp(request: Request): string | null {
-  const cfIp = request.headers.get('CF-Connecting-IP');
-  if (cfIp) return cfIp;
-  const forwarded = request.headers.get('X-Forwarded-For');
-  if (!forwarded) return null;
-  return forwarded.split(',')[0]?.trim() || null;
+  return request.headers.get('CF-Connecting-IP');
 }
 
 function checkRateLimit(
