@@ -1,4 +1,4 @@
-/** Typed route registry — single source of truth for the HTTP REST API surface. */
+/** Typed route registry — single source of truth for the HTTP REST API surface. @module */
 
 export interface RouteDoc {
   method: string | string[];
