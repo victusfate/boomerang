@@ -1,23 +1,28 @@
 name: Update REST API docs
 
 on:
-  push:
+  pull_request:
     branches: [main]
     paths:
       - platform-worker/src/apiRoutes.ts
-  workflow_dispatch:
 
-# Path filter (apiRoutes.ts only) means the bot's commit to docs/api-rest.md
-# never re-triggers this workflow — no loop guard needed.
+# Bot pushes back to the PR's head branch, not main.
 permissions:
   contents: write
 
 jobs:
   update-docs:
+    # Skip bot-authored commits — path filter alone isn't enough here because
+    # the bot's push touches apiRoutes.ts's sibling directory, not the file
+    # itself, but an extra guard is cheap.
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v4
         with:
@@ -31,6 +36,6 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/api-rest.md
-          git diff --staged --quiet && echo "docs unchanged, nothing to commit" && exit 0
+          git diff --staged --quiet && echo "docs unchanged" && exit 0
           git commit -m "docs: regenerate api-rest.md"
-          git push
+          git push origin HEAD:${{ github.head_ref }}
