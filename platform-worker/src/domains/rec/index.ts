@@ -171,27 +171,31 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
     const limited = checkRateLimit(request, 'interactions', RATE_LIMIT_INTERACTIONS_MAX);
     if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
 
-    let body: { events?: unknown };
+    let rawBody: unknown;
     try {
-      body = await request.json() as { events?: unknown };
+      rawBody = await request.json();
     } catch {
       return json({ ok: false, message: 'Invalid JSON body' }, request, env, { status: 400 });
     }
 
-    if (!Array.isArray(body.events)) {
+    const events: unknown = Array.isArray(rawBody)
+      ? rawBody
+      : (rawBody as { events?: unknown })?.events;
+
+    if (!Array.isArray(events)) {
       return json(
-        { ok: false, message: 'body.events must be an array' },
+        { ok: false, message: 'body must be an array or { events: InteractionEvent[] }' },
         request, env, { status: 400 },
       );
     }
-    if (body.events.length > MAX_BATCH_SIZE) {
+    if (events.length > MAX_BATCH_SIZE) {
       return json(
         { ok: false, message: `Batch too large; max ${MAX_BATCH_SIZE} events` },
         request, env, { status: 400 },
       );
     }
 
-    const valid = body.events.filter(isValidEvent);
+    const valid = events.filter(isValidEvent);
     if (valid.length === 0) {
       return json({ ok: true, queued: 0 }, request, env);
     }

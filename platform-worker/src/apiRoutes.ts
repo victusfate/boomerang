@@ -144,7 +144,7 @@ export const API_ROUTES: RouteDoc[] = [
     path: '/interactions',
     summary: 'Ingest user interaction events for BiasedMF model training.',
     rateLimit: 'Per-IP (60 req/min)',
-    request: '`{ events: InteractionEvent[] }` (max 200 events)',
+    request: '`{ events: InteractionEvent[] }` or bare `InteractionEvent[]` (max 200 events)',
     response: '`{ ok: true, queued: number }`',
   },
   {
