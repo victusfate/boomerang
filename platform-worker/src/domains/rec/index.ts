@@ -3,7 +3,7 @@ import { corsHeaders } from '../../cors';
 import { json, tooManyRequests, getClientIp, checkRateLimit } from '../_shared/http';
 import { rankScore01 } from '../_shared/rank';
 import type { RecCoreResponse, RecRankRequest, RecResponse } from '@victusfate/ricochet';
-import { isValidEvent, REC_MAX_CANDIDATES } from '@victusfate/ricochet';
+import { isValidEvent, REC_MAX_CANDIDATES, parseTopicWeights } from '@victusfate/ricochet';
 import {
   normalizeIdsParam,
   lookupArticleMetaByIds,
@@ -54,25 +54,6 @@ function parseCandidateArticleIds(value: unknown): { ids?: string[]; message?: s
   return { ids: deduped };
 }
 
-function parseTopicWeights(value: unknown): { weights?: Record<string, number>; message?: string } {
-  if (value === undefined || value === null) return {};
-  if (typeof value !== 'object' || Array.isArray(value)) {
-    return { message: 'topicWeights must be an object mapping topic names to numeric weights' };
-  }
-  const raw = value as Record<string, unknown>;
-  const keys = Object.keys(raw);
-  if (keys.length > 20) return { message: 'topicWeights must not exceed 20 entries' };
-  const result: Record<string, number> = {};
-  for (const k of keys) {
-    const v = raw[k];
-    if (!k) return { message: 'topicWeights keys must be non-empty strings' };
-    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
-      return { message: `topicWeights["${k}"] must be a non-negative finite number` };
-    }
-    result[k] = Math.min(v, 10);
-  }
-  return { weights: result };
-}
 
 function parseCandidatesCsv(raw: string | null): string[] | undefined {
   if (raw === null) return undefined;

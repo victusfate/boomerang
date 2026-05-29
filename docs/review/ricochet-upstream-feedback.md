@@ -5,13 +5,9 @@ _May 2026_
 
 ## Bugs / API gaps
 
-### 1. `parseTopicWeights` not exported from public lib
+### 1. ~~`parseTopicWeights` not exported from public lib~~ ✅ Fixed in v1.6.1
 
-`parseTopicWeights` is defined in `src/parsing.ts` and imported by `RecDO.ts`, but it does not appear in `dist/lib.d.ts` (the public lib entry point). Any platform-worker that wraps ricochet and needs to validate `topicWeights` before forwarding to the DO must re-implement the same validation locally.
-
-**Suggested fix:** export `parseTopicWeights` from `lib.ts` alongside `isValidEvent`, `mfPredict`, etc.
-
-**Why it matters:** boomerang's `platform-worker` currently ships a hand-rolled copy of the same logic. If validation rules change in a future ricochet version (e.g. different key cap or value range), callers won't pick up the update automatically.
+`parseTopicWeights` is now exported from `dist/lib.d.ts`. Boomerang's hand-rolled copy removed; importing directly from `@victusfate/ricochet`.
 
 ---
 
