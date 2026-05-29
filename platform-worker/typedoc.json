@@ -1,0 +1,24 @@
+{
+  "entryPoints": [
+    "src/env.ts",
+    "src/domains/rec/index.ts",
+    "src/domains/rec/RecDO.ts",
+    "src/domains/meta/index.ts",
+    "src/domains/sync/index.ts",
+    "src/domains/rss/index.ts",
+    "../shared/articleRecordCatalog.ts"
+  ],
+  "entryPointStrategy": "expand",
+  "out": "../docs/api/platform-worker",
+  "name": "platform-worker",
+  "tsconfig": "tsconfig.json",
+  "includeVersion": true,
+  "navigationLinks": {
+    "GitHub": "https://github.com/victusfate/boomerang"
+  },
+  "categorizeByGroup": true,
+  "excludeInternal": true,
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "skipErrorChecking": true
+}

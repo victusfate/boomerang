@@ -1,0 +1,30 @@
+{
+  "entryPoints": [
+    "src/types.ts",
+    "src/services/algorithm.ts",
+    "src/services/feedScoreBreakdown.ts",
+    "src/services/recWorker.ts",
+    "src/services/recPoolMerge.ts",
+    "src/services/storage.ts",
+    "src/services/syncShare.ts",
+    "src/services/newsService.ts",
+    "src/services/labelClassifier.ts",
+    "src/services/fetchTier.ts",
+    "src/hooks/useFeed.ts",
+    "src/hooks/useRecWorker.ts",
+    "src/hooks/useSyncWorker.ts"
+  ],
+  "entryPointStrategy": "expand",
+  "out": "../docs/api/news-feed",
+  "name": "news-feed",
+  "tsconfig": "tsconfig.json",
+  "includeVersion": true,
+  "navigationLinks": {
+    "GitHub": "https://github.com/victusfate/boomerang"
+  },
+  "categorizeByGroup": true,
+  "excludeInternal": true,
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "skipErrorChecking": true
+}

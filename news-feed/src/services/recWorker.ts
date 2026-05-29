@@ -1,3 +1,9 @@
+/**
+ * Ricochet rec-worker client — interaction posting, feed-pool recommendations, ETag caching.
+ * @module services/recWorker
+ * @category Recommendations
+ */
+
 import type {
   Action,
   InteractionEvent,

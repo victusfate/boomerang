@@ -8,6 +8,7 @@
     "build": "npm ci --prefix news-feed && npm run build --prefix news-feed",
     "preview": "npm run preview --prefix news-feed",
     "worker": "npm run dev --prefix rss-worker",
-    "install:all": "npm ci --prefix news-feed && npm ci --prefix rss-worker"
+    "install:all": "npm ci --prefix news-feed && npm ci --prefix rss-worker",
+    "docs:api": "npm run docs:api --prefix platform-worker && npm run docs:api --prefix news-feed && node --experimental-strip-types scripts/gen-api-docs.mjs"
   }
 }

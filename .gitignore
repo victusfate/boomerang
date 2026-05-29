@@ -2,6 +2,10 @@ node_modules/
 dist/
 .env
 
+# generated API docs
+docs/api/
+docs/api-rest.md
+
 # wrangler files
 .wrangler
 .dev.vars*

@@ -1,5 +1,8 @@
-// Pure utility functions for prefs manipulation.
-// Persistence is handled by Fireproof in useFeed.ts.
+/**
+ * UserPrefs helpers and defaults. Pure utility — persistence is handled by Fireproof in `useFeed`.
+ * @module services/storage
+ * @category Prefs
+ */
 
 import type { Article, CustomSource, NewsSource, Topic, UserLabel, UserPrefs } from '../types';
 

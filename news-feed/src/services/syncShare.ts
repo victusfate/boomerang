@@ -1,3 +1,9 @@
+/**
+ * Sync-share URL builder and parser — encodes/decodes prefs + saved articles as a URL fragment.
+ * @module services/syncShare
+ * @category Sync
+ */
+
 import { DEFAULT_PREFS } from './storage.ts';
 import type { Article, ArticleTag, LabelHit, Topic, UserPrefs } from '../types.ts';
 

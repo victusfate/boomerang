@@ -1,26 +1,37 @@
+/**
+ * Core domain types shared across news-feed components, services, and hooks.
+ * @module types
+ * @category Types
+ */
+
+/** A user-defined label used to classify saved articles. */
 export interface UserLabel {
   id: string;
   name: string;
   color: string;
 }
 
+/** Records that an article was matched to a user label by the AI classifier. */
 export interface LabelHit {
   articleId: string;
   labelId: string;
   classifiedAt: number;
 }
 
+/** AI-generated topic tags for a single article, synced via MetaDO. */
 export interface ArticleTag {
   articleId: string;
   tags: string[];
   taggedAt: number;
 }
 
+/** Active feed filter — either a topic or a user label. */
 export type ActiveFilter =
   | { kind: 'topic'; value: Topic }
   | { kind: 'label'; value: string }
   | null;
 
+/** A single news article as stored in IndexedDB and passed through the feed pipeline. */
 export interface Article {
   id: string;
   title: string;
@@ -38,6 +49,7 @@ export interface Article {
   discussionUrl?: string;
 }
 
+/** Content topic category. */
 export type Topic =
   | 'technology'
   | 'science'
@@ -49,6 +61,7 @@ export type Topic =
   | 'entertainment'
   | 'general';
 
+/** A built-in RSS/Atom news source. */
 export interface NewsSource {
   id: string;
   name: string;
@@ -58,12 +71,14 @@ export interface NewsSource {
   priority?: 1 | 2;  // 1 = render first; 2 = background batch (default)
 }
 
+/** A user-supplied custom OPML/RSS/Atom feed source. */
 export interface CustomSource {
   id: string;       // e.g. 'custom-1abc2'
   name: string;     // display name
   feedUrl: string;  // RSS/Atom feed URL
 }
 
+/** Persisted user preferences — stored in Fireproof IndexedDB and synced via the sync worker. */
 export interface UserPrefs {
   topicWeights:   Partial<Record<Topic, number>>;
   sourceWeights:  Record<string, number>;
@@ -88,4 +103,5 @@ export interface UserPrefs {
   theme:          'dark' | 'light';
 }
 
+/** Current view shown to the user. */
 export type FeedView = 'feed' | 'saved' | 'rec';
