@@ -7,11 +7,9 @@ import {
   markRead, markSeen, toggleSaved,
   boostTopic, toggleSource, toggleTopic, isSourceEnabled,
   upvote, downvote, applyDecay, resetLearnedWeights, clearViewedCache,
-  addCustomSource, removeCustomSource, exportOPML, importOPML,
-  exportBookmarkHTML, importBookmarkHTML,
+  addCustomSource, removeCustomSource,
   addUserLabel, deleteUserLabel, renameUserLabel,
 } from '../services/storage';
-import { getPromptApiAvailability, isPromptApiAvailable, runTaggingPass } from '../services/labelClassifier';
 import {
   dehydrate,
   hydrate,
@@ -25,28 +23,17 @@ import {
 import { mergeSavedArticleSnapshots, SYNC_PLACEHOLDER_SOURCE_ID } from '../services/syncWorker';
 import type { Article, ArticleTag, CustomSource, LabelHit, Topic, UserLabel, UserPrefs } from '../types';
 import type { RecInteractionInput } from '../services/recWorker';
+import { useAiTagging, ARTICLE_TAGS_ID } from './useAiTagging';
+import { useFeedPortability, IMPORTED_SAVES_ID } from './useFeedPortability';
 
 const PAGE_SIZE          = 5;
 const PREFS_ID           = 'user-prefs';
 const CACHE_ID           = 'feed-cache';
-const IMPORTED_SAVES_ID  = 'imported-saves';
 const CLASSIFICATIONS_ID = 'ai-classifications';
-const ARTICLE_TAGS_ID    = 'ai-article-tags';
 interface FeedCacheDoc        { articles: StoredArticle[]; fetchedAt: number }
 interface ImportedSavesDoc    { articles: StoredArticle[] }
 interface ClassificationsDoc  { hits: LabelHit[] }
 interface ArticleTagsDoc      { hits: ArticleTag[] }
-
-function triggerDownload(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a   = document.createElement('a');
-  a.href     = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
 
 function scrubPlaceholderSaves(
   prefs: UserPrefs,
@@ -244,11 +231,14 @@ export function useFeed(options?: UseFeedOptions) {
   const articleTagsRef = useRef<ArticleTag[]>([]);
   articleTagsRef.current = articleTags;
 
-  const [classificationStatus, setClassificationStatus] = useState('');
-  const [aiTaggingStarted, setAiTaggingStarted] = useState(false);
-  const [aiAllTagged, setAiAllTagged] = useState(false);
-  const [taggingArticleId, setTaggingArticleId] = useState<string | null>(null);
-  const aiModelPollTimerRef = useRef<number | null>(null);
+  const {
+    classificationStatus,
+    aiTaggingStarted,
+    aiAllTagged,
+    taggingArticleId,
+    scheduleTaggingPass,
+    handleStartAiTagging,
+  } = useAiTagging({ allArticlesRef, articleTagsRef, setArticleTags, metaCallbacks });
 
   // ── URL hash sync import ──────────────────────────────────────────────────────
   // Runs once on mount — reads #sync=<base64> and merges into Fireproof docs silently.
@@ -267,162 +257,8 @@ export function useFeed(options?: UseFeedOptions) {
     kvSet(PREFS_ID, next).catch(console.error);
   }, []);
 
-  const stopAiModelPolling = useCallback(() => {
-    if (aiModelPollTimerRef.current) {
-      window.clearInterval(aiModelPollTimerRef.current);
-      aiModelPollTimerRef.current = null;
-    }
-  }, []);
-
-  const startAiModelPolling = useCallback(() => {
-    if (aiModelPollTimerRef.current) return;
-    const poll = async () => {
-      const availability = await getPromptApiAvailability();
-      if (availability === 'available') {
-        stopAiModelPolling();
-        setClassificationStatus('Chrome AI model ready — starting tagging…');
-        if (allArticlesRef.current.length > 0) {
-          schedulePassRef.current([...allArticlesRef.current]);
-        }
-      } else if (availability === 'downloading') {
-        setClassificationStatus('Chrome AI model downloading…');
-      } else if (availability === 'downloadable') {
-        setClassificationStatus('Chrome AI model needs download — use Chrome AI setup');
-      } else if (availability === 'unavailable') {
-        stopAiModelPolling();
-        setClassificationStatus('Chrome AI unavailable (unavailable) — check browser/model support');
-      }
-    };
-    void poll();
-    aiModelPollTimerRef.current = window.setInterval(() => { void poll(); }, 5000);
-  }, [stopAiModelPolling]);
-
-  // ── Tagging pass (Chrome 138+ Prompt API, no-op elsewhere) ──────────────────
-  /** `articles` should be feed **display order** (e.g. `allArticles`): top cards are tagged first. */
-  const scheduleTaggingPass = useCallback((articles: Article[]) => {
-    if (!isPromptApiAvailable()) {
-      console.info('[AI Tags] schedule skipped — LanguageModel not available');
-      return;
-    }
-    const schedule: (cb: () => void) => void =
-      typeof requestIdleCallback !== 'undefined'
-        ? (cb) => requestIdleCallback(() => cb(), { timeout: 5000 })
-        : (cb) => setTimeout(cb, 0);
-
-    schedule(() => {
-      void (async () => {
-        const idleT0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
-
-        // Tag in feed display order — visible/high-ranked cards first
-        const rankMap = new Map(allArticlesRef.current.map((a, i) => [a.id, i]));
-        const sortedArticles = [...articles].sort((a, b) => {
-          const ra = rankMap.get(a.id) ?? Infinity;
-          const rb = rankMap.get(b.id) ?? Infinity;
-          return ra - rb;
-        });
-
-        console.info('[AI Tags] idle run start', { inputArticles: sortedArticles.length });
-
-        const existing = articleTagsRef.current;
-        const toTag = sortedArticles.filter(a => !existing.some(t => t.articleId === a.id));
-        if (toTag.length === 0) {
-          console.info('[AI Tags] skip — nothing new to tag', {
-            inputArticles: sortedArticles.length,
-            storedTagRows: existing.length,
-          });
-          setTaggingArticleId(null);
-          setClassificationStatus('');
-          setAiAllTagged(true);
-          return;
-        }
-        setAiAllTagged(false);
-        setClassificationStatus(`Preparing on-device model… (${toTag.length} articles)`);
-        let done = 0;
-        try {
-          await runTaggingPass(sortedArticles, existing, (tag) => {
-            done++;
-            // Per-article logs + timings live in labelClassifier.runTaggingPass
-            setClassificationStatus(`Tagging articles… ${done}/${toTag.length}`);
-            metaCallbacks?.feedTaggedArticle(tag.articleId, tag.tags);
-            setArticleTags(prev => {
-              const updated = [...prev, tag];
-              articleTagsRef.current = updated;
-              kvSet(ARTICLE_TAGS_ID, { hits: updated }).catch(console.error);
-              return updated;
-            });
-          }, {
-            onModelStatus: (status) => {
-              const copy = {
-                checking: 'Checking Chrome AI model…',
-                available: 'Starting Chrome AI model…',
-                'starting-download': 'Starting Chrome AI model download…',
-                downloadable: 'Chrome AI model needs download — use Chrome AI setup',
-                downloading: 'Chrome AI model downloading…',
-              } satisfies Record<typeof status, string>;
-              setClassificationStatus(copy[status]);
-              if (status === 'downloadable' || status === 'downloading' || status === 'starting-download') {
-                startAiModelPolling();
-              }
-            },
-            onModelDownloadProgress: (loaded) => {
-              setClassificationStatus(`Chrome AI model downloading… ${Math.round(loaded * 100)}%`);
-            },
-            onSessionReady: () => {
-              setAiTaggingStarted(true);
-              setClassificationStatus(`Tagging articles… 0/${toTag.length}`);
-            },
-            onArticleStart: (i, total, articleId) => {
-              setClassificationStatus(`Tagging article ${i}/${total}…`);
-              setTaggingArticleId(articleId ?? null);
-            },
-            onUnavailable: (availability, reason) => {
-              setClassificationStatus(
-                reason === 'mobile-user-agent'
-                  ? 'Chrome AI unavailable — disable mobile emulation'
-                  : `Chrome AI unavailable (${availability ?? 'unknown'}) — check browser/model support`,
-              );
-            },
-          });
-        } catch (e) {
-          console.error('[AI Tags] pass threw', e);
-          const msg = e instanceof Error ? e.message : String(e);
-          if (
-            msg.includes('service is not running')
-            || (typeof DOMException !== 'undefined' && e instanceof DOMException && e.name === 'NotAllowedError')
-          ) {
-            console.info(
-              '[AI Tags] On-device AI may be stopped or still downloading. Check chrome://on-device-internals, flags in https://developer.chrome.com/docs/ai/get-started — first create() may need a recent user gesture.',
-            );
-          }
-          setTaggingArticleId(null);
-          setClassificationStatus('');
-          return;
-        }
-        setTaggingArticleId(null);
-        metaCallbacks?.endTaggingPass();
-        const idleMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - idleT0);
-        console.info('[AI Tags] idle run finished', {
-          tagged: done,
-          expected: toTag.length,
-          wallMsFromIdleStart: idleMs,
-        });
-        if (done > 0) {
-          setClassificationStatus(`Tagged — ${done} articles processed`);
-        }
-      })();
-    });
-  }, [startAiModelPolling]);
-
   const schedulePassRef = useRef(scheduleTaggingPass);
   schedulePassRef.current = scheduleTaggingPass;
-
-  const handleStartAiTagging = useCallback(() => {
-    if (allArticlesRef.current.length === 0) {
-      setClassificationStatus('Load articles before starting Chrome AI tagging');
-      return;
-    }
-    schedulePassRef.current([...allArticlesRef.current]);
-  }, []);
 
   // ── Load prefs + cache from Fireproof on mount ────────────────────────────────
   useEffect(() => {
@@ -588,7 +424,6 @@ export function useFeed(options?: UseFeedOptions) {
 
   useEffect(() => () => {
     if (feedEnterClearTimerRef.current) clearTimeout(feedEnterClearTimerRef.current);
-    stopAiModelPolling();
   }, []);
 
   // ── Network refresh ───────────────────────────────────────────────────────────
@@ -889,86 +724,22 @@ export function useFeed(options?: UseFeedOptions) {
     refresh(next, true); // explicit — re-rank without removed source's articles
   }, [updatePrefs, refresh]);
 
-  // ── Bookmark HTML export / import ────────────────────────────────────────────
-  const handleExportBookmarks = useCallback(() => {
-    const savedIds = new Set(prefsRef.current.savedIds);
-    const savedAtById = prefsRef.current.savedAtById ?? {};
-    const savedRank = new Map(prefsRef.current.savedIds.map((id, idx) => [id, idx]));
-    const poolIds = new Set(articlePoolRef.current.map(a => a.id));
-    const savedById = new Map<string, Article>();
-    for (const article of articlePoolRef.current) {
-      if (savedIds.has(article.id)) savedById.set(article.id, article);
-    }
-    for (const article of importedSavesRef.current) {
-      if (savedIds.has(article.id) && !poolIds.has(article.id)) savedById.set(article.id, article);
-    }
-    const allSaved = prefsRef.current.savedIds
-      .slice()
-      .sort((a, b) => {
-        const ta = savedAtById[a] ?? 0;
-        const tb = savedAtById[b] ?? 0;
-        if (tb !== ta) return tb - ta;
-        return (savedRank.get(b) ?? 0) - (savedRank.get(a) ?? 0);
-      })
-      .map(id => savedById.get(id))
-      .filter((article): article is Article => article !== undefined);
-    const html = exportBookmarkHTML(allSaved);
-    triggerDownload(new Blob([html], { type: 'text/html' }), 'boomerang-saves.html');
-  }, []);
-
-  const handleImportBookmarks = useCallback((html: string): boolean => {
-    const parsed = importBookmarkHTML(html);
-    if (!parsed) return false;
-    // Merge with existing imported saves, deduplicating by ID
-    const existing = new Map(importedSavesRef.current.map(a => [a.id, a]));
-    for (const a of parsed) existing.set(a.id, a);
-    const merged = Array.from(existing.values());
-    importedSavesRef.current = merged;
-    setImportedSaves(merged);
-    kvSet(IMPORTED_SAVES_ID, { articles: dehydrate(merged) }).catch(console.error);
-    // Add all imported IDs to savedIds
-    const existingSaved = new Set(prefsRef.current.savedIds);
-    const newIds = parsed.map(a => a.id).filter(id => !existingSaved.has(id));
-    if (newIds.length) {
-      const now = Date.now();
-      const publishedById = new Map(parsed.map(a => [a.id, a.publishedAt.getTime()]));
-      const nextSavedAtById = { ...(prefsRef.current.savedAtById ?? {}) };
-      const nextUnsavedAtById = { ...(prefsRef.current.unsavedAtById ?? {}) };
-      for (const id of newIds) {
-        nextSavedAtById[id] = publishedById.get(id) ?? now;
-        delete nextUnsavedAtById[id];
-      }
-      updatePrefs({
-        ...prefsRef.current,
-        savedIds: [...prefsRef.current.savedIds, ...newIds],
-        savedAtById: nextSavedAtById,
-        unsavedAtById: nextUnsavedAtById,
-      });
-    }
-    return true;
-  }, [updatePrefs]);
-
-  // ── OPML export / import ──────────────────────────────────────────────────────
-  const handleExportOPML = useCallback(() => {
-    const { disabledSourceIds = [], customSources = [] } = prefsRef.current;
-    const xml = exportOPML(DEFAULT_SOURCES, customSources, disabledSourceIds);
-    triggerDownload(new Blob([xml], { type: 'application/xml' }), 'boomerang-feeds.opml');
-  }, []);
-
-  const handleImportOPML = useCallback((xml: string): boolean => {
-    const result = importOPML(xml, DEFAULT_SOURCES);
-    if (!result) return false;
-    const next: UserPrefs = {
-      ...prefsRef.current,
-      disabledSourceIds: result.disabledSourceIds,
-      customSources: result.customSources,
-    };
-    updatePrefs(next);
-    fetchIdRef.current++;
-    fetchingRef.current = false;
-    refresh(next, true);
-    return true;
-  }, [updatePrefs, refresh]);
+  // ── Bookmark / OPML portability ───────────────────────────────────────────────
+  const {
+    handleExportBookmarks,
+    handleImportBookmarks,
+    handleExportOPML,
+    handleImportOPML,
+  } = useFeedPortability({
+    prefsRef,
+    articlePoolRef,
+    importedSavesRef,
+    setImportedSaves,
+    updatePrefs,
+    refresh,
+    fetchIdRef,
+    fetchingRef,
+  });
 
   // ── Live remote sync merge (sync-worker poll) ────────────────────────────────
   // Called by useSyncWorker whenever a poll returns merged remote data.
