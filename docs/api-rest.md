@@ -94,13 +94,13 @@ Create a new sync room and return its credentials.
 
 **Response:** `{ roomId: string, token: string, workerUrl: string }`
 
-### **`GET`** `/sync/:roomId/:block`
+### **`GET`** `/sync/:roomId/blocks/:cid`
 
-Read a sync block (Fireproof CID block) from R2.
+Read a sync block (Fireproof CID) from R2. `:roomId` is a 64-hex SHA-256; `:cid` is a base64url string.
 
 **Response:** Raw block bytes, or 404.
 
-### **`PUT`** `/sync/:roomId/:block`
+### **`PUT`** `/sync/:roomId/blocks/:cid`
 
 Write a sync block to R2.
 

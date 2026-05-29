@@ -81,13 +81,13 @@ export const API_ROUTES: RouteDoc[] = [
   },
   {
     method: 'GET',
-    path: '/sync/:roomId/:block',
-    summary: 'Read a sync block (Fireproof CID block) from R2.',
+    path: '/sync/:roomId/blocks/:cid',
+    summary: 'Read a sync block (Fireproof CID) from R2. `:roomId` is a 64-hex SHA-256; `:cid` is a base64url string.',
     response: 'Raw block bytes, or 404.',
   },
   {
     method: 'PUT',
-    path: '/sync/:roomId/:block',
+    path: '/sync/:roomId/blocks/:cid',
     summary: 'Write a sync block to R2.',
     auth: 'Bearer token (SHA-256 of room token)',
     response: '`{ ok: true }`',
