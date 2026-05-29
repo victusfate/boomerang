@@ -1,17 +1,12 @@
 import type { Env } from '../../env';
 import { corsHeaders } from '../../cors';
+import { json, getClientIp } from '../_shared/http';
 import { createRoom, deleteRoom } from './room';
 import { verifyToken, extractBearer } from './auth';
 
 const RATE_LIMIT_MAX_REQUESTS = 30;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
-
-function json(data: unknown, request: Request, env: Env, init?: ResponseInit): Response {
-  const headers = corsHeaders(request, env);
-  headers.set('Content-Type', 'application/json; charset=utf-8');
-  return new Response(JSON.stringify(data), { ...init, headers });
-}
 
 function unauthorized(request: Request, env: Env): Response {
   return json({ error: 'Unauthorized' }, request, env, { status: 401 });
@@ -26,13 +21,6 @@ function tooManyRequests(request: Request, env: Env, retryAfterSeconds: number):
   headers.set('Retry-After', String(retryAfterSeconds));
   headers.set('Content-Type', 'application/json; charset=utf-8');
   return new Response(JSON.stringify({ error: 'Too Many Requests' }), { status: 429, headers });
-}
-
-function getClientIp(request: Request): string | null {
-  // CF-Connecting-IP is set by Cloudflare and cannot be spoofed.
-  // Do NOT fall back to X-Forwarded-For — it is user-controlled and allows
-  // rate-limit bypass by forging arbitrary source IPs.
-  return request.headers.get('CF-Connecting-IP');
 }
 
 function checkRateLimit(scope: string): { limited: false } | { limited: true; retryAfterSeconds: number } {

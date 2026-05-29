@@ -1,5 +1,7 @@
 import type { Env } from '../../env';
 import { corsHeaders } from '../../cors';
+import { json, tooManyRequests, getClientIp, checkRateLimit } from '../_shared/http';
+import { rankScore01 } from '../_shared/rank';
 import type { RecCoreResponse, RecRankRequest, RecResponse } from '@victusfate/ricochet';
 import { isValidEvent, REC_MAX_CANDIDATES } from '@victusfate/ricochet';
 import {
@@ -16,9 +18,6 @@ export type { RecArticleMeta, RecArticlesResponse } from './articleMeta';
 const RATE_LIMIT_INTERACTIONS_MAX = 60;
 const RATE_LIMIT_RECS_MAX = 30;
 const RATE_LIMIT_ARTICLES_MAX = 30;
-const RATE_LIMIT_WINDOW_MS = 60_000;
-
-const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 
 const MAX_BATCH_SIZE = 200;
 const MAX_LIMIT = 500;
@@ -70,54 +69,6 @@ function parseCandidatesCsv(raw: string | null): string[] | undefined {
 }
 
 
-function json(data: unknown, request: Request, env: Env, init?: ResponseInit, cacheMaxAge?: number): Response {
-  const headers = corsHeaders(request, env);
-  headers.set('Content-Type', 'application/json; charset=utf-8');
-  if (cacheMaxAge !== undefined) headers.set('Cache-Control', `public, max-age=${cacheMaxAge}`);
-  return new Response(JSON.stringify(data), { ...init, headers });
-}
-
-function tooManyRequests(request: Request, env: Env, retryAfterSeconds: number): Response {
-  const headers = corsHeaders(request, env);
-  headers.set('Retry-After', String(retryAfterSeconds));
-  headers.set('Content-Type', 'application/json; charset=utf-8');
-  return new Response(
-    JSON.stringify({ ok: false, message: 'Too Many Requests' }),
-    { status: 429, headers },
-  );
-}
-
-function getClientIp(request: Request): string | null {
-  return request.headers.get('CF-Connecting-IP');
-}
-
-function checkRateLimit(
-  request: Request,
-  key: string,
-  max: number,
-): { limited: false } | { limited: true; retryAfterSeconds: number } {
-  const clientIp = getClientIp(request);
-  if (!clientIp) return { limited: false };
-  const now = Date.now();
-  const bucketKey = `${key}:${clientIp}`;
-  const existing = rateBuckets.get(bucketKey);
-  if (!existing || existing.resetAt <= now) {
-    rateBuckets.set(bucketKey, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return { limited: false };
-  }
-  if (existing.count >= max) {
-    return { limited: true, retryAfterSeconds: Math.max(1, Math.ceil((existing.resetAt - now) / 1000)) };
-  }
-  existing.count += 1;
-  if (rateBuckets.size > 10_000) {
-    for (const [k, bucket] of rateBuckets) {
-      if (bucket.resetAt <= now) rateBuckets.delete(k);
-    }
-  }
-  return { limited: false };
-}
-
-
 function getRecDOStub(env: Env): DurableObjectStub {
   const id = env.REC_DO.idFromName('global');
   return env.REC_DO.get(id);
@@ -149,7 +100,7 @@ function normalizeCoreResponse(
     }, [])
     : articleIds.map((articleId, index) => ({
       articleId,
-      score: 1 - (index / Math.max(articleIds.length - 1, 1)),
+      score: rankScore01(index, articleIds.length),
     }));
   const d = rawRecord.diagnostics && typeof rawRecord.diagnostics === 'object'
     ? rawRecord.diagnostics as Record<string, unknown>
