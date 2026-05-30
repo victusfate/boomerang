@@ -1,0 +1,233 @@
+<!DOCTYPE html><html class="default" lang="en" data-base="./"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>platform-worker - v0.1.0</title><meta name="description" content="Documentation for platform-worker"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="assets/style.css"/><link rel="stylesheet" href="assets/highlight.css"/><script defer src="assets/main.js"></script><script async src="assets/icons.js" id="tsd-icons-script"></script><script async src="assets/search.js" id="tsd-search-script"></script><script async src="assets/navigation.js" id="tsd-nav-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar"><div class="tsd-toolbar-contents container"><a href="index.html" class="title">platform-worker - v0.1.0</a><div id="tsd-toolbar-links"><a href="https://github.com/victusfate/boomerang">GitHub</a></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/><ul role="listbox" id="tsd-search-results"></ul><div id="tsd-search-status" aria-live="polite" aria-atomic="true"><div>Preparing search index...</div></div></dialog><a href="#" class="tsd-widget menu" id="tsd-toolbar-menu-trigger" data-toggle="menu" aria-label="Menu"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-menu"></use></svg></a></div></header><div class="container container-main"><div class="col-content"><div class="tsd-page-title"><h1>platform-worker - v0.1.0</h1></div><div class="tsd-panel tsd-typography"><h1 id="boomerang-news" class="tsd-anchor-link">Boomerang News<a href="#boomerang-news" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h1>
+<p>Algorithmic RSS news feed — React PWA backed by a unified Cloudflare Worker.</p>
+<p>Live at <a href="https://boomerang-news.com">boomerang-news.com</a></p>
+<h2 id="architecture" class="tsd-anchor-link">Architecture<a href="#architecture" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>The frontend (<code>news-feed/</code>) is a React + Vite PWA that stores all user state
+locally in <strong>native IndexedDB</strong> (via a thin <code>kvStore.ts</code> wrapper). A single
+<strong>platform-worker</strong> handles all server-side concerns across four domains:</p>
+<table>
+<thead>
+<tr>
+<th>Domain</th>
+<th>Routes</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>RSS</strong></td>
+<td><code>GET /bundle</code> · <code>GET /og-image</code> · <code>GET /image</code></td>
+<td>Aggregates built-in and custom RSS feeds (staggered fetches, full HTML5 entity decoding). <code>og-image</code> proxies lazy card thumbnails. <code>image</code> proxies article images. On each <code>/bundle</code> response, article metadata (title, source, URL) is written to <code>ARTICLE_META</code> KV via <code>ctx.waitUntil</code> for later title resolution.</td>
+</tr>
+<tr>
+<td><strong>Meta</strong></td>
+<td><code>GET /meta</code> · <code>POST /meta/tags</code> · <code>GET /ws</code></td>
+<td>Per-article shared metadata. Bulk KV reads on <code>GET /meta</code>; batched AI-tag writes on <code>POST /meta/tags</code>. One global Durable Object (<code>MetaDO</code>, SQLite-backed) coordinates real-time tag broadcasts over <code>GET /ws</code> WebSocket.</td>
+</tr>
+<tr>
+<td><strong>Sync</strong></td>
+<td><code>POST /sync/room</code> · <code>GET/PUT /sync/{roomId}/meta</code> · <code>GET/PUT /sync/{roomId}/blocks/{cid}</code></td>
+<td>Cross-device sync of prefs, bookmarks, and labels over R2. Share links carry <code>roomId:token:workerUrl</code> in the URL fragment — the raw token never travels in query strings.</td>
+</tr>
+<tr>
+<td><strong>Rec</strong></td>
+<td><code>POST /interactions</code> · <code>GET /recommendations/:userId</code> · <code>POST /recommendations/:userId</code> · <code>GET /rec/articles</code></td>
+<td>Edge collaborative filtering via <a href="https://github.com/victusfate/ricochet">ricochet</a>. Ingests anonymous interaction events (read, save, upvote, downvote, seen); ranks a feed-pool of candidate article IDs using a global BiasedMF Durable Object (<code>RecDO</code>, SQLite). <code>GET /rec/articles</code> resolves article titles and metadata by ID from <code>ARTICLE_META</code> KV.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="cloudflare-resources" class="tsd-anchor-link">Cloudflare resources<a href="#cloudflare-resources" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<table>
+<thead>
+<tr>
+<th>Resource</th>
+<th>Used by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>KV <code>ARTICLE_META</code></strong></td>
+<td>Unified per-article store: AI tags + catalog fields (title, source, URL). Written by both Meta (tag updates) and RSS (catalog on bundle fetch). 180-day TTL.</td>
+</tr>
+<tr>
+<td><strong>KV <code>REC_STORE</code></strong></td>
+<td>Legacy rec metadata (read-only fallback during migration).</td>
+</tr>
+<tr>
+<td><strong>R2 <code>boomerang</code></strong></td>
+<td>Sync room blocks (prefs, bookmarks, labels).</td>
+</tr>
+<tr>
+<td><strong>DO <code>MetaDO</code></strong></td>
+<td>Global WebSocket hub for real-time tag updates; SQLite index for catch-up queries.</td>
+</tr>
+<tr>
+<td><strong>DO <code>RecDO</code></strong></td>
+<td>Global BiasedMF model; SQLite tables for interactions, user/item factors.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="personalisation" class="tsd-anchor-link">Personalisation<a href="#personalisation" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>Feed ranking combines local signals (recency decay, source diversity) with a
+<strong>BiasedMF collaborative filter</strong> (<code>ŷ = ȳ + bᵤ + bᵢ + ⟨vᵤ, vᵢ⟩</code>) trained
+online from anonymous interaction events. The MF model runs inside <code>RecDO</code> and
+produces a per-user ranked score for each article in the current feed pool; the
+client blends this as a <code>recBoost</code> multiplier (×1.0 – ×1.8) on top of the
+local recency × diversity score.</p>
+<ul>
+<li>Full scoring pipeline and data-flow diagrams: <a href="media/data-flow.md"><code>docs/scoring/data-flow.md</code></a></li>
+<li>BiasedMF design and hyperparameters: <a href="https://github.com/victusfate/ricochet/blob/main/docs/biased-mf-recs/prd.md">ricochet — biased-mf-recs PRD</a></li>
+<li>HTTP API and type contracts: <a href="https://github.com/victusfate/ricochet/blob/main/docs/ricochet-interface.md">ricochet interface reference</a></li>
+</ul>
+<p>Cold-start users rank articles by item bias (<code>bᵢ</code>) alone — equivalent to
+global popularity — and receive personalised boosts as interactions accumulate.</p>
+<p><code>VITE_PLATFORM_WORKER_URL</code> is required at build time. The app degrades
+gracefully when the rec model has no history (cold-start falls back to
+recency × diversity ranking). See <code>news-feed/.env.example</code> for local ports.</p>
+<h2 id="local-development" class="tsd-anchor-link">Local development<a href="#local-development" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h3 id="prerequisites" class="tsd-anchor-link">Prerequisites<a href="#prerequisites" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<ul>
+<li><strong>Node.js 22+</strong> (required for <code>--experimental-strip-types</code> in tests)</li>
+<li><a href="https://developers.cloudflare.com/workers/wrangler/install-and-update/">Wrangler</a> (<code>npm i -g wrangler</code>)</li>
+</ul>
+<h3 id="1-install-dependencies" class="tsd-anchor-link">1. Install dependencies<a href="#1-install-dependencies" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<pre><code class="bash"><span class="hl-0">make</span><span class="hl-1"> </span><span class="hl-2">install</span>
+</code><button type="button">Copy</button></pre>
+
+<h3 id="2-set-up-environment" class="tsd-anchor-link">2. Set up environment<a href="#2-set-up-environment" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<pre><code class="bash"><span class="hl-0">cp</span><span class="hl-1"> </span><span class="hl-2">news-feed/.env.example</span><span class="hl-1"> </span><span class="hl-2">news-feed/.env</span>
+</code><button type="button">Copy</button></pre>
+
+<h3 id="3-start-the-platform-worker-required-frontend" class="tsd-anchor-link">3. Start the platform worker (required) + frontend<a href="#3-start-the-platform-worker-required-frontend" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<pre><code class="bash"><span class="hl-0">make</span><span class="hl-1"> </span><span class="hl-2">worker-platform</span><span class="hl-1">   </span><span class="hl-3"># terminal 1 → http://localhost:8787</span><br/><span class="hl-0">make</span><span class="hl-1"> </span><span class="hl-2">dev</span><span class="hl-1">               </span><span class="hl-3"># terminal 2 → http://localhost:5173/</span>
+</code><button type="button">Copy</button></pre>
+
+<p>All domains (RSS, sync, meta, rec) run on the unified <strong>platform-worker</strong> on
+port <strong>8787</strong>. Set <code>VITE_PLATFORM_WORKER_URL=http://localhost:8787</code> in
+<code>news-feed/.env</code> (see <code>.env.example</code>).</p>
+<h3 id="makefile-quick-reference" class="tsd-anchor-link">Makefile quick reference<a href="#makefile-quick-reference" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<table>
+<thead>
+<tr>
+<th>Target</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>make</code> / <code>make dev</code></td>
+<td>Vite dev server → <a href="http://localhost:5173/">http://localhost:5173/</a></td>
+</tr>
+<tr>
+<td><code>make preview-pages</code></td>
+<td>GitHub Pages–style build + preview → <a href="http://localhost:4173/boomerang">http://localhost:4173/boomerang</a></td>
+</tr>
+<tr>
+<td><code>make worker-platform</code></td>
+<td>platform-worker (all domains) → <a href="http://localhost:8787">http://localhost:8787</a></td>
+</tr>
+<tr>
+<td><code>make stop-worker-platform</code></td>
+<td>Stop the local platform-worker on port 8787</td>
+</tr>
+<tr>
+<td><code>make install</code></td>
+<td><code>npm ci</code> in all packages</td>
+</tr>
+<tr>
+<td><code>make test</code></td>
+<td>Tests in all packages</td>
+</tr>
+<tr>
+<td><code>make deploy</code></td>
+<td>Deploy platform-worker</td>
+</tr>
+<tr>
+<td><code>make deploy-platform</code></td>
+<td>Deploy platform-worker only</td>
+</tr>
+<tr>
+<td><code>make create-kv</code></td>
+<td>One-time: create <code>ARTICLE_META</code> KV namespace</td>
+</tr>
+<tr>
+<td><code>make create-r2</code></td>
+<td>One-time: create <code>boomerang</code> R2 bucket</td>
+</tr>
+</tbody>
+</table>
+<h2 id="repo-layout" class="tsd-anchor-link">Repo layout<a href="#repo-layout" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>news-feed/</code></td>
+<td>React + Vite PWA. Storage: native IndexedDB. GitHub Pages base path <code>/boomerang</code> when <code>GITHUB_PAGES=true</code>.</td>
+</tr>
+<tr>
+<td><code>platform-worker/</code></td>
+<td>Unified Cloudflare Worker — RSS, sync, meta, and rec domains in one deploy.</td>
+</tr>
+<tr>
+<td><code>shared/rss-sources.json</code></td>
+<td>Canonical built-in RSS source list (imported at build by both <code>news-feed</code> and <code>platform-worker</code>).</td>
+</tr>
+<tr>
+<td><code>shared/articleRecordCatalog.ts</code></td>
+<td>Shared TTL constants and label helpers for the article metadata KV schema.</td>
+</tr>
+<tr>
+<td><code>docs/</code></td>
+<td>Feature design docs (design → PRD → plan → TDD log per feature slug). Key entry points: <a href="media/data-flow.md"><code>docs/scoring/data-flow.md</code></a> (full scoring pipeline + MF diagrams), <a href="media/boomerang-context.md"><code>docs/edge-recommendations/boomerang-context.md</code></a> (ricochet integration context).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="deploy" class="tsd-anchor-link">Deploy<a href="#deploy" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h3 id="frontend" class="tsd-anchor-link">Frontend<a href="#frontend" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>GitHub Actions (<code>.github/workflows/deploy.yml</code>) builds <code>news-feed/</code> on push to
+<code>main</code> and publishes <code>news-feed/dist</code> to <strong>GitHub Pages</strong>.</p>
+<p>Required repository variable (no trailing slash):</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>VITE_PLATFORM_WORKER_URL</code></td>
+<td>✅</td>
+<td>All worker domains (RSS, sync, meta, rec)</td>
+</tr>
+<tr>
+<td><code>CANONICAL_URL</code></td>
+<td>optional</td>
+<td>If set, skips app build and emits a redirect-only <code>index.html</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="worker" class="tsd-anchor-link">Worker<a href="#worker" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<pre><code class="bash"><span class="hl-0">make</span><span class="hl-1"> </span><span class="hl-2">deploy-platform</span><span class="hl-1">   </span><span class="hl-3"># deploy platform-worker (all domains)</span>
+</code><button type="button">Copy</button></pre>
+
+<h2 id="cost-guardrails-cloudflare-free-tier" class="tsd-anchor-link">Cost guardrails (Cloudflare free tier)<a href="#cost-guardrails-cloudflare-free-tier" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<ul>
+<li><strong>Durable Objects</strong>: ~100k requests/day free. Normal feed browsing reads KV
+directly and does not touch either DO.</li>
+<li><code>MetaDO</code> is only invoked by <code>POST /meta/tags</code> (tag writes) and <code>GET /ws</code>
+(WebSocket upgrades). Tag writes happen via <code>ctx.waitUntil</code> — they do not
+block feed load.</li>
+<li><code>RecDO</code> is invoked on <code>POST /interactions</code> and <code>/recommendations/:userId</code>.
+KV caches rec responses for 5 minutes; repeated feed loads within that window
+hit KV only.</li>
+<li>Validate after deploy: <code>wrangler tail platform-worker</code> — no DO exceptions
+during normal browsing.</li>
+</ul>
+</div></div><div class="col-sidebar"><div class="page-menu"><div class="tsd-navigation settings"><details class="tsd-accordion"><summary class="tsd-accordion-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-chevronDown"></use></svg><h3>Settings</h3></summary><div class="tsd-accordion-details"><div class="tsd-filter-visibility"><span class="settings-label">Member Visibility</span><ul id="tsd-filter-options"><li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-inherited" name="inherited" checked/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>Inherited</span></label></li><li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-external" name="external"/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>External</span></label></li></ul></div><div class="tsd-theme-toggle"><label class="settings-label" for="tsd-theme">Theme</label><select id="tsd-theme"><option value="os">OS</option><option value="light">Light</option><option value="dark">Dark</option></select></div></div></details></div><details open class="tsd-accordion tsd-page-navigation"><summary class="tsd-accordion-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-chevronDown"></use></svg><h3>On This Page</h3></summary><div class="tsd-accordion-details"><a href="#boomerang-news"><span>Boomerang <wbr/>News</span></a><ul><li><a href="#architecture"><span>Architecture</span></a></li><li><ul><li><a href="#cloudflare-resources"><span>Cloudflare resources</span></a></li><li><a href="#personalisation"><span>Personalisation</span></a></li></ul></li><li><a href="#local-development"><span>Local development</span></a></li><li><ul><li><a href="#prerequisites"><span>Prerequisites</span></a></li><li><a href="#1-install-dependencies"><span>1. <wbr/>Install dependencies</span></a></li><li><a href="#2-set-up-environment"><span>2. <wbr/>Set up environment</span></a></li><li><a href="#3-start-the-platform-worker-required-frontend"><span>3. <wbr/>Start the platform worker (required) + frontend</span></a></li><li><a href="#makefile-quick-reference"><span>Makefile quick reference</span></a></li></ul></li><li><a href="#repo-layout"><span>Repo layout</span></a></li><li><a href="#deploy"><span>Deploy</span></a></li><li><ul><li><a href="#frontend"><span>Frontend</span></a></li><li><a href="#worker"><span>Worker</span></a></li></ul></li><li><a href="#cost-guardrails-cloudflare-free-tier"><span>Cost guardrails (<wbr/>Cloudflare free tier)</span></a></li></ul></div></details></div><div class="site-menu"><nav id="tsd-sidebar-links" class="tsd-navigation"><a href="https://github.com/victusfate/boomerang" class="tsd-nav-link">GitHub</a></nav><nav class="tsd-navigation"><a href="modules.html">platform-worker - v0.1.0</a><ul class="tsd-small-nested-navigation" id="tsd-nav-container"><li>Loading...</li></ul></nav></div></div></div><footer><p class="tsd-generator">Generated using <a href="https://typedoc.org/" target="_blank">TypeDoc</a></p></footer><div class="overlay"></div></body></html>

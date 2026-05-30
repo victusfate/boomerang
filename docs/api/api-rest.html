@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Boomerang REST API Reference</title>
+  <style>
+*, *::before, *::after { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem 1.5rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-size: 1rem;
+    line-height: 1.65;
+    color: #1a1a1a;
+    background: #f9f9f9;
+  }
+  .container {
+    max-width: 860px;
+    margin: 0 auto;
+    background: #fff;
+    padding: 2.5rem 3rem;
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  }
+  h1 { font-size: 1.9rem; margin-top: 0; color: #111; }
+  h2 { font-size: 1.4rem; margin-top: 2rem; color: #222; border-bottom: 1px solid #e5e5e5; padding-bottom: 0.25rem; }
+  h3 { font-size: 1.05rem; margin-top: 1.5rem; color: #333; }
+  code {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.875em;
+    background: #f3f4f6;
+    padding: 0.15em 0.35em;
+    border-radius: 3px;
+  }
+  pre {
+    background: #f3f4f6;
+    padding: 1rem;
+    border-radius: 5px;
+    overflow-x: auto;
+  }
+  pre code { background: none; padding: 0; }
+  blockquote {
+    margin: 1rem 0;
+    padding: 0.6rem 1rem;
+    border-left: 3px solid #d1d5db;
+    color: #555;
+    background: #f8f8f8;
+    border-radius: 0 4px 4px 0;
+  }
+  hr { border: none; border-top: 1px solid #e5e5e5; margin: 2rem 0; }
+  a { color: #2563eb; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .meta { color: #6b7280; font-size: 0.9rem; margin-top: 0.25rem; }
+    .back { margin-bottom: 1.5rem; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <p class="back"><a href="index.html">&larr; Back to docs index</a></p>
+<h1>Boomerang Platform Worker — REST API</h1>
+<p><em>v0.1.0 · generated 2026-05-29</em>
+</p>
+<p>This document is generated from <code>platform-worker/src/apiRoutes.ts</code>. Edit that file to update it.
+</p>
+<h2>Base URL</h2>
+<p>Configured via <code>wrangler.jsonc</code>. All routes are CORS-enabled for configured origins.
+</p>
+<h2>Authentication</h2>
+<p>Routes marked <strong>Auth: Bearer token</strong> require an <code>Authorization: Bearer &lt;token&gt;</code> header<br>where <code>&lt;token&gt;</code> is the room token issued by <code>POST /sync/room</code>.
+</p>
+<h2>Rate Limiting</h2>
+<p>Per-IP rate limits are enforced via an in-isolate sliding window.<br>Exceeding a limit returns <strong>429 Too Many Requests</strong> with a <code>Retry-After</code> header.
+</p>
+<hr>
+<h2>Health</h2>
+<h3><strong><code>GET</code></strong> <code>/health</code></h3>
+<p>Worker liveness check.
+</p>
+<p><strong>Response:</strong> <code>{ ok: true, domain: "worker" }</code>
+</p>
+<h3><strong><code>GET</code></strong> <code>/health/rss</code></h3>
+<p>RSS domain liveness check.
+</p>
+<p><strong>Response:</strong> <code>{ ok: true, domain: "rss" }</code>
+</p>
+<h3><strong><code>GET</code></strong> <code>/health/sync</code></h3>
+<p>Sync domain liveness check.
+</p>
+<p><strong>Response:</strong> <code>{ ok: true, domain: "sync" }</code>
+</p>
+<h3><strong><code>GET</code></strong> <code>/health/meta</code></h3>
+<p>Meta domain liveness check.
+</p>
+<p><strong>Response:</strong> <code>{ ok: true, domain: "meta" }</code>
+</p>
+<h3><strong><code>GET</code></strong> <code>/health/rec</code></h3>
+<p>Rec domain liveness check.
+</p>
+<p><strong>Response:</strong> <code>{ ok: true, domain: "rec" }</code>
+</p>
+<h2>RSS</h2>
+<h3><strong><code>GET</code></strong> <code>/bundle</code></h3>
+<p>Fetch and merge articles from multiple RSS/Atom feeds.
+</p>
+<p><strong>Request:</strong> Query: <code>include</code> (comma-separated source IDs), <code>customFeeds</code> (base64 gzip-encoded custom source list)
+</p>
+<p><strong>Response:</strong> <code>{ articles: Article[] }</code>
+</p>
+<blockquote>Sources are sorted by feed URL to maximise CDN cache hit rate. YouTube and non-YouTube sources are fetched in separate tiers.</blockquote>
+<h3><strong><code>GET</code></strong> <code>/og-image</code></h3>
+<p>Proxy and cache an og:image URL for a given article URL.
+</p>
+<p><strong>Request:</strong> Query: <code>url</code> (article URL to extract og:image from)
+</p>
+<p><strong>Response:</strong> Image bytes (passthrough), or <code>{ ok: false }</code> on failure.
+</p>
+<blockquote>Only http/https URLs are fetched. Redirects are followed with re-validation (SSRF guard).</blockquote>
+<h3><strong><code>GET</code></strong> <code>/image</code></h3>
+<p>Proxy and cache a raw image URL.
+</p>
+<p><strong>Request:</strong> Query: <code>url</code> (direct image URL)
+</p>
+<p><strong>Response:</strong> Image bytes (passthrough), or <code>{ ok: false }</code> on failure.
+</p>
+<h2>Sync</h2>
+<h3><strong><code>POST</code></strong> <code>/sync/room</code></h3>
+<p>Create a new sync room and return its credentials.
+</p>
+<p><strong>Rate limit:</strong> Per-IP
+</p>
+<p><strong>Request:</strong> Empty body or <code>{}</code>
+</p>
+<p><strong>Response:</strong> <code>{ roomId: string, token: string, workerUrl: string }</code>
+</p>
+<h3><strong><code>GET</code></strong> <code>/sync/:roomId/:block</code></h3>
+<p>Read a sync block (Fireproof CID block) from R2.
+</p>
+<p><strong>Response:</strong> Raw block bytes, or 404.
+</p>
+<h3><strong><code>PUT</code></strong> <code>/sync/:roomId/:block</code></h3>
+<p>Write a sync block to R2.
+</p>
+<p><strong>Auth:</strong> Bearer token (SHA-256 of room token)
+</p>
+<p><strong>Response:</strong> <code>{ ok: true }</code>
+</p>
+<h3><strong><code>GET</code></strong> <code>/sync/:roomId/meta</code></h3>
+<p>Read room metadata (UserPrefs + savedArticles snapshot).
+</p>
+<p><strong>Response:</strong> JSON payload with <code>ETag</code> header for conditional requests.
+</p>
+<h3><strong><code>PUT</code></strong> <code>/sync/:roomId/meta</code></h3>
+<p>Write room metadata; supports <code>If-Match</code> for optimistic concurrency.
+</p>
+<p><strong>Auth:</strong> Bearer token
+</p>
+<p><strong>Request:</strong> JSON payload: <code>{ prefs, savedArticles, articleTags, labelHits }</code>
+</p>
+<p><strong>Response:</strong> <code>{ ok: true }</code> or 409 on ETag conflict.
+</p>
+<h3><strong><code>DELETE</code></strong> <code>/sync/:roomId</code></h3>
+<p>Delete a sync room and all its R2 blocks.
+</p>
+<p><strong>Auth:</strong> Bearer token
+</p>
+<p><strong>Response:</strong> <code>{ ok: true }</code>
+</p>
+<h2>Meta</h2>
+<h3><strong><code>GET</code></strong> <code>/meta</code></h3>
+<p>Look up article metadata (title, og:image, discussion URL) from KV cache.
+</p>
+<p><strong>Rate limit:</strong> Per-IP (30 req/min)
+</p>
+<p><strong>Request:</strong> Query: <code>ids</code> (comma-separated article IDs, max 50)
+</p>
+<p><strong>Response:</strong> <code>{ ok: true, found: number, missing: string[], articles: ArticleRecord[] }</code>
+</p>
+<h3><strong><code>POST</code></strong> <code>/meta/tags</code></h3>
+<p>Submit AI-generated topic tags for one or more articles; stored in MetaDO.
+</p>
+<p><strong>Rate limit:</strong> Per-IP (30 req/min)
+</p>
+<p><strong>Request:</strong> <code>{ articleId: string, tags: string[] }[]</code> (max 6 tags per article)
+</p>
+<p><strong>Response:</strong> <code>{ ok: true, accepted: number }</code>
+</p>
+<h3><strong><code>GET</code></strong> <code>/ws</code></h3>
+<p>Upgrade to WebSocket; receive live <code>tags</code> broadcasts from MetaDO.
+</p>
+<p><strong>Response:</strong> HTTP 101 Switching Protocols. Server pushes <code>{ type: "tags", articleId, tags }</code> messages.
+</p>
+<h2>Rec</h2>
+<h3><strong><code>POST</code></strong> <code>/interactions</code></h3>
+<p>Ingest user interaction events for BiasedMF model training.
+</p>
+<p><strong>Rate limit:</strong> Per-IP (60 req/min)
+</p>
+<p><strong>Request:</strong> <code>{ events: InteractionEvent[] }</code> or bare <code>InteractionEvent[]</code> (max 200)
+</p>
+<p><strong>Response:</strong> <code>{ ok: true, queued: number }</code>
+</p>
+<h3><strong><code>GET</code></strong> <code>/recommendations/:userId</code></h3>
+<p>Global ranked recommendations for a user (top-N from entire item catalogue).
+</p>
+<p><strong>Rate limit:</strong> Per-IP (30 req/min)
+</p>
+<p><strong>Request:</strong> Query: <code>limit</code> (default 50, max 200), <code>candidates</code> (optional comma-separated IDs)
+</p>
+<p><strong>Response:</strong> <code>RecResponse</code> — ranked <code>articleIds[]</code>, <code>scoredArticleIds[]</code>, <code>diagnostics</code>, <code>cache</code>, <code>timingMs</code>
+</p>
+<blockquote>Cold-start users receive popularity-biased ranking. Supports <code>If-None-Match</code> / <code>ETag</code> (GET only).</blockquote>
+<h3><strong><code>POST</code></strong> <code>/recommendations/:userId</code></h3>
+<p>Feed-pool ranked recommendations — scores only the provided candidate articles.
+</p>
+<p><strong>Rate limit:</strong> Per-IP (30 req/min)
+</p>
+<p><strong>Request:</strong> <code>{ candidateArticleIds: string[], limit?: number, topicWeights?: Record&lt;string, number&gt; }</code>
+</p>
+<p><strong>Response:</strong> <code>RecResponse</code> — same shape as GET; <code>diagnostics.candidateStrategy</code> will be <code>"feed-pool"</code>.
+</p>
+<blockquote>Preferred path for the news-feed client. Allows personalised topic weighting. Always returns full body (no 304).</blockquote>
+<h3><strong><code>GET</code></strong> <code>/rec/articles</code></h3>
+<p>Bulk article-metadata lookup from the KV ARTICLE_META catalogue.
+</p>
+<p><strong>Rate limit:</strong> Per-IP (30 req/min)
+</p>
+<p><strong>Request:</strong> Query: <code>ids</code> (comma-separated article IDs)
+</p>
+<p><strong>Response:</strong> <code>{ ok, requested, found, missing, articles: RecArticleMeta[] }</code>
+</p>
+<h3><strong><code>GET</code></strong> <code>/rec/debug</code></h3>
+<p>Internal model-state diagnostics (global mean, factor counts, KV counters).
+</p>
+<p><strong>Response:</strong> <code>{ globalState, userFactorsCount, itemFactorsCount, interactionsCount, kvCounters }</code>
+</p>
+<blockquote>Unauthenticated. For internal/dev use only — gate behind auth before exposing publicly.</blockquote>
+  </div>
+</body>
+</html>
