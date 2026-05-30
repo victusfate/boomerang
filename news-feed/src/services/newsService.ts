@@ -1,9 +1,7 @@
 import type { Article, CustomSource, NewsSource } from '../types';
-import { missingWorkerEnvMessage, resolveWorkerUrl } from '../config/workerEnv';
+import { PLATFORM_WORKER_URL, MISSING_PLATFORM_WORKER_MSG } from '../config/workerEnv';
 import { partitionSourcesForSplitFetch } from './feedPartition';
 import rssSourcesJson from '../../../shared/rss-sources.json';
-
-const RSS_WORKER_URL = resolveWorkerUrl(import.meta.env.VITE_RSS_WORKER_URL);
 
 // Built-in sources: single source of truth in `shared/rss-sources.json` (priority 1 = first batch; 2 = background).
 export const DEFAULT_SOURCES: NewsSource[] = rssSourcesJson as NewsSource[];
@@ -23,12 +21,11 @@ function tagFetchTier(articles: Article[], tier: 'fast' | 'background'): Article
   return articles.map(a => ({ ...a, fetchTier: tier }));
 }
 
-const MISSING_RSS_ENV_MSG = missingWorkerEnvMessage('VITE_RSS_WORKER_URL');
 
 /** Worker origin (bundle + `/og-image`). Throws if env is unset — same as `fetchAllSources`. */
 export function getRssWorkerBaseUrl(): string {
-  if (!RSS_WORKER_URL) throw new Error(MISSING_RSS_ENV_MSG);
-  return RSS_WORKER_URL;
+  if (!PLATFORM_WORKER_URL) throw new Error(MISSING_PLATFORM_WORKER_MSG);
+  return PLATFORM_WORKER_URL;
 }
 
 function isYoutubeSourceId(id: string): boolean {
@@ -143,8 +140,8 @@ export async function fetchAllSources(
   customSources: CustomSource[],
   onBatch?: (articles: Article[]) => void,
 ): Promise<Article[]> {
-  if (!RSS_WORKER_URL) {
-    throw new Error(MISSING_RSS_ENV_MSG);
+  if (!PLATFORM_WORKER_URL) {
+    throw new Error(MISSING_PLATFORM_WORKER_MSG);
   }
   if (sources.length === 0 && customSources.length === 0) return [];
   return fetchAllSourcesSplit(sources, customSources, onBatch);
@@ -152,7 +149,7 @@ export async function fetchAllSources(
 
 /** Resolves article metadata for specific ids in one worker bundle request. */
 export async function fetchArticlesByIds(ids: string[]): Promise<Article[]> {
-  if (!RSS_WORKER_URL) throw new Error(MISSING_RSS_ENV_MSG);
+  if (!PLATFORM_WORKER_URL) throw new Error(MISSING_PLATFORM_WORKER_MSG);
   if (ids.length === 0) return [];
   const uniqueIds = Array.from(new Set(ids));
   // `/bundle?include=` accepts source ids, not article ids.
@@ -178,7 +175,7 @@ async function fetchBundleJson(
       : ids;
   const customOrdered = sortCustomSourcesByFeedUrl(customSources);
   const qs = idsOrdered.length > 0 ? idsOrdered.join(',') : INCLUDE_NONE_SENTINEL;
-  let url = `${RSS_WORKER_URL}/bundle?include=${encodeURIComponent(qs)}`;
+  let url = `${PLATFORM_WORKER_URL}/bundle?include=${encodeURIComponent(qs)}`;
   if (customOrdered.length > 0) {
     const payload = customOrdered.map(s => ({ id: s.id, name: s.name, feedUrl: s.feedUrl }));
     const bytes = new TextEncoder().encode(JSON.stringify(payload));

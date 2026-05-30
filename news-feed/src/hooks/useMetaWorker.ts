@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { resolveWorkerUrl, missingWorkerEnvMessage } from '../config/workerEnv';
+import { PLATFORM_WORKER_URL, MISSING_PLATFORM_WORKER_MSG } from '../config/workerEnv';
 import { fetchMetaTags, submitMetaTags, MetaRateLimitError } from '../services/metaWorker.ts';
 import { syncDebugLog } from '../config/debugSync';
 
-const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_META_WORKER_URL);
+
 const MANUAL_META_SYNC_COOLDOWN_MS = 15_000;
 const BACKOFF_BASE_MS = 30_000;
 const BACKOFF_MAX_MS = 10 * 60_000;
@@ -22,16 +22,16 @@ export interface UseMetaWorkerResult {
   metaSyncCooldownMs: number;
   metaStatus: MetaStatus;
   metaError: string | null;
-  /** Set when `VITE_META_WORKER_URL` is missing at build time */
+  /** Set when `VITE_PLATFORM_WORKER_URL` is missing at build time */
   metaEnvError: string | null;
 }
 
 export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
   const [metaEnvError] = useState<string | null>(() =>
-    WORKER_BASE ? null : missingWorkerEnvMessage('VITE_META_WORKER_URL'),
+    PLATFORM_WORKER_URL ? null : MISSING_PLATFORM_WORKER_MSG,
   );
   const [metaTagsMap, setMetaTagsMap] = useState<MetaTagsMap>(new Map());
-  const [metaStatus, setMetaStatus] = useState<MetaStatus>(() => (WORKER_BASE ? 'active' : 'disabled'));
+  const [metaStatus, setMetaStatus] = useState<MetaStatus>(() => (PLATFORM_WORKER_URL ? 'active' : 'disabled'));
   const [metaError, setMetaError] = useState<string | null>(null);
   const [metaSyncCooldownMs, setMetaSyncCooldownMs] = useState(0);
   const circuitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -117,7 +117,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
   }, [startMetaSyncCooldown]);
 
   const syncNow = useCallback(async () => {
-    if (!WORKER_BASE || syncInFlightRef.current) return;
+    if (!PLATFORM_WORKER_URL || syncInFlightRef.current) return;
     if (metaSyncCooldownMs > 0) return;
     if (blockedUntilRef.current && Date.now() < blockedUntilRef.current) return;
     syncInFlightRef.current = true;
@@ -125,7 +125,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
     setMetaStatus('syncing');
     syncDebugLog('meta', 'pull:start', { articleCount: articleIdsRef.current.length });
     try {
-      const updates = await fetchMetaTags(WORKER_BASE, articleIdsRef.current);
+      const updates = await fetchMetaTags(PLATFORM_WORKER_URL, articleIdsRef.current);
       setMetaTagsMap(prev => {
         if (updates.length === 0) return prev;
         const next = new Map(prev);
@@ -156,9 +156,9 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
   const flush = useCallback(() => {
     if (pendingBufferRef.current.length === 0) return;
     const batch = pendingBufferRef.current.splice(0, MAX_BATCH);
-    if (!WORKER_BASE) return;
+    if (!PLATFORM_WORKER_URL) return;
     syncDebugLog('meta', 'push:start', { batchSize: batch.length });
-    void submitMetaTags(WORKER_BASE, batch)
+    void submitMetaTags(PLATFORM_WORKER_URL, batch)
       .then(() => {
         resetFailures();
         rateLimitBackoffStepRef.current = 0;

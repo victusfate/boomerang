@@ -30,10 +30,6 @@ jobs:
         env:
           GITHUB_PAGES: 'true'
           VITE_PLATFORM_WORKER_URL: ${{ vars.VITE_PLATFORM_WORKER_URL }}
-          VITE_RSS_WORKER_URL: ${{ vars.VITE_RSS_WORKER_URL }}
-          VITE_SYNC_WORKER_URL: ${{ vars.VITE_SYNC_WORKER_URL }}
-          VITE_META_WORKER_URL: ${{ vars.VITE_META_WORKER_URL }}
-          VITE_REC_WORKER_URL: ${{ vars.VITE_REC_WORKER_URL }}
           CANONICAL_URL: ${{ vars.CANONICAL_URL }}
         run: |
           if [ -n "$CANONICAL_URL" ]; then
@@ -88,6 +84,7 @@ jobs:
         working-directory: platform-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           npm ci
           npx wrangler deploy

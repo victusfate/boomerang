@@ -167,7 +167,7 @@ export function useFeed(options?: UseFeedOptions) {
         if (recStatusRef.current === 'error' || recBootstrapErrorRef.current) {
           console.warn('[rec] Recommendation backend unavailable; using local ranking fallback.');
         } else if (recStatusRef.current === 'disabled') {
-          console.warn('[rec] Recommendations disabled (missing VITE_REC_WORKER_URL); using local ranking fallback.');
+          console.warn('[rec] Recommendations disabled (missing VITE_PLATFORM_WORKER_URL); using local ranking fallback.');
         } else {
           console.info('[rec] Recommendation backend returned no ids; using local ranking fallback.');
         }

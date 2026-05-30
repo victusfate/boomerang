@@ -7,13 +7,12 @@ import {
   type RecDebugInfo,
   type RecResponseWithScores,
 } from '../services/recWorker';
-import { resolveWorkerUrl } from '../config/workerEnv';
+import { PLATFORM_WORKER_URL } from '../config/workerEnv';
 import { articleCatalogMissingTitleLabel } from '../../../shared/articleRecordCatalog.ts';
 import { TOPIC_META } from './TopicFilter';
 import type { RecStatus } from '../hooks/useRecWorker';
 import type { Topic } from '../types';
 
-const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_REC_WORKER_URL);
 const TOP_N = 25;
 
 const ACTION_ORDER = ['save', 'upvote', 'read', 'seen', 'downvote'] as const;
@@ -216,8 +215,8 @@ export function RecDiagnostics({
     try {
       const [stats, debug] = await Promise.all([
         loadRecStats(),
-        WORKER_BASE
-          ? fetchRecDiagnostics(WORKER_BASE).catch(() => null)
+        PLATFORM_WORKER_URL
+          ? fetchRecDiagnostics(PLATFORM_WORKER_URL).catch(() => null)
           : Promise.resolve(null),
       ]);
       setData({ stats, debug });
@@ -258,7 +257,7 @@ export function RecDiagnostics({
   );
 
   useEffect(() => {
-    if (!titleLookupKey || !WORKER_BASE) return;
+    if (!titleLookupKey || !PLATFORM_WORKER_URL) return;
     const ids = titleLookupKey.split(',').filter(Boolean);
     const missingIds = ids.filter(
       id => !getArticleTitle(id)
@@ -271,7 +270,7 @@ export function RecDiagnostics({
     if (inFlightLookupKeyRef.current === batchKey) return;
     inFlightLookupKeyRef.current = batchKey;
 
-    void fetchRecArticles(WORKER_BASE, missingIds)
+    void fetchRecArticles(PLATFORM_WORKER_URL, missingIds)
       .then((response) => {
         inFlightLookupKeyRef.current = null;
         for (const id of missingIds) settledLookupIdsRef.current.add(id);
