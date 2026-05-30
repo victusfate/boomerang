@@ -1,6 +1,6 @@
 # Boomerang Platform Worker — REST API
 
-_v0.1.0 · generated 2026-05-29_
+_v0.1.0 · generated 2026-05-30_
 
 <!-- Generated from `platform-worker/src/apiRoutes.ts` — do not edit by hand. -->
 
