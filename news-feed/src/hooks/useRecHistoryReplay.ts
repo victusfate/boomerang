@@ -2,9 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { Article, UserPrefs } from '../types';
 import { postInteractions, fetchRecArticles } from '../services/recWorker';
 import { DEFAULT_SOURCES } from '../services/newsService';
-import { resolveWorkerUrl } from '../config/workerEnv';
-
-const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_PLATFORM_WORKER_URL);
+import { PLATFORM_WORKER_URL } from '../config/workerEnv';
 
 const MAX_REPLAY_IDS = 180;
 const REPLAY_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 h
@@ -79,7 +77,7 @@ export function useRecHistoryReplay(
   const articlesReady = allArticles.length > 0 || savedArticles.length > 0;
 
   useEffect(() => {
-    if (!WORKER_BASE || !recBootstrapDone || !recUserId || !articlesReady) return;
+    if (!PLATFORM_WORKER_URL || !recBootstrapDone || !recUserId || !articlesReady) return;
     if (replayedRef.current) return;
     replayedRef.current = true;
 
@@ -144,7 +142,7 @@ export function useRecHistoryReplay(
       // Only fetch from /rec/articles for IDs not in localStorage cache
       if (needsKvFetch.length > 0) {
         try {
-          const meta = await fetchRecArticles(WORKER_BASE, needsKvFetch);
+          const meta = await fetchRecArticles(PLATFORM_WORKER_URL, needsKvFetch);
           const metaById = new Map(meta.articles.map(m => [m.id, m]));
           for (const { articleId, action, ts } of capped) {
             if (!needsKvFetch.includes(articleId)) continue;
@@ -178,7 +176,7 @@ export function useRecHistoryReplay(
         ...summary,
       });
 
-      await postInteractions(WORKER_BASE, recUserId, resolved as Parameters<typeof postInteractions>[2]);
+      await postInteractions(PLATFORM_WORKER_URL, recUserId, resolved as Parameters<typeof postInteractions>[2]);
       lsSet(LS_REPLAY_AT, String(Date.now()));
       console.info('[rec] history replay: done');
     })().catch((e) => { console.warn('[rec] history replay failed', e); });

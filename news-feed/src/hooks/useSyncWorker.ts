@@ -9,10 +9,10 @@ import {
   migrateLegacySyncRoom,
   type SyncRoom,
 } from '../services/syncWorker';
-import { resolveWorkerUrl, missingWorkerEnvMessage } from '../config/workerEnv';
+import { PLATFORM_WORKER_URL, MISSING_PLATFORM_WORKER_MSG } from '../config/workerEnv';
 import { syncDebugLog } from '../config/debugSync';
 
-const SYNC_WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_PLATFORM_WORKER_URL);
+
 const MANUAL_SYNC_COOLDOWN_MS = 15_000;
 const DIRTY_SYNC_DEBOUNCE_MS = 1_000;
 const RATE_LIMIT_BACKOFF_BASE_MS = 2_000;
@@ -375,22 +375,22 @@ export function useSyncWorker(
     setSyncStatus('active');
     setSyncError(null);
     setSyncErrorDetails(null);
-    if (SYNC_WORKER_BASE || r.workerUrl) {
+    if (PLATFORM_WORKER_URL || r.workerUrl) {
       setSyncUrl(buildSyncUrl(r.roomId, r.token));
     }
   }, []);
 
   // On mount: check URL fragment first, then localStorage
   useEffect(() => {
-    const fromFragment = parseSyncFragment(undefined, SYNC_WORKER_BASE);
+    const fromFragment = parseSyncFragment(undefined, PLATFORM_WORKER_URL);
     if (fromFragment) {
-      const migrated = migrateLegacySyncRoom(fromFragment, SYNC_WORKER_BASE);
+      const migrated = migrateLegacySyncRoom(fromFragment, PLATFORM_WORKER_URL);
       activate(migrated);
       consumedSyncHashRef.current = true;
       return;
     }
     const stored = loadSyncRoom();
-    if (stored) activate(migrateLegacySyncRoom(stored, SYNC_WORKER_BASE));
+    if (stored) activate(migrateLegacySyncRoom(stored, PLATFORM_WORKER_URL));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pull once when a room is activated.
@@ -451,9 +451,9 @@ export function useSyncWorker(
   }, [room, syncReady, hasDirtyData, syncStatus, syncCooldownMs, forceSync]);
 
   const generateLink = useCallback(async () => {
-    const workerUrl = SYNC_WORKER_BASE;
+    const workerUrl = PLATFORM_WORKER_URL;
     if (!workerUrl) {
-      const message = missingWorkerEnvMessage('VITE_PLATFORM_WORKER_URL');
+      const message = MISSING_PLATFORM_WORKER_MSG;
       logSyncError('generate-link', message, roomRef.current, { endpoint: '/sync/room' });
       setSyncError(message);
       return;
@@ -549,6 +549,6 @@ export function useSyncWorker(
     forceSync,
     generateLink,
     revoke,
-    syncEnvError: SYNC_WORKER_BASE ? null : missingWorkerEnvMessage('VITE_PLATFORM_WORKER_URL'),
+    syncEnvError: PLATFORM_WORKER_URL ? null : MISSING_PLATFORM_WORKER_MSG,
   };
 }

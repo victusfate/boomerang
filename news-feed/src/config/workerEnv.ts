@@ -1,16 +1,7 @@
-/** Help text appended to “missing VITE_*” errors for workers URLs. */
-export const WORKER_ENV_HELP =
-  'Copy news-feed/.env.example to news-feed/.env and set VITE_PLATFORM_WORKER_URL. Restart the dev server, or rebuild for production.';
+const raw = (import.meta.env.VITE_PLATFORM_WORKER_URL ?? '').replace(/\/$/, '').trim();
 
-export function missingWorkerEnvMessage(varName: string): string {
-  return `Missing ${varName}. ${WORKER_ENV_HELP}`;
-}
+/** Platform worker base URL (no trailing slash). Empty string when unset. */
+export const PLATFORM_WORKER_URL: string = raw;
 
-export function workerUrlFromEnv(raw: string | undefined): string {
-  const s = (raw ?? '').replace(/\/$/, '').trim();
-  return s;
-}
-
-export function resolveWorkerUrl(raw: string | undefined): string {
-  return workerUrlFromEnv(raw);
-}
+export const MISSING_PLATFORM_WORKER_MSG =
+  'Missing VITE_PLATFORM_WORKER_URL. Copy news-feed/.env.example to news-feed/.env and set VITE_PLATFORM_WORKER_URL. Restart the dev server, or rebuild for production.';

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { resolveWorkerUrl, missingWorkerEnvMessage } from '../config/workerEnv';
+import { PLATFORM_WORKER_URL, MISSING_PLATFORM_WORKER_MSG } from '../config/workerEnv';
 import {
   getOrCreateRecUserId,
   postInteractions,
@@ -10,8 +10,6 @@ import {
 import { recordInteraction } from '../services/recStats';
 
 export type { RecInteractionInput };
-
-const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_PLATFORM_WORKER_URL);
 
 const FLUSH_INTERVAL_MS      = 30_000;       // POST interactions every 30 s
 const RECS_FETCH_INTERVAL_MS = 5 * 60_000;   // fetch recs every 5 min (matches KV TTL)
@@ -71,7 +69,7 @@ function poolRecKey(ids: string[]): string {
 
 export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult {
   const [recEnvError] = useState<string | null>(() =>
-    WORKER_BASE ? null : missingWorkerEnvMessage('VITE_PLATFORM_WORKER_URL'),
+    PLATFORM_WORKER_URL ? null : MISSING_PLATFORM_WORKER_MSG,
   );
   const [recArticleIds, setRecArticleIds] = useState<string[]>([]);
   const [recScoreById, setRecScoreById] = useState<Record<string, number>>({});
@@ -82,9 +80,9 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
   const [recTimingMs, setRecTimingMs] = useState<RecResponseWithScores['timingMs'] | null>(null);
   const [recGeneratedAt, setRecGeneratedAt] = useState<number | null>(null);
   const [recStatus, setRecStatus] = useState<RecStatus>(() =>
-    WORKER_BASE ? 'active' : 'disabled',
+    PLATFORM_WORKER_URL ? 'active' : 'disabled',
   );
-  const [recBootstrapDone, setRecBootstrapDone] = useState<boolean>(() => !WORKER_BASE);
+  const [recBootstrapDone, setRecBootstrapDone] = useState<boolean>(() => !PLATFORM_WORKER_URL);
   const [recBootstrapError, setRecBootstrapError] = useState<string | null>(null);
   const [recUserId, setRecUserId] = useState<string | null>(null);
 
@@ -110,7 +108,7 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
   }), []);
 
   const ensureRecUserId = useCallback(async (): Promise<string | null> => {
-    if (!WORKER_BASE) return null;
+    if (!PLATFORM_WORKER_URL) return null;
     if (userIdRef.current) return userIdRef.current;
     const id = await getOrCreateRecUserId();
     userIdRef.current = id;
@@ -120,10 +118,10 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
 
   // POST buffered interactions — no rec fetch here (KV cache would be stale)
   const flush = useCallback(async () => {
-    if (!WORKER_BASE || !userIdRef.current || bufferRef.current.length === 0) return;
+    if (!PLATFORM_WORKER_URL || !userIdRef.current || bufferRef.current.length === 0) return;
     const batch = bufferRef.current.splice(0, FLUSH_BATCH_SIZE);
     try {
-      await postInteractions(WORKER_BASE, userIdRef.current, batch);
+      await postInteractions(PLATFORM_WORKER_URL, userIdRef.current, batch);
       setRecStatus('active');
     } catch {
       bufferRef.current.unshift(...batch);
@@ -136,12 +134,12 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
   }, []);
 
   const fetchPoolRecs = useCallback(async (ids: string[]): Promise<boolean> => {
-    if (!WORKER_BASE || poolFetchInFlightRef.current) return false;
+    if (!PLATFORM_WORKER_URL || poolFetchInFlightRef.current) return false;
     poolFetchInFlightRef.current = true;
     try {
       const userId = await ensureRecUserId();
       if (!userId) return false;
-      const recs = await fetchFeedPoolRecommendations(WORKER_BASE, userId, ids, topicWeightsRef.current);
+      const recs = await fetchFeedPoolRecommendations(PLATFORM_WORKER_URL, userId, ids, topicWeightsRef.current);
       applyRecResponse(recs, recSetters);
       setRecStatus('active');
       setRecBootstrapError(null);
@@ -163,7 +161,7 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
 
   // Feed-pool ranking when candidate ids change (debounced; stable pool snapshots only)
   useEffect(() => {
-    if (!WORKER_BASE) return;
+    if (!PLATFORM_WORKER_URL) return;
     if (!poolKey) {
       void ensureRecUserId()
         .catch(() => {
@@ -186,7 +184,7 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
 
   // Periodic pool-scoped refresh (aligned with KV TTL) — interval does not reset on pool growth
   useEffect(() => {
-    if (!WORKER_BASE) return;
+    if (!PLATFORM_WORKER_URL) return;
     const t = setInterval(() => {
       const ids = articlePoolIdsRef.current;
       if (!userIdRef.current || ids.length === 0) return;
@@ -200,13 +198,13 @@ export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult 
 
   // Periodic flush timer
   useEffect(() => {
-    if (!WORKER_BASE) return;
+    if (!PLATFORM_WORKER_URL) return;
     const t = setInterval(() => { void flush(); }, FLUSH_INTERVAL_MS);
     return () => clearInterval(t);
   }, [flush]);
 
   const sendInteraction = useCallback((input: RecInteractionInput) => {
-    if (!WORKER_BASE) return;
+    if (!PLATFORM_WORKER_URL) return;
     bufferRef.current.push(input);
     void recordInteraction(input);
     if (bufferRef.current.length >= FLUSH_BATCH_SIZE) void flush();
