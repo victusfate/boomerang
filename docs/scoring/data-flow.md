@@ -70,7 +70,7 @@ flowchart TD
 
     subgraph SGD["Online SGD Step (mfLearnOne — scoring.ts)"]
         PREDICT["ŷ = μ + bᵤ + bᵢ + ⟨vᵤ, vᵢ⟩"]
-        ERROR["e = clip(r − ŷ,  ±clipGradient=10)"]
+        ERROR["e = clip(r − ŷ,  ±clipError=10)"]
         UPD_MEAN["μ' = μ + (r − μ) / (n + 1)"]
         UPD_BU["bᵤ' = bᵤ + η_bias · (e − λ_bias · bᵤ)\nη_bias = 0.05,  λ_bias = 0.0"]
         UPD_BI["bᵢ' = bᵢ + η_bias · (e − λ_bias · bᵢ)"]
@@ -248,7 +248,7 @@ Default values from `DEFAULT_MF_PARAMS` in `@victusfate/ricochet` `src/scoring.t
 | `lrLatent` | 0.05 | Learning rate for `vᵤ` and `vᵢ` |
 | `l2Bias` | 0.0 | L2 regularisation on bias terms (off) |
 | `l2Latent` | 0.05 | L2 regularisation on latent vectors |
-| `clipGradient` | 10.0 | Error clipped to `[−10, +10]` before SGD |
+| `clipError` | 10.0 | Error clipped to `[−10, +10]` before SGD |
 | `sigmaInit` | 0.1 | Std dev for Box-Muller normal init of latent vectors |
 
 Candidate pool sizes (boomerang-specific, in `recPoolMerge.ts`):

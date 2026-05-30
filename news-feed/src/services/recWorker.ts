@@ -22,6 +22,7 @@ import {
   chunkArticleIds,
   dedupeArticleIds,
   mergeFeedPoolRecResponses,
+  rankScore01,
   type RecResponseWithScores,
 } from './recPoolMerge';
 
@@ -48,6 +49,7 @@ export {
   dedupeArticleIds,
   chunkArticleIds,
   mergeFeedPoolRecResponses,
+  rankScore01,
 } from './recPoolMerge';
 
 const USER_ID_KEY = 'rec:userId';
@@ -182,7 +184,7 @@ function normalizeScoredArticles(
   if (!Array.isArray(candidate)) {
     return articleIds.map((articleId, index) => ({
       articleId,
-      score: 1 - (index / Math.max(articleIds.length - 1, 1)),
+      score: rankScore01(index, articleIds.length),
     }));
   }
   const rows = candidate.reduce<ScoredArticle[]>((acc, row) => {
@@ -260,8 +262,7 @@ function deriveRankScores(articleIds: string[]): Record<string, number> {
   if (articleIds.length === 0) return {};
   if (articleIds.length === 1) return { [articleIds[0]]: 1 };
   return articleIds.reduce<Record<string, number>>((acc, id, index) => {
-    const rank01 = index / Math.max(articleIds.length - 1, 1);
-    acc[id] = 1 - rank01;
+    acc[id] = rankScore01(index, articleIds.length);
     return acc;
   }, {});
 }

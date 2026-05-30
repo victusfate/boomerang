@@ -140,9 +140,9 @@ Look up article metadata (title, og:image, discussion URL) from KV cache.
 
 **Rate limit:** Per-IP (30 req/min)
 
-**Request:** Query: `ids` (comma-separated article IDs, max 50)
+**Request:** Query: `ids` (comma-separated article IDs)
 
-**Response:** `{ ok: true, found: number, missing: string[], articles: ArticleRecord[] }`
+**Response:** `{ updates: ArticleRecord[] }`
 
 ### **`POST`** `/meta/tags`
 
@@ -150,9 +150,9 @@ Submit AI-generated topic tags for one or more articles; stored in MetaDO.
 
 **Rate limit:** Per-IP (30 req/min)
 
-**Request:** `{ articleId: string, tags: string[] }[]` (max 6 tags per article)
+**Request:** `{ articles: { articleId: string, tags: string[] }[] }` (max 6 tags per article)
 
-**Response:** `{ ok: true, accepted: number }`
+**Response:** `{ ok: true }`
 
 ### **`GET`** `/ws`
 
@@ -168,7 +168,7 @@ Ingest user interaction events for BiasedMF model training.
 
 **Rate limit:** Per-IP (60 req/min)
 
-**Request:** `{ events: InteractionEvent[] }` or bare `InteractionEvent[]` (max 200)
+**Request:** `{ events: InteractionEvent[] }` or bare `InteractionEvent[]` (max 200 events)
 
 **Response:** `{ ok: true, queued: number }`
 
@@ -178,11 +178,11 @@ Global ranked recommendations for a user (top-N from entire item catalogue).
 
 **Rate limit:** Per-IP (30 req/min)
 
-**Request:** Query: `limit` (default 50, max 200), `candidates` (optional comma-separated IDs)
+**Request:** Query: `limit` (default 50, max 500), `candidates` (optional comma-separated IDs)
 
 **Response:** `RecResponse` — ranked `articleIds[]`, `scoredArticleIds[]`, `diagnostics`, `cache`, `timingMs`
 
-> Cold-start users receive popularity-biased ranking. Supports `If-None-Match` / `ETag` (GET only).
+> Cold-start users receive popularity-biased ranking.
 
 ### **`POST`** `/recommendations/:userId`
 

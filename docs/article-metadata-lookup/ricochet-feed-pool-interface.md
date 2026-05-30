@@ -111,15 +111,19 @@ POST http://do-internal/recs/:userId
 /** Request body for feed-pool ranking (POST /recommendations/:userId). */
 export interface RecRankRequest {
   /** Deduped article ids to score; must be non-empty for pool mode. */
-  candidateArticleIds: string[];
-  /** Max rows returned; default 50, cap e.g. 500. */
+  candidateArticleIds?: string[];
+  /** Max rows returned; default 50, cap 500. */
   limit?: number;
+  /** Per-topic multipliers from local learned weights (added v1.6.0). Bypasses KV cache. */
+  topicWeights?: Record<string, number>;
 }
 
 export interface RecDiagnostics {
   // ... existing fields ...
   /** When set, indicates feed-pool mode vs global candidate mode. */
   candidateMode?: 'feed-pool' | 'global';
+  /** Candidate pool strategy used by the DO (added v1.5.0). */
+  candidateStrategy?: 'diverse' | 'top-bias' | 'feed-pool';
 }
 ```
 
@@ -295,6 +299,11 @@ Boomerang embeds ricochet via `platform-worker` (`RecDO` export from `@victusfat
 | v1.2.3 | `protected state/env` in RecDO; export `RankingCacheEntry` and cache TTL constants |
 | v1.3.0 | Export `REC_FEED_POOL_CACHE_TTL_MS` (5 min) and `REC_GLOBAL_CACHE_TTL_MS` (1 h) from lib |
 | v1.3.1 | Fix: `export * from './types'` in `lib.ts` — `RankingCacheEntry`, cache TTLs, and all types now importable from `@victusfate/ricochet` public lib entry (not just worker subpath) |
+| v1.4.x | Internal scoring improvements; `RankingCacheEntry`, `REC_FEED_POOL_CACHE_TTL_MS`, `REC_GLOBAL_CACHE_TTL_MS`, `ArticleScore` removed from public lib exports |
+| v1.5.0 | **Breaking:** `MfParams.clipGradient` renamed to `clipError`; `*.pages.dev` no longer auto-allowed in CORS. Non-breaking: `diagnostics.candidateStrategy` (`'diverse' \| 'top-bias' \| 'feed-pool'`) added |
+| v1.6.0 | `RecRankRequest.topicWeights?: Record<string, number>` — pass user learned topic weights to the DO for personalised ranking; bypasses KV cache when set |
+| v1.6.1 | `parseTopicWeights` exported from public lib entry (`dist/lib.d.ts`) — platform wrappers can import validation directly instead of reimplementing it |
+| v1.7.0 | Auto-docs CI: `.github/workflows/docs.yml` regenerates and commits TypeDoc on every push to `main` touching `src/` — no breaking or additive API changes |
 
-Boomerang platform-worker: `github:victusfate/ricochet#v1.3.1`  
-Boomerang news-feed: `github:victusfate/ricochet#v1.3.1`
+Boomerang platform-worker: `github:victusfate/ricochet#v1.7.0`  
+Boomerang news-feed: `github:victusfate/ricochet#v1.7.0`

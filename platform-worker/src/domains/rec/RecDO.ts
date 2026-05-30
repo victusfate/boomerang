@@ -79,12 +79,13 @@ export class RecDO extends BaseRecDO {
     }
 
     let candidateIds: string[] | undefined;
+    let hasTopicWeights = false;
     let bodyText: string | undefined;
 
     if (request.method === 'POST') {
       bodyText = await request.text();
       try {
-        const body = JSON.parse(bodyText) as { candidateArticleIds?: unknown; limit?: unknown };
+        const body = JSON.parse(bodyText) as { candidateArticleIds?: unknown; limit?: unknown; topicWeights?: unknown };
         if (Array.isArray(body.candidateArticleIds)) {
           candidateIds = (body.candidateArticleIds as unknown[])
             .filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
@@ -93,6 +94,10 @@ export class RecDO extends BaseRecDO {
           const p = typeof body.limit === 'number' ? body.limit : parseInt(String(body.limit), 10);
           if (!Number.isNaN(p)) limit = Math.max(1, Math.min(500, p));
         }
+        // topicWeights bypass: personalised weights must not share a cache entry with
+        // unweighted or differently-weighted requests for the same candidate set.
+        hasTopicWeights = body.topicWeights !== undefined && body.topicWeights !== null
+          && typeof body.topicWeights === 'object' && !Array.isArray(body.topicWeights);
       } catch {
         // invalid JSON — let super handle the 400
         return super.fetch(new Request(request.url, {
@@ -106,6 +111,12 @@ export class RecDO extends BaseRecDO {
       if (raw !== null) {
         candidateIds = raw.split(',').map(s => s.trim()).filter(Boolean);
       }
+    }
+
+    // Bypass SQLite cache when topicWeights are present — mirrors ricochet's KV cache bypass.
+    if (hasTopicWeights) {
+      const baseReq = new Request(request.url, { method: 'POST', headers: request.headers, body: bodyText });
+      return super.fetch(baseReq);
     }
 
     const cacheKey = await makeCacheKey(userId, limit, candidateIds);

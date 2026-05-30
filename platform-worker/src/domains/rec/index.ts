@@ -1,7 +1,9 @@
 import type { Env } from '../../env';
 import { corsHeaders } from '../../cors';
+import { json, tooManyRequests, getClientIp, checkRateLimit } from '../_shared/http';
+import { rankScore01 } from '../_shared/rank';
 import type { RecCoreResponse, RecRankRequest, RecResponse } from '@victusfate/ricochet';
-import { isValidEvent, REC_MAX_CANDIDATES } from '@victusfate/ricochet';
+import { isValidEvent, REC_MAX_CANDIDATES, parseTopicWeights } from '@victusfate/ricochet';
 import {
   normalizeIdsParam,
   lookupArticleMetaByIds,
@@ -16,9 +18,6 @@ export type { RecArticleMeta, RecArticlesResponse } from './articleMeta';
 const RATE_LIMIT_INTERACTIONS_MAX = 60;
 const RATE_LIMIT_RECS_MAX = 30;
 const RATE_LIMIT_ARTICLES_MAX = 30;
-const RATE_LIMIT_WINDOW_MS = 60_000;
-
-const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 
 const MAX_BATCH_SIZE = 200;
 const MAX_LIMIT = 500;
@@ -55,6 +54,7 @@ function parseCandidateArticleIds(value: unknown): { ids?: string[]; message?: s
   return { ids: deduped };
 }
 
+
 function parseCandidatesCsv(raw: string | null): string[] | undefined {
   if (raw === null) return undefined;
   if (!raw.trim()) return [];
@@ -67,54 +67,6 @@ function parseCandidatesCsv(raw: string | null): string[] | undefined {
     deduped.push(id);
   }
   return deduped;
-}
-
-
-function json(data: unknown, request: Request, env: Env, init?: ResponseInit, cacheMaxAge?: number): Response {
-  const headers = corsHeaders(request, env);
-  headers.set('Content-Type', 'application/json; charset=utf-8');
-  if (cacheMaxAge !== undefined) headers.set('Cache-Control', `public, max-age=${cacheMaxAge}`);
-  return new Response(JSON.stringify(data), { ...init, headers });
-}
-
-function tooManyRequests(request: Request, env: Env, retryAfterSeconds: number): Response {
-  const headers = corsHeaders(request, env);
-  headers.set('Retry-After', String(retryAfterSeconds));
-  headers.set('Content-Type', 'application/json; charset=utf-8');
-  return new Response(
-    JSON.stringify({ ok: false, message: 'Too Many Requests' }),
-    { status: 429, headers },
-  );
-}
-
-function getClientIp(request: Request): string | null {
-  return request.headers.get('CF-Connecting-IP');
-}
-
-function checkRateLimit(
-  request: Request,
-  key: string,
-  max: number,
-): { limited: false } | { limited: true; retryAfterSeconds: number } {
-  const clientIp = getClientIp(request);
-  if (!clientIp) return { limited: false };
-  const now = Date.now();
-  const bucketKey = `${key}:${clientIp}`;
-  const existing = rateBuckets.get(bucketKey);
-  if (!existing || existing.resetAt <= now) {
-    rateBuckets.set(bucketKey, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return { limited: false };
-  }
-  if (existing.count >= max) {
-    return { limited: true, retryAfterSeconds: Math.max(1, Math.ceil((existing.resetAt - now) / 1000)) };
-  }
-  existing.count += 1;
-  if (rateBuckets.size > 10_000) {
-    for (const [k, bucket] of rateBuckets) {
-      if (bucket.resetAt <= now) rateBuckets.delete(k);
-    }
-  }
-  return { limited: false };
 }
 
 
@@ -149,7 +101,7 @@ function normalizeCoreResponse(
     }, [])
     : articleIds.map((articleId, index) => ({
       articleId,
-      score: 1 - (index / Math.max(articleIds.length - 1, 1)),
+      score: rankScore01(index, articleIds.length),
     }));
   const d = rawRecord.diagnostics && typeof rawRecord.diagnostics === 'object'
     ? rawRecord.diagnostics as Record<string, unknown>
@@ -160,6 +112,9 @@ function normalizeCoreResponse(
     factorCount: typeof d.factorCount === 'number' ? d.factorCount : 0,
     candidateMode: (d.candidateMode === 'feed-pool' || d.candidateMode === 'global')
       ? (d.candidateMode as 'feed-pool' | 'global')
+      : undefined,
+    candidateStrategy: (d.candidateStrategy === 'diverse' || d.candidateStrategy === 'top-bias' || d.candidateStrategy === 'feed-pool')
+      ? (d.candidateStrategy as 'diverse' | 'top-bias' | 'feed-pool')
       : undefined,
     candidateCount: typeof d.candidateCount === 'number' ? d.candidateCount : articleIds.length,
     rankedCount: typeof d.rankedCount === 'number' ? d.rankedCount : scoredArticleIds.length,
@@ -220,27 +175,31 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
     const limited = checkRateLimit(request, 'interactions', RATE_LIMIT_INTERACTIONS_MAX);
     if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
 
-    let body: { events?: unknown };
+    let rawBody: unknown;
     try {
-      body = await request.json() as { events?: unknown };
+      rawBody = await request.json();
     } catch {
       return json({ ok: false, message: 'Invalid JSON body' }, request, env, { status: 400 });
     }
 
-    if (!Array.isArray(body.events)) {
+    const events: unknown = Array.isArray(rawBody)
+      ? rawBody
+      : (rawBody as { events?: unknown })?.events;
+
+    if (!Array.isArray(events)) {
       return json(
-        { ok: false, message: 'body.events must be an array' },
+        { ok: false, message: 'body must be an array or { events: InteractionEvent[] }' },
         request, env, { status: 400 },
       );
     }
-    if (body.events.length > MAX_BATCH_SIZE) {
+    if (events.length > MAX_BATCH_SIZE) {
       return json(
         { ok: false, message: `Batch too large; max ${MAX_BATCH_SIZE} events` },
         request, env, { status: 400 },
       );
     }
 
-    const valid = body.events.filter(isValidEvent);
+    const valid = events.filter(isValidEvent);
     if (valid.length === 0) {
       return json({ ok: true, queued: 0 }, request, env);
     }
@@ -265,6 +224,7 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
     const userId = recsMatch[1];
     let limit = parseLimit(url.searchParams.get('limit'));
     let candidateArticleIds: string[] | undefined;
+    let topicWeights: Record<string, number> | undefined;
     let candidateModeProvided = false;
 
     if (request.method === 'GET') {
@@ -288,6 +248,13 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
       }
       candidateArticleIds = parsed.ids;
       if (body?.limit !== undefined) limit = parseLimit(body.limit);
+      if (body?.topicWeights !== undefined) {
+        const parsedTw = parseTopicWeights(body.topicWeights);
+        if (parsedTw.message) {
+          return json({ ok: false, message: parsedTw.message }, request, env, { status: 400 });
+        }
+        topicWeights = parsedTw.weights;
+      }
     }
 
     if (candidateArticleIds && candidateArticleIds.length > REC_MAX_CANDIDATES) {
@@ -301,12 +268,16 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
 
     const stub = getRecDOStub(env);
     const tDoFetchStart = nowMs();
-    const doRes = candidateModeProvided
+    const doRes = (candidateModeProvided || topicWeights)
       ? await stub.fetch(
         new Request(`http://do-internal/recs/${encodeURIComponent(userId)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ candidateArticleIds: candidateArticleIds ?? [], limit }),
+          body: JSON.stringify({
+            ...(candidateModeProvided ? { candidateArticleIds: candidateArticleIds ?? [] } : {}),
+            ...(topicWeights ? { topicWeights } : {}),
+            limit,
+          }),
         }),
       )
       : await stub.fetch(
@@ -321,9 +292,9 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
         doStatus: doRes.status,
       });
     }
-    let recCoreRaw: Partial<RecCoreResponse> & Record<string, unknown>;
+    let recCoreRaw;
     try {
-      recCoreRaw = await doRes.json() as (Partial<RecCoreResponse> & Record<string, unknown>);
+      recCoreRaw = await doRes.json() as Partial<RecCoreResponse> & Record<string, unknown>;
     } catch {
       return recErrorJson(
         request,
