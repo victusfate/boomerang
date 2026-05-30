@@ -3,7 +3,7 @@ import { resolveWorkerUrl, missingWorkerEnvMessage } from '../config/workerEnv';
 import { fetchMetaTags, submitMetaTags, MetaRateLimitError } from '../services/metaWorker.ts';
 import { syncDebugLog } from '../config/debugSync';
 
-const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_META_WORKER_URL);
+const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_PLATFORM_WORKER_URL);
 const MANUAL_META_SYNC_COOLDOWN_MS = 15_000;
 const BACKOFF_BASE_MS = 30_000;
 const BACKOFF_MAX_MS = 10 * 60_000;
@@ -22,13 +22,13 @@ export interface UseMetaWorkerResult {
   metaSyncCooldownMs: number;
   metaStatus: MetaStatus;
   metaError: string | null;
-  /** Set when `VITE_META_WORKER_URL` is missing at build time */
+  /** Set when `VITE_PLATFORM_WORKER_URL` is missing at build time */
   metaEnvError: string | null;
 }
 
 export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
   const [metaEnvError] = useState<string | null>(() =>
-    WORKER_BASE ? null : missingWorkerEnvMessage('VITE_META_WORKER_URL'),
+    WORKER_BASE ? null : missingWorkerEnvMessage('VITE_PLATFORM_WORKER_URL'),
   );
   const [metaTagsMap, setMetaTagsMap] = useState<MetaTagsMap>(new Map());
   const [metaStatus, setMetaStatus] = useState<MetaStatus>(() => (WORKER_BASE ? 'active' : 'disabled'));

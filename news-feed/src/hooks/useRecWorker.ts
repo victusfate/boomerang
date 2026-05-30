@@ -11,7 +11,7 @@ import { recordInteraction } from '../services/recStats';
 
 export type { RecInteractionInput };
 
-const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_REC_WORKER_URL);
+const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_PLATFORM_WORKER_URL);
 
 const FLUSH_INTERVAL_MS      = 30_000;       // POST interactions every 30 s
 const RECS_FETCH_INTERVAL_MS = 5 * 60_000;   // fetch recs every 5 min (matches KV TTL)
@@ -71,7 +71,7 @@ function poolRecKey(ids: string[]): string {
 
 export function useRecWorker(articlePoolIds: string[] = []): UseRecWorkerResult {
   const [recEnvError] = useState<string | null>(() =>
-    WORKER_BASE ? null : missingWorkerEnvMessage('VITE_REC_WORKER_URL'),
+    WORKER_BASE ? null : missingWorkerEnvMessage('VITE_PLATFORM_WORKER_URL'),
   );
   const [recArticleIds, setRecArticleIds] = useState<string[]>([]);
   const [recScoreById, setRecScoreById] = useState<Record<string, number>>({});

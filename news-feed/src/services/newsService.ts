@@ -3,7 +3,7 @@ import { missingWorkerEnvMessage, resolveWorkerUrl } from '../config/workerEnv';
 import { partitionSourcesForSplitFetch } from './feedPartition';
 import rssSourcesJson from '../../../shared/rss-sources.json';
 
-const RSS_WORKER_URL = resolveWorkerUrl(import.meta.env.VITE_RSS_WORKER_URL);
+const RSS_WORKER_URL = resolveWorkerUrl(import.meta.env.VITE_PLATFORM_WORKER_URL);
 
 // Built-in sources: single source of truth in `shared/rss-sources.json` (priority 1 = first batch; 2 = background).
 export const DEFAULT_SOURCES: NewsSource[] = rssSourcesJson as NewsSource[];
@@ -23,7 +23,7 @@ function tagFetchTier(articles: Article[], tier: 'fast' | 'background'): Article
   return articles.map(a => ({ ...a, fetchTier: tier }));
 }
 
-const MISSING_RSS_ENV_MSG = missingWorkerEnvMessage('VITE_RSS_WORKER_URL');
+const MISSING_RSS_ENV_MSG = missingWorkerEnvMessage('VITE_PLATFORM_WORKER_URL');
 
 /** Worker origin (bundle + `/og-image`). Throws if env is unset — same as `fetchAllSources`. */
 export function getRssWorkerBaseUrl(): string {

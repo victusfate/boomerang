@@ -39,7 +39,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png}'],
-        // RSS is fetched only via Cloudflare Worker (VITE_RSS_WORKER_URL); no RSS proxy caching.
+        // RSS is fetched only via Cloudflare Worker (VITE_PLATFORM_WORKER_URL); no RSS proxy caching.
       },
     }),
   ],

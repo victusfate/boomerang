@@ -12,7 +12,7 @@ import {
 import { resolveWorkerUrl, missingWorkerEnvMessage } from '../config/workerEnv';
 import { syncDebugLog } from '../config/debugSync';
 
-const SYNC_WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_SYNC_WORKER_URL);
+const SYNC_WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_PLATFORM_WORKER_URL);
 const MANUAL_SYNC_COOLDOWN_MS = 15_000;
 const DIRTY_SYNC_DEBOUNCE_MS = 1_000;
 const RATE_LIMIT_BACKOFF_BASE_MS = 2_000;
@@ -40,7 +40,7 @@ export interface UseSyncWorkerResult {
   forceSync: () => Promise<void>;
   generateLink: () => Promise<void>;
   revoke: () => Promise<void>;
-  /** Non-null when `VITE_SYNC_WORKER_URL` is missing — needed to create new rooms; existing fragment/storage rooms still work */
+  /** Non-null when `VITE_PLATFORM_WORKER_URL` is missing — needed to create new rooms; existing fragment/storage rooms still work */
   syncEnvError: string | null;
 }
 
@@ -453,7 +453,7 @@ export function useSyncWorker(
   const generateLink = useCallback(async () => {
     const workerUrl = SYNC_WORKER_BASE;
     if (!workerUrl) {
-      const message = missingWorkerEnvMessage('VITE_SYNC_WORKER_URL');
+      const message = missingWorkerEnvMessage('VITE_PLATFORM_WORKER_URL');
       logSyncError('generate-link', message, roomRef.current, { endpoint: '/sync/room' });
       setSyncError(message);
       return;
@@ -549,6 +549,6 @@ export function useSyncWorker(
     forceSync,
     generateLink,
     revoke,
-    syncEnvError: SYNC_WORKER_BASE ? null : missingWorkerEnvMessage('VITE_SYNC_WORKER_URL'),
+    syncEnvError: SYNC_WORKER_BASE ? null : missingWorkerEnvMessage('VITE_PLATFORM_WORKER_URL'),
   };
 }

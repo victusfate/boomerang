@@ -30,10 +30,6 @@ jobs:
         env:
           GITHUB_PAGES: 'true'
           VITE_PLATFORM_WORKER_URL: ${{ vars.VITE_PLATFORM_WORKER_URL }}
-          VITE_RSS_WORKER_URL: ${{ vars.VITE_RSS_WORKER_URL }}
-          VITE_SYNC_WORKER_URL: ${{ vars.VITE_SYNC_WORKER_URL }}
-          VITE_META_WORKER_URL: ${{ vars.VITE_META_WORKER_URL }}
-          VITE_REC_WORKER_URL: ${{ vars.VITE_REC_WORKER_URL }}
           CANONICAL_URL: ${{ vars.CANONICAL_URL }}
         run: |
           if [ -n "$CANONICAL_URL" ]; then

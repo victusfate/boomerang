@@ -4,7 +4,7 @@ import { postInteractions, fetchRecArticles } from '../services/recWorker';
 import { DEFAULT_SOURCES } from '../services/newsService';
 import { resolveWorkerUrl } from '../config/workerEnv';
 
-const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_REC_WORKER_URL);
+const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_PLATFORM_WORKER_URL);
 
 const MAX_REPLAY_IDS = 180;
 const REPLAY_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 h

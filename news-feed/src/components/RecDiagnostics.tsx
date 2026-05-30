@@ -13,7 +13,7 @@ import { TOPIC_META } from './TopicFilter';
 import type { RecStatus } from '../hooks/useRecWorker';
 import type { Topic } from '../types';
 
-const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_REC_WORKER_URL);
+const WORKER_BASE = resolveWorkerUrl(import.meta.env.VITE_PLATFORM_WORKER_URL);
 const TOP_N = 25;
 
 const ACTION_ORDER = ['save', 'upvote', 'read', 'seen', 'downvote'] as const;
