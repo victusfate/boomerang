@@ -22,8 +22,31 @@ inputs:
     type: boolean
     default: false
     description: Print available capabilities and harnesses as JSON and exit.
+  ref:
+    type: string
+    default: main
+    description: Scaffold ref to stamp in the manifest and --plan output.
+  no-record:
+    type: boolean
+    default: false
+    description: Suppress writing the .sync/hoisted registration manifest.
+  from-manifest:
+    type: string
+    description: Path to an existing manifest; re-emits all recorded entries. Mutually exclusive with names.
+  plan:
+    type: boolean
+    default: false
+    description: Print annotated source paths ({ path, required }) without emitting any files. required:true sources must exist; required:false sources are generated when absent.
+  fetch:
+    type: boolean
+    default: false
+    description: Fetch all sources from GitHub raw URLs instead of reading from a local scaffold clone. Uses https://raw.githubusercontent.com/victusfate/scaffold/<ref>/<path>. Requires network access. Env HOIST_RAW_BASE overrides the base URL (useful for testing).
 run:
   command: node ./run
+test:
+  command: node ./test
+test-integration:
+  command: RUN_INTEGRATION=1 node ./test-integration
 emits:
   - claude
   - cursor
