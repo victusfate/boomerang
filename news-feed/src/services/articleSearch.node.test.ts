@@ -116,7 +116,7 @@ test('scope all returns all matches', () => {
 });
 
 // ── buildCandidates ──────────────────────────────────────────────────────────
-import { buildCandidates, type PoolArticle } from './articleSearch.ts';
+import { buildCandidates, candidateToArticle, type PoolArticle } from './articleSearch.ts';
 
 function pa(id: string, title: string): PoolArticle {
   return {
@@ -167,6 +167,32 @@ test('buildCandidates skips history entries already saved out-of-pool', () => {
   const out = buildCandidates([], saved, history);
   assert.equal(out.filter(c => c.id === 'x').length, 1);
   assert.equal(out[0].inQueue, true);
+});
+
+test('buildCandidates threads history sourceId through to candidates', () => {
+  const history = [
+    { id: 'h', title: 'Hist', url: 'u', source: 'BBC News', sourceId: 'bbc', publishedAt: '2024-01-01T00:00:00Z' },
+    { id: 'h2', title: 'Old hist', url: 'u2', source: 's', publishedAt: '2024-01-01T00:00:00Z' },
+  ];
+  const out = buildCandidates([], [], history);
+  assert.equal(out.find(c => c.id === 'h')!.sourceId, 'bbc');
+  assert.equal(out.find(c => c.id === 'h2')!.sourceId, ''); // pre-sourceId entries degrade to ''
+});
+
+test('candidateToArticle synthesizes a minimal Article from a history candidate', () => {
+  const c = candidate('h', 'Hist title', {
+    inPool: false, source: 'BBC News', sourceId: 'bbc',
+    url: 'https://example.com/h', publishedAt: '2024-03-01T00:00:00Z',
+  });
+  const a = candidateToArticle(c);
+  assert.equal(a.id, 'h');
+  assert.equal(a.title, 'Hist title');
+  assert.equal(a.url, 'https://example.com/h');
+  assert.equal(a.source, 'BBC News');
+  assert.equal(a.sourceId, 'bbc');
+  assert.equal(a.publishedAt.toISOString(), '2024-03-01T00:00:00.000Z');
+  assert.deepEqual(a.topics, []);
+  assert.equal(a.description, '');
 });
 
 test('buildCandidates dedupes duplicate ids within the history list', () => {
