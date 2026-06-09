@@ -22,7 +22,13 @@ export async function createRoom(r2: R2Bucket): Promise<{ roomId: string; token:
 }
 
 export async function deleteRoom(r2: R2Bucket, roomId: string): Promise<void> {
-  const listed = await r2.list({ prefix: roomId + '/' });
-  await Promise.all(listed.objects.map(obj => r2.delete(obj.key)));
+  // r2.list() returns at most 1000 objects per page — follow the cursor so
+  // large rooms are fully deleted, not orphaned past the first page.
+  let cursor: string | undefined;
+  do {
+    const listed = await r2.list({ prefix: roomId + '/', cursor });
+    await Promise.all(listed.objects.map(obj => r2.delete(obj.key)));
+    cursor = listed.truncated ? listed.cursor : undefined;
+  } while (cursor);
   await r2.delete(roomId + '/.token');
 }

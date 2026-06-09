@@ -32,8 +32,15 @@ export function checkRateLimit(
 ): { limited: false } | { limited: true; retryAfterSeconds: number } {
   const clientIp = getClientIp(request);
   if (!clientIp) return { limited: false };
+  return checkRateLimitByKey(`${key}:${clientIp}`, max);
+}
+
+/** Rate limit on an arbitrary bucket key (e.g. per sync room rather than per IP). */
+export function checkRateLimitByKey(
+  bucketKey: string,
+  max: number,
+): { limited: false } | { limited: true; retryAfterSeconds: number } {
   const now = Date.now();
-  const bucketKey = `${key}:${clientIp}`;
   const existing = rateBuckets.get(bucketKey);
   if (!existing || existing.resetAt <= now) {
     rateBuckets.set(bucketKey, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });

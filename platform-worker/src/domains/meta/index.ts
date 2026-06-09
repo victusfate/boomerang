@@ -8,6 +8,12 @@ export { MetaDO } from './MetaDO';
 const RATE_LIMIT_MAX_REQUESTS = 30;
 
 const MAX_TAGS_PER_ARTICLE = 6;
+/** Matches rec's MAX_ARTICLE_IDS_LOOKUP — bounds parallel KV reads per request. */
+const MAX_META_IDS_LOOKUP = 50;
+/** Matches MetaDO MAX_BATCH_SIZE — the WS path enforces the same cap. */
+const MAX_META_TAGS_BATCH = 200;
+/** articleId becomes a KV key — bound length and charset (ids are 16-hex today). */
+const ARTICLE_ID_SHAPE = /^[\w-]{1,64}$/;
 
 import type { ArticleRecord } from './articleRecord';
 import { ARTICLE_RECORD_TTL_SECONDS, articleRecordKey } from './articleRecord';
@@ -17,7 +23,8 @@ type ArticleMetaEntry = ArticleRecord;
 function parseIdsParam(url: URL): string[] {
   const raw = url.searchParams.get('ids') ?? '';
   if (!raw.trim()) return [];
-  return Array.from(new Set(raw.split(',').map(s => s.trim()).filter(Boolean)));
+  return Array.from(new Set(raw.split(',').map(s => s.trim()).filter(Boolean)))
+    .slice(0, MAX_META_IDS_LOOKUP);
 }
 
 async function loadMetaEntries(env: Env, ids: string[]): Promise<ArticleMetaEntry[]> {
@@ -68,12 +75,20 @@ export async function handleMeta(request: Request, env: Env, _ctx: ExecutionCont
       return json({ ok: false, message: 'Invalid JSON body' }, request, env, { status: 400 });
     }
     const articles = Array.isArray(body.articles) ? body.articles : [];
+    if (articles.length > MAX_META_TAGS_BATCH) {
+      return json(
+        { ok: false, message: `articles must contain at most ${MAX_META_TAGS_BATCH} entries` },
+        request, env, { status: 400 },
+      );
+    }
+    const upserts: Promise<void>[] = [];
     for (const item of articles) {
-      if (typeof item.articleId !== 'string' || !Array.isArray(item.tags)) continue;
+      if (typeof item.articleId !== 'string' || !ARTICLE_ID_SHAPE.test(item.articleId) || !Array.isArray(item.tags)) continue;
       const tags = normaliseTags(item.tags.filter((t): t is string => typeof t === 'string'));
       if (tags.length === 0) continue;
-      await upsertMetaEntry(env, item.articleId, tags);
+      upserts.push(upsertMetaEntry(env, item.articleId, tags));
     }
+    await Promise.all(upserts);
     return json({ ok: true }, request, env);
   }
 

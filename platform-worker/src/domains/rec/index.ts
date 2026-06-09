@@ -206,11 +206,17 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
     }
 
     const stub = getRecDOStub(env);
-    await stub.fetch(new Request('http://do-internal/ingest', {
+    const ingest = await stub.fetch(new Request('http://do-internal/ingest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(valid),
     }));
+    if (!ingest.ok) {
+      return json(
+        { ok: false, message: `Ingest failed (${ingest.status})` },
+        request, env, { status: 502 },
+      );
+    }
 
     return json({ ok: true, queued: valid.length }, request, env);
   }

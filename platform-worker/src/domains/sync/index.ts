@@ -1,12 +1,10 @@
 import type { Env } from '../../env';
 import { corsHeaders } from '../../cors';
-import { json, getClientIp } from '../_shared/http';
+import { json, getClientIp, checkRateLimitByKey, tooManyRequests } from '../_shared/http';
 import { createRoom, deleteRoom } from './room';
 import { verifyToken, extractBearer } from './auth';
 
 const RATE_LIMIT_MAX_REQUESTS = 30;
-const RATE_LIMIT_WINDOW_MS = 60_000;
-const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 
 function unauthorized(request: Request, env: Env): Response {
   return json({ error: 'Unauthorized' }, request, env, { status: 401 });
@@ -16,31 +14,16 @@ function notFound(request: Request, env: Env): Response {
   return json({ error: 'Not Found' }, request, env, { status: 404 });
 }
 
-function tooManyRequests(request: Request, env: Env, retryAfterSeconds: number): Response {
-  const headers = corsHeaders(request, env);
-  headers.set('Retry-After', String(retryAfterSeconds));
-  headers.set('Content-Type', 'application/json; charset=utf-8');
-  return new Response(JSON.stringify({ error: 'Too Many Requests' }), { status: 429, headers });
+function checkRateLimit(scope: string): { limited: false } | { limited: true; retryAfterSeconds: number } {
+  return checkRateLimitByKey(`sync:${scope}`, RATE_LIMIT_MAX_REQUESTS);
 }
 
-function checkRateLimit(scope: string): { limited: false } | { limited: true; retryAfterSeconds: number } {
-  const now = Date.now();
-  const key = `sync:${scope}`;
-  const existing = rateBuckets.get(key);
-  if (!existing || existing.resetAt <= now) {
-    rateBuckets.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return { limited: false };
-  }
-  if (existing.count >= RATE_LIMIT_MAX_REQUESTS) {
-    return { limited: true, retryAfterSeconds: Math.max(1, Math.ceil((existing.resetAt - now) / 1000)) };
-  }
-  existing.count += 1;
-  if (rateBuckets.size > 5000) {
-    for (const [bucketKey, bucket] of rateBuckets) {
-      if (bucket.resetAt <= now) rateBuckets.delete(bucketKey);
-    }
-  }
-  return { limited: false };
+/** Bound buffered upload sizes — sync payloads are small prefs/article docs. */
+const MAX_SYNC_BODY_BYTES = 4 * 1024 * 1024;
+
+function bodyTooLarge(request: Request): boolean {
+  const cl = parseInt(request.headers.get('Content-Length') ?? '0', 10);
+  return Number.isFinite(cl) && cl > MAX_SYNC_BODY_BYTES;
 }
 
 const BLOCK_RE = /^\/sync\/([0-9a-f]{64})\/blocks\/([A-Za-z0-9_-]+)$/;
@@ -82,6 +65,9 @@ export async function handleSync(request: Request, env: Env, _ctx: ExecutionCont
       }
       const limited = checkRateLimit(`room:${roomId}`);
       if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
+      if (bodyTooLarge(request)) {
+        return json({ error: 'Payload Too Large' }, request, env, { status: 413 });
+      }
       const existing = await env.SYNC_BLOCKS.head(`${roomId}/blocks/${cid}`);
       if (existing) {
         return new Response(null, { status: 204, headers: corsHeaders(request, env) });
@@ -114,14 +100,23 @@ export async function handleSync(request: Request, env: Env, _ctx: ExecutionCont
       }
       const limited = checkRateLimit(`room:${roomId}`);
       if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
+      if (bodyTooLarge(request)) {
+        return json({ error: 'Payload Too Large' }, request, env, { status: 413 });
+      }
       const ifMatch = request.headers.get('If-Match');
+      const body = await request.text();
       if (ifMatch) {
-        const current = await env.SYNC_BLOCKS.head(`${roomId}/meta`);
-        if (current && current.etag !== ifMatch) {
+        // Atomic conditional write — a head-then-put check is a TOCTOU window
+        // where two concurrent PUTs both pass and silently last-write-win.
+        const put = await env.SYNC_BLOCKS.put(`${roomId}/meta`, body, {
+          httpMetadata: { contentType: 'application/json' },
+          onlyIf: { etagMatches: ifMatch },
+        });
+        if (put === null) {
           return new Response(null, { status: 412, headers: corsHeaders(request, env) });
         }
+        return new Response(null, { status: 200, headers: corsHeaders(request, env) });
       }
-      const body = await request.text();
       await env.SYNC_BLOCKS.put(`${roomId}/meta`, body, {
         httpMetadata: { contentType: 'application/json' },
       });

@@ -1,5 +1,6 @@
 import type { Env } from '../../env';
 import { corsHeaders } from '../../cors';
+import { checkRateLimit, tooManyRequests } from '../_shared/http';
 import { DEFAULT_SOURCES, SOURCE_BY_ID, type NewsSource } from './sources';
 import { fetchFeedsStaggered } from './rssFetch';
 import { extractOgImageFromHtml, isAllowedOgFetchUrl } from './ogImage';
@@ -9,6 +10,49 @@ const BUNDLE_CACHE_TTL_SEC = 300;
 const IMAGE_PROXY_CACHE_TTL_SEC = 86_400;
 const MAX_HTML_BYTES = 1 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+/** Custom feeds are attacker-controllable URLs — cap the fan-out per request. */
+const MAX_CUSTOM_FEEDS = 20;
+const RATE_LIMIT_BUNDLE_MAX = 30; // per IP per minute
+const UPSTREAM_FETCH_TIMEOUT_MS = 15_000;
+const MAX_REDIRECT_HOPS = 3;
+
+/** Replay a cached response with CORS for the *current* request — never the cached origin's. */
+function replayCached(cached: Response, request: Request, env: Env): Response {
+  const h = new Headers(cached.headers);
+  h.delete('Access-Control-Allow-Origin');
+  h.delete('Access-Control-Allow-Credentials');
+  corsHeaders(request, env).forEach((v, k) => h.set(k, v));
+  return new Response(cached.body, { status: cached.status, headers: h });
+}
+
+/**
+ * Fetch with manual redirect following: every hop is re-validated against the
+ * SSRF allowlist (apiRoutes.ts documents this guarantee) and bounded by a timeout.
+ * Returns null when a hop is disallowed or the redirect chain is too deep.
+ */
+async function fetchValidated(target: string, headers: Record<string, string>): Promise<Response | null> {
+  let current = target;
+  for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+    if (!isAllowedOgFetchUrl(current)) return null;
+    const res = await fetch(current, {
+      redirect: 'manual',
+      headers,
+      signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS),
+    });
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get('Location');
+      if (!loc) return null;
+      try {
+        current = new URL(loc, current).href;
+      } catch {
+        return null;
+      }
+      continue;
+    }
+    return res;
+  }
+  return null;
+}
 
 function json(data: unknown, request: Request, env: Env, init?: ResponseInit, ttl = BUNDLE_CACHE_TTL_SEC): Response {
   const headers = corsHeaders(request, env);
@@ -53,6 +97,7 @@ function resolveCustomSources(searchParams: URLSearchParams): NewsSource[] {
       if (!id || !name || !feedUrl) continue;
       if (!isAllowedOgFetchUrl(feedUrl)) continue;
       out.push({ id: `custom-${id}`, name, feedUrl, category: 'general', enabled: true });
+      if (out.length >= MAX_CUSTOM_FEEDS) break;
     }
     return out;
   } catch {
@@ -68,11 +113,13 @@ export async function handleRss(request: Request, env: Env, ctx: ExecutionContex
     const cache = caches.default;
     const cached = await cache.match(cacheKey);
     if (cached) {
-      const h = new Headers(cached.headers);
-      const cors = corsHeaders(request, env);
-      cors.forEach((v, k) => h.set(k, v));
-      return new Response(cached.body, { status: cached.status, headers: h });
+      return replayCached(cached, request, env);
     }
+
+    // Cache misses fetch up to ~46 builtin + 20 custom feeds — rate-limit the
+    // uncached path (a varying customFeeds param defeats the edge cache).
+    const limited = checkRateLimit(request, 'rss-bundle', RATE_LIMIT_BUNDLE_MAX);
+    if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
 
     const sources = resolveSources(url.searchParams);
     const customSources = resolveCustomSources(url.searchParams);
@@ -107,23 +154,17 @@ export async function handleRss(request: Request, env: Env, ctx: ExecutionContex
     const cache = caches.default;
     const cached = await cache.match(cacheKey);
     if (cached) {
-      const h = new Headers(cached.headers);
-      const cors = corsHeaders(request, env);
-      cors.forEach((v, k) => h.set(k, v));
-      return new Response(cached.body, { status: cached.status, headers: h });
+      return replayCached(cached, request, env);
     }
 
     let html: string;
     try {
-      const upstream = await fetch(target, {
-        redirect: 'follow',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; BoomerangRSS/1.0; +https://github.com/victusfate/boomerang) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
+      const upstream = await fetchValidated(target, {
+        'User-Agent': 'Mozilla/5.0 (compatible; BoomerangRSS/1.0; +https://github.com/victusfate/boomerang) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
       });
-      if (!upstream.ok) {
+      if (!upstream || !upstream.ok) {
         return json({ imageUrl: null }, request, env, { status: 404 });
       }
       const cl = parseInt(upstream.headers.get('Content-Length') ?? '0', 10);
@@ -154,23 +195,19 @@ export async function handleRss(request: Request, env: Env, ctx: ExecutionContex
     const cache = caches.default;
     const cached = await cache.match(cacheKey);
     if (cached) {
-      const h = new Headers(cached.headers);
-      const cors = corsHeaders(request, env);
-      cors.forEach((v, k) => h.set(k, v));
-      return new Response(cached.body, { status: cached.status, headers: h });
+      return replayCached(cached, request, env);
     }
 
-    let upstream: Response;
+    let upstream: Response | null;
     try {
-      upstream = await fetch(target, {
-        redirect: 'follow',
-        headers: { 'User-Agent': 'BoomerangRSS/1.0 (image-proxy; +https://github.com/victusfate/boomerang)' },
+      upstream = await fetchValidated(target, {
+        'User-Agent': 'BoomerangRSS/1.0 (image-proxy; +https://github.com/victusfate/boomerang)',
       });
     } catch {
       return new Response(null, { status: 502, headers: corsHeaders(request, env) });
     }
 
-    if (!upstream.ok) {
+    if (!upstream || !upstream.ok) {
       return new Response(null, { status: 502, headers: corsHeaders(request, env) });
     }
 
