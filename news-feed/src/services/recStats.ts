@@ -38,7 +38,21 @@ export async function clearRecStats(): Promise<void> {
   await kvSet(STATS_KEY, { ...EMPTY_STATS });
 }
 
-export async function recordInteraction(input: {
+// Interactions fire-and-forget from scroll handlers; chain writes so an
+// overlapping read-modify-write can't drop increments.
+let writeChain: Promise<void> = Promise.resolve();
+
+export function recordInteraction(input: {
+  sourceId: string;
+  topics: Topic[];
+  tags?: string[];
+  action: string;
+}): Promise<void> {
+  writeChain = writeChain.catch(() => {}).then(() => recordInteractionNow(input));
+  return writeChain;
+}
+
+async function recordInteractionNow(input: {
   sourceId: string;
   topics: Topic[];
   tags?: string[];

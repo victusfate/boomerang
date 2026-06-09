@@ -3,7 +3,6 @@ import { test } from 'node:test';
 import {
   HISTORY_STORE_MAX,
   evictOldest,
-  mergeEntry,
   type HistoryEntry,
 } from './articleHistory.ts';
 
@@ -38,29 +37,9 @@ test('evictOldest keeps exactly cap entries', () => {
   assert.ok(!result.some(e => e.id === 'id0')); // oldest dropped
 });
 
-test('mergeEntry adds a new entry', () => {
-  const result = mergeEntry([], entry('x', 100));
-  assert.equal(result.length, 1);
-  assert.equal(result[0].id, 'x');
-});
-
-test('mergeEntry updates interactedAt for existing id', () => {
-  const existing = [entry('x', 100)];
-  const result = mergeEntry(existing, entry('x', 999));
-  assert.equal(result.length, 1);
-  assert.equal(result[0].interactedAt, 999);
-});
-
-test('mergeEntry updates title for existing id', () => {
-  const existing = [{ ...entry('x', 100), title: 'Old Title' }];
-  const updated = { ...entry('x', 200), title: 'New Title' };
-  const result = mergeEntry(existing, updated);
-  assert.equal(result[0].title, 'New Title');
-});
-
-test('mergeEntry preserves other entries when updating', () => {
-  const existing = [entry('a', 100), entry('b', 200)];
-  const result = mergeEntry(existing, entry('a', 999));
+test('evictOldest is deterministic for ties on interactedAt', () => {
+  const entries = [entry('a', 100), entry('b', 100), entry('c', 200)];
+  const result = evictOldest(entries, 2);
   assert.equal(result.length, 2);
-  assert.ok(result.some(e => e.id === 'b'));
+  assert.ok(result.some(e => e.id === 'c'));
 });

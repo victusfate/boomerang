@@ -10,13 +10,6 @@ export interface HistoryEntry {
   interactedAt: number;
 }
 
-/** Pure: replace existing entry with same id, or append. */
-export function mergeEntry(entries: HistoryEntry[], entry: HistoryEntry): HistoryEntry[] {
-  const idx = entries.findIndex(e => e.id === entry.id);
-  if (idx === -1) return [...entries, entry];
-  return entries.map((e, i) => (i === idx ? entry : e));
-}
-
 /** Pure: keep the `max` most-recent entries by interactedAt. */
 export function evictOldest(entries: HistoryEntry[], max: number): HistoryEntry[] {
   if (entries.length <= max) return entries;
@@ -56,37 +49,43 @@ function openDb(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-export async function writeHistoryEntry(entry: HistoryEntry): Promise<void> {
-  const db = await openDb();
-  const all = await readHistoryEntries();
-  const merged = evictOldest(mergeEntry(all, entry), HISTORY_STORE_MAX);
+/**
+ * Upsert entries and evict the oldest past HISTORY_STORE_MAX in a single
+ * readwrite transaction — `put` on keyPath `id` is the upsert, and the IDB
+ * transaction serializes concurrent writers (no read-modify-write window).
+ */
+function putAndSweep(db: IDBDatabase, entries: HistoryEntry[]): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction(ENTRIES_STORE, 'readwrite');
     const store = tx.objectStore(ENTRIES_STORE);
-    store.clear();
-    for (const e of merged) store.put(e);
+    for (const e of entries) store.put(e);
+    const countReq = store.count();
+    countReq.onsuccess = () => {
+      if (countReq.result <= HISTORY_STORE_MAX) return;
+      const allReq = store.getAll();
+      allReq.onsuccess = () => {
+        const all = allReq.result as HistoryEntry[];
+        const keep = new Set(evictOldest(all, HISTORY_STORE_MAX).map(e => e.id));
+        for (const e of all) {
+          if (!keep.has(e.id)) store.delete(e.id);
+        }
+      };
+    };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error);
   });
 }
 
+export async function writeHistoryEntry(entry: HistoryEntry): Promise<void> {
+  const db = await openDb();
+  return putAndSweep(db, [entry]);
+}
+
 export async function writeHistoryEntries(entries: HistoryEntry[]): Promise<void> {
   if (entries.length === 0) return;
   const db = await openDb();
-  const all = await readHistoryEntries();
-  let merged = all;
-  for (const e of entries) merged = mergeEntry(merged, e);
-  const evicted = evictOldest(merged, HISTORY_STORE_MAX);
-  return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(ENTRIES_STORE, 'readwrite');
-    const store = tx.objectStore(ENTRIES_STORE);
-    store.clear();
-    for (const e of evicted) store.put(e);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
+  return putAndSweep(db, entries);
 }
 
 export function readHistoryEntries(): Promise<HistoryEntry[]> {
