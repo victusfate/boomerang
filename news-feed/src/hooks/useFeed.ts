@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { kvGet, kvSet } from '../services/kvStore';
 import { writeHistoryEntry, writeHistoryEntries, type HistoryEntry } from '../services/articleHistory';
+import { addManualTag, removeManualTag } from '../services/tagEditorUtils';
 import { fetchAllSources, DEFAULT_SOURCES } from '../services/newsService';
 import { rankFeed } from '../services/algorithm';
 import {
@@ -684,16 +685,15 @@ export function useFeed(options?: UseFeedOptions) {
   }, []);
 
   const handleAddManualTag = useCallback((articleId: string, raw: string) => {
-    const tag = raw.trim().toLowerCase();
-    if (!tag) return;
     const prev = articleTagsRef.current;
     const existing = prev.find(t => t.articleId === articleId);
-    if (existing?.tags.includes(tag)) return;
+    const newTags = addManualTag(existing?.tags ?? [], raw);
+    if (newTags === (existing?.tags ?? []) || newTags.length === (existing?.tags.length ?? 0)) return;
     const updated = existing
       ? prev.map(t =>
-        t.articleId === articleId ? { ...t, tags: [...t.tags, tag], taggedAt: Date.now() } : t
+        t.articleId === articleId ? { ...t, tags: newTags, taggedAt: Date.now() } : t
       )
-      : [...prev, { articleId, tags: [tag], taggedAt: Date.now() }];
+      : [...prev, { articleId, tags: newTags, taggedAt: Date.now() }];
     commitArticleTags(updated);
   }, [commitArticleTags]);
 
@@ -701,7 +701,7 @@ export function useFeed(options?: UseFeedOptions) {
     const prev = articleTagsRef.current;
     const existing = prev.find(t => t.articleId === articleId);
     if (!existing) return;
-    const newTags = existing.tags.filter(t => t !== tag);
+    const newTags = removeManualTag(existing.tags, tag);
     const updated = newTags.length > 0
       ? prev.map(t => t.articleId === articleId ? { ...t, tags: newTags, taggedAt: Date.now() } : t)
       : prev.filter(t => t.articleId !== articleId);

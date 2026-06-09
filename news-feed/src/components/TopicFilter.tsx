@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import type { Topic, UserPrefs, UserLabel, ActiveFilter } from '../types';
-import { TOPIC_META, SHOWN_TOPICS, buildFilterState } from './topicFilterUtils';
+import { TOPIC_META, SHOWN_TOPICS } from './topicFilterUtils';
 
-export { TOPIC_META };
 
 interface Props {
   prefs: UserPrefs;
@@ -13,7 +12,7 @@ interface Props {
 
 export function TopicFilter({ prefs, userLabels, activeFilter, onFilter }: Props) {
   const [moreOpen, setMoreOpen] = useState(false);
-  const { showMoreButton } = buildFilterState(userLabels);
+  const showMoreButton = userLabels.length > 0;
 
   function handleTopicClick(topic: Topic) {
     const next: ActiveFilter =

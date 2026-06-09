@@ -147,19 +147,6 @@ export async function fetchAllSources(
   return fetchAllSourcesSplit(sources, customSources, onBatch);
 }
 
-/** Resolves article metadata for specific ids in one worker bundle request. */
-export async function fetchArticlesByIds(ids: string[]): Promise<Article[]> {
-  if (!PLATFORM_WORKER_URL) throw new Error(MISSING_PLATFORM_WORKER_MSG);
-  if (ids.length === 0) return [];
-  const uniqueIds = Array.from(new Set(ids));
-  // `/bundle?include=` accepts source ids, not article ids.
-  // Do one broad built-in-source fetch, then resolve requested ids from that pool.
-  const allBuiltInIds = DEFAULT_SOURCES.map(s => s.id);
-  const data = await fetchBundleJson(allBuiltInIds, [], DEFAULT_SOURCES);
-  const byId = new Set(uniqueIds);
-  return mapBundleArticles(data.articles).filter(a => byId.has(a.id));
-}
-
 async function fetchBundleJson(
   ids: string[],
   customSources: CustomSource[] = [],

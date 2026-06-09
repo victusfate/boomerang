@@ -924,44 +924,6 @@ html[data-theme="light"] .btn-reset-prefs:hover {
   flex: 1;
   min-width: 0;
 }
-
-/* ── Custom Sources ────────────────────────────────────────────────────────── */
-.custom-source-list {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.custom-source-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--settings-muted-surface);
-  border: 1px solid var(--settings-btn-border);
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-.custom-source-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.custom-source-name {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text);
-}
-.custom-source-url {
-  font-size: 0.75rem;
-  color: var(--sub);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .btn-remove-source {
   flex-shrink: 0;
   background: var(--settings-btn);
@@ -1056,69 +1018,6 @@ html[data-theme="light"] .btn-reset-prefs:hover {
   pointer-events: none;
 }
 
-/* ── Bookmark / import (kept for legacy CSS references) ────────────────────── */
-.settings-field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.settings-field-import {
-  margin-top: 4px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-.settings-label {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text);
-  opacity: 0.8;
-}
-.settings-hint-tight {
-  margin-bottom: 0;
-  margin-top: 0;
-}
-.settings-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.78em;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--settings-muted-surface);
-  border: 1px solid var(--settings-btn-border);
-  color: var(--accent);
-  white-space: nowrap;
-}
-.settings-textarea {
-  background: var(--settings-input-bg);
-  border: 1px solid var(--settings-input-border);
-  border-radius: 8px;
-  padding: 10px 14px;
-  color: var(--text);
-  font-size: 0.8125rem;
-  line-height: 1.45;
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-  outline: none;
-  resize: vertical;
-  min-height: 96px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.settings-textarea:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.2);
-}
-.settings-textarea::placeholder {
-  color: var(--sub);
-  opacity: 0.85;
-  font-family: var(--font);
-}
-.btn-import-apply {
-  margin-top: 2px;
-}
-
 /* Primary action — solid accent so it reads as a real button (not a ghost control) */
 .btn-bookmark {
   -webkit-appearance: none;
@@ -1172,15 +1071,6 @@ html[data-theme="light"] .btn-bookmark {
 html[data-theme="light"] .btn-bookmark:focus-visible {
   outline-color: var(--accent);
 }
-
-.bookmark-import-row {
-  display: flex;
-  gap: 10px;
-  align-items: stretch;
-  flex-wrap: wrap;
-}
-.bookmark-import-row .custom-source-input { flex: 1; min-width: 160px; }
-.bookmark-import-row .btn-add-source { align-self: stretch; }
 
 .import-status {
   font-size: 0.85rem;
@@ -1546,20 +1436,6 @@ html[data-theme="light"] .import-status.error {
   color: var(--sub);
   font-variant-numeric: tabular-nums;
 }
-.rec-cf-id {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-.rec-cf-boost {
-  color: var(--accent);
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-}
 .rec-cf-score {
   color: var(--sub);
   font-variant-numeric: tabular-nums;
@@ -1737,27 +1613,6 @@ html[data-theme="light"] .import-status.error {
   min-width: 24px;
   text-align: right;
   font-variant-numeric: tabular-nums;
-}
-
-/* Model stats (collapsible) */
-.rec-model-details {
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-  margin-top: 2px;
-}
-.rec-model-summary {
-  font-size: 11px;
-  color: var(--sub);
-  cursor: pointer;
-  user-select: none;
-  list-style: none;
-}
-.rec-model-summary::-webkit-details-marker { display: none; }
-.rec-model-summary::before { content: '▸ '; }
-details[open] .rec-model-summary::before { content: '▾ '; }
-.rec-model-peek {
-  opacity: 0.7;
-  font-size: 10px;
 }
 .rec-stat-grid {
   display: grid;

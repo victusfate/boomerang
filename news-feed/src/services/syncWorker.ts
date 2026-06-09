@@ -1,4 +1,5 @@
 import type { Article, ArticleTag, LabelHit, UserPrefs } from '../types.ts';
+import { parseRetryAfterMs } from './retryAfter.ts';
 import { mergePrefs, mergeArticleTags, mergeLabelHits, dehydrate, hydrate, type SyncPayloadV1 } from './syncShare.ts';
 
 /** `sourceId` for bookmark rows synthesized so sync payloads cover every `prefs.savedId`. */
@@ -114,16 +115,6 @@ export interface MetaResponse {
   unauthorized?: boolean;
   rateLimited?: boolean;
   retryAfterMs?: number;
-}
-
-function parseRetryAfterMs(res: Response): number | undefined {
-  const raw = res.headers.get('Retry-After');
-  if (!raw) return undefined;
-  const asSeconds = Number(raw);
-  if (Number.isFinite(asSeconds)) return Math.max(0, Math.round(asSeconds * 1000));
-  const asDate = Date.parse(raw);
-  if (Number.isNaN(asDate)) return undefined;
-  return Math.max(0, asDate - Date.now());
 }
 
 export async function fetchMeta(room: SyncRoom): Promise<MetaResponse | null> {

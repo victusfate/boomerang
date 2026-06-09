@@ -4,7 +4,7 @@
  * @category Sync
  */
 
-import { DEFAULT_PREFS, MAX_READ_IDS, MAX_SEEN_IDS } from './storage.ts';
+import { MAX_READ_IDS, MAX_SEEN_IDS } from './storage.ts';
 import type { Article, ArticleTag, LabelHit, Topic, UserPrefs } from '../types.ts';
 
 export const SYNC_LOG = '[Sync]';
@@ -25,13 +25,6 @@ export function hydrate(stored: StoredArticle[]): Article[] {
 
 export function dehydrate(articles: Article[]): StoredArticle[] {
   return articles.map(a => ({ ...a, publishedAt: a.publishedAt.toISOString() }));
-}
-
-function toBase64Url(json: string): string {
-  const bytes = new TextEncoder().encode(json);
-  let binary = '';
-  bytes.forEach(b => { binary += String.fromCharCode(b); });
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
 function fromBase64Url(encoded: string): string {
@@ -113,10 +106,6 @@ export function mergePrefs(left: UserPrefs, right: Partial<UserPrefs>): UserPref
   };
 }
 
-export function mergeArticlesById(left: Article[], right: Article[]): Article[] {
-  return Array.from(new Map([...left, ...right].map(a => [a.id, a])).values());
-}
-
 function dedupeTagList(tags: string[]): string[] {
   return Array.from(new Set(tags.map(t => t.trim().toLowerCase()).filter(Boolean)));
 }
@@ -173,33 +162,3 @@ export function parseSyncHash(): Partial<SyncPayloadV1> | null {
   return null;
 }
 
-export function buildSyncShareUrl(
-  prefs: UserPrefs,
-  savedArticles: Article[],
-  articleTags: ArticleTag[],
-  labelHits: LabelHit[],
-): string {
-  if (typeof location === 'undefined') return '';
-  // Strip seenIds/readIds — they can reach thousands of entries, overrunning URL limits,
-  // and leaking browse history into browser history / Referer. The recipient re-builds
-  // their own seen/read state independently.
-  const { seenIds: _s, readIds: _r, ...shareablePrefs } = { ...DEFAULT_PREFS, ...prefs };
-  const payload: SyncPayloadV1 = {
-    v: 1,
-    prefs: { ...shareablePrefs, seenIds: [], readIds: [] },
-    savedArticles: dehydrate(savedArticles),
-    articleTags,
-    labelHits,
-  };
-  const encoded = toBase64Url(JSON.stringify(payload));
-  console.info(SYNC_LOG, 'built sync link payload', {
-    savedArticles: payload.savedArticles.length,
-    articleTags: payload.articleTags.length,
-    labelHits: payload.labelHits.length,
-    savedIds: payload.prefs.savedIds.length,
-    userLabels: payload.prefs.userLabels.length,
-    customSources: payload.prefs.customSources.length,
-    encodedLength: encoded.length,
-  });
-  return `${location.origin}${location.pathname}#sync=${encoded}`;
-}

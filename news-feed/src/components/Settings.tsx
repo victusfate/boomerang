@@ -6,12 +6,25 @@ import { isPromptApiAvailable } from '../services/labelClassifier';
 import type { Article, CustomSource, Topic, UserLabel, UserPrefs } from '../types';
 import type { MetaStatus } from '../hooks/useMetaWorker';
 import type { SyncErrorDetails } from '../hooks/useSyncWorker';
-import { TOPIC_META } from './TopicFilter';
+import { TOPIC_META, SHOWN_TOPICS } from './topicFilterUtils';
 import { timeAgo } from '../services/timeAgo';
 
-const ALL_TOPICS = (Object.keys(TOPIC_META) as Topic[]).filter(t => t !== 'general');
-
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+function SyncErrorDetailsBlock({ details, marginTop }: { details: SyncErrorDetails | null; marginTop: string }) {
+  if (!details) return null;
+  return (
+    <details className="settings-hint" style={{ marginTop }}>
+      <summary>Show technical sync details</summary>
+      <code>
+        phase={details.phase}
+        {' | '}roomId={details.roomId ?? 'n/a'}
+        {' | '}worker={details.workerUrl ?? 'n/a'}
+        {details.endpoint ? ` | endpoint=${details.endpoint}` : ''}
+      </code>
+    </details>
+  );
+}
 
 interface Props {
   prefs: UserPrefs;
@@ -226,7 +239,7 @@ export function Settings({
           <h3>Topics</h3>
           <p className="settings-hint">Articles you read boost topic weight automatically.</p>
           <div className="settings-grid">
-            {ALL_TOPICS.map(topic => {
+            {SHOWN_TOPICS.map(topic => {
               const meta    = TOPIC_META[topic];
               const enabled = isTopicEnabled(topic, prefs);
               const weight  = prefs.topicWeights[topic] ?? 1.0;
@@ -523,17 +536,7 @@ export function Settings({
               {syncError && (
                 <>
                   <p className="sync-error">{syncError}</p>
-                  {syncErrorDetails && (
-                    <details className="settings-hint" style={{ marginTop: '6px' }}>
-                      <summary>Show technical sync details</summary>
-                      <code>
-                        phase={syncErrorDetails.phase}
-                        {' | '}roomId={syncErrorDetails.roomId ?? 'n/a'}
-                        {' | '}worker={syncErrorDetails.workerUrl ?? 'n/a'}
-                        {syncErrorDetails.endpoint ? ` | endpoint=${syncErrorDetails.endpoint}` : ''}
-                      </code>
-                    </details>
-                  )}
+                  <SyncErrorDetailsBlock details={syncErrorDetails} marginTop="6px" />
                 </>
               )}
             </>
@@ -586,17 +589,7 @@ export function Settings({
               >
                 Revoke sync
               </button>
-              {syncErrorDetails && (
-                <details className="settings-hint" style={{ marginTop: '8px' }}>
-                  <summary>Show technical sync details</summary>
-                  <code>
-                    phase={syncErrorDetails.phase}
-                    {' | '}roomId={syncErrorDetails.roomId ?? 'n/a'}
-                    {' | '}worker={syncErrorDetails.workerUrl ?? 'n/a'}
-                    {syncErrorDetails.endpoint ? ` | endpoint=${syncErrorDetails.endpoint}` : ''}
-                  </code>
-                </details>
-              )}
+              <SyncErrorDetailsBlock details={syncErrorDetails} marginTop="8px" />
             </>
           )}
         </section>

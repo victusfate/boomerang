@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { Article, UserPrefs } from '../types';
-import { TOPIC_META } from './TopicFilter';
+import { TOPIC_META } from './topicFilterUtils';
 import { CardScoreBadge } from './CardScoreBadge';
 import type { FeedScoreInsight } from '../services/feedScoreBreakdown';
 import { timeAgo } from '../services/timeAgo';
@@ -74,7 +74,6 @@ export function ArticleCard({
 
   const [addingTag, setAddingTag] = useState(false);
   const [newTagText, setNewTagText] = useState('');
-  const tagInputRef = useRef<HTMLInputElement>(null);
   const uniqueLabelNames = useMemo(
     () => Array.from(new Set(articleLabelNames)),
     [articleLabelNames],
@@ -214,7 +213,6 @@ export function ArticleCard({
             {onAddManualTag && (
               addingTag ? (
                 <input
-                  ref={tagInputRef}
                   className="label-badge-input"
                   value={newTagText}
                   onChange={e => setNewTagText(e.target.value)}

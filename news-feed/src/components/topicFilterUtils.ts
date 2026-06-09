@@ -1,4 +1,4 @@
-import type { Topic, UserLabel } from '../types';
+import type { Topic } from '../types';
 
 export const TOPIC_META: Record<Topic, { label: string; color: string }> = {
   technology:    { label: 'Tech',          color: '#4a90d9' },
@@ -13,11 +13,3 @@ export const TOPIC_META: Record<Topic, { label: string; color: string }> = {
 };
 
 export const SHOWN_TOPICS = (Object.keys(TOPIC_META) as Topic[]).filter(t => t !== 'general');
-
-export function buildFilterState(userLabels: UserLabel[]) {
-  return {
-    labelPills: userLabels,
-    topicPills: SHOWN_TOPICS,
-    showMoreButton: userLabels.length > 0,
-  };
-}

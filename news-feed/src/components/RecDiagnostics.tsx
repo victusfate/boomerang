@@ -9,7 +9,7 @@ import {
 } from '../services/recWorker';
 import { PLATFORM_WORKER_URL } from '../config/workerEnv';
 import { articleCatalogMissingTitleLabel } from '../../../shared/articleRecordCatalog.ts';
-import { TOPIC_META } from './TopicFilter';
+import { TOPIC_META } from './topicFilterUtils';
 import type { RecStatus } from '../hooks/useRecWorker';
 import type { Topic } from '../types';
 
