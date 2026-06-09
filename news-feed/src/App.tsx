@@ -189,7 +189,7 @@ export default function App() {
   const [initialQueueCount, setInitialQueueCount] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
-  const { backfilled } = useHistoryBackfill(prefs, PLATFORM_WORKER_URL);
+  const { backfilled } = useHistoryBackfill(prefs, PLATFORM_WORKER_URL, syncReady);
   const [pullProgress, setPullProgress] = useState(0); // 0–1
   const canUseBrowserAi = isPromptApiAvailable();
   const combinedSyncCooldownMs = Math.max(syncCooldownMs, metaSyncCooldownMs);
@@ -270,7 +270,7 @@ export default function App() {
   const pullGestureRef = useRef({ active: false, startY: 0, progress: 0 });
 
   useEffect(() => {
-    if (showSettings) return; // don't capture gestures when settings modal is open
+    if (showSettings || showSearch) return; // don't capture gestures when a modal layer is open
     let triggered = false;
 
     const onTouchStart = (e: TouchEvent) => {
@@ -309,7 +309,7 @@ export default function App() {
       document.removeEventListener('touchmove', onTouchMove);
       document.removeEventListener('touchend', onTouchEnd);
     };
-  }, [showSettings]); // pullGestureRef is stable; onRefreshRef is kept current above
+  }, [showSettings, showSearch]); // pullGestureRef is stable; onRefreshRef is kept current above
 
   // Sentinel element watched by IntersectionObserver to trigger load-more.
   // The callback is kept in a ref so the observer itself is only created once

@@ -1876,7 +1876,7 @@ details[open] .rec-model-summary::before { content: '▾ '; }
   max-width: 640px;
   max-height: 90vh;
   overflow-y: auto;
-  background: var(--card-bg, #1e1e1e);
+  background: var(--card);
   border-radius: 0 0 12px 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   display: flex;
@@ -1946,7 +1946,7 @@ details[open] .rec-model-summary::before { content: '▾ '; }
 
 .search-result-item:hover,
 .search-result-item:focus {
-  background: var(--hover-bg, rgba(255,255,255,0.05));
+  background: color-mix(in srgb, var(--text) 6%, var(--card));
   outline: none;
 }
 

@@ -114,3 +114,57 @@ test('scope all returns all matches', () => {
   const results = searchArticles('svelte', [pool, queue, hist], 'all');
   assert.equal(results.length, 3);
 });
+
+// ── buildCandidates ──────────────────────────────────────────────────────────
+import { buildCandidates, type PoolArticle } from './articleSearch.ts';
+
+function pa(id: string, title: string): PoolArticle {
+  return {
+    id, title,
+    url: `https://example.com/${id}`,
+    source: 'Test News', sourceId: 'test',
+    publishedAt: new Date('2025-01-01T00:00:00Z'),
+  };
+}
+
+test('buildCandidates marks pool articles inPool and queue membership', () => {
+  const pool = [pa('a', 'Alpha'), pa('b', 'Beta')];
+  const saved = [pa('b', 'Beta')];
+  const out = buildCandidates(pool, saved, []);
+  const byId = new Map(out.map(c => [c.id, c]));
+  assert.equal(byId.get('a')!.inPool, true);
+  assert.equal(byId.get('a')!.inQueue, false);
+  assert.equal(byId.get('b')!.inQueue, true);
+});
+
+test('buildCandidates includes out-of-pool saved articles as queue candidates', () => {
+  const pool = [pa('a', 'Alpha')];
+  const saved = [pa('imported', 'Imported Bookmark')];
+  const out = buildCandidates(pool, saved, []);
+  const imported = out.find(c => c.id === 'imported');
+  assert.ok(imported, 'out-of-pool saved article must be a candidate');
+  assert.equal(imported!.inPool, true);  // openable via onOpen
+  assert.equal(imported!.inQueue, true);
+});
+
+test('buildCandidates adds history-only entries and skips ones already in pool', () => {
+  const pool = [pa('a', 'Alpha')];
+  const history = [
+    { id: 'a', title: 'Alpha old', url: 'u', source: 's', publishedAt: '2024-01-01T00:00:00Z' },
+    { id: 'h', title: 'Hist only', url: 'u2', source: 's2', publishedAt: '2024-02-01T00:00:00Z' },
+  ];
+  const out = buildCandidates(pool, [], history);
+  assert.equal(out.filter(c => c.id === 'a').length, 1);
+  assert.equal(out.find(c => c.id === 'a')!.title, 'Alpha'); // pool wins
+  const h = out.find(c => c.id === 'h');
+  assert.ok(h);
+  assert.equal(h!.inPool, false);
+});
+
+test('buildCandidates skips history entries already saved out-of-pool', () => {
+  const saved = [pa('x', 'Saved X')];
+  const history = [{ id: 'x', title: 'X hist', url: 'u', source: 's', publishedAt: '2024-01-01T00:00:00Z' }];
+  const out = buildCandidates([], saved, history);
+  assert.equal(out.filter(c => c.id === 'x').length, 1);
+  assert.equal(out[0].inQueue, true);
+});

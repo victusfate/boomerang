@@ -1,16 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Article, UserPrefs } from '../types';
 import { readHistoryEntries } from '../services/articleHistory';
-import { searchArticles, type SearchCandidate, type SearchScope } from '../services/articleSearch';
+import {
+  buildCandidates, searchArticles,
+  type HistoryCandidate, type SearchCandidate, type SearchScope,
+} from '../services/articleSearch';
 import { parseRecArticlesResponse } from '../services/recArticlesLookup';
-
-interface HistoryResult {
-  id: string;
-  title: string;
-  url: string;
-  source: string;
-  publishedAt: string;
-}
 
 interface Props {
   allArticles: Article[];
@@ -31,42 +26,6 @@ function timeAgoIso(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function buildCandidates(
-  allArticles: Article[],
-  savedArticles: Article[],
-  history: HistoryResult[],
-): SearchCandidate[] {
-  const savedIds = new Set(savedArticles.map(a => a.id));
-  const poolIds = new Set(allArticles.map(a => a.id));
-
-  const candidates: SearchCandidate[] = allArticles.map(a => ({
-    id: a.id,
-    title: a.title,
-    url: a.url,
-    source: a.source,
-    sourceId: a.sourceId,
-    publishedAt: a.publishedAt.toISOString(),
-    inPool: true,
-    inQueue: savedIds.has(a.id),
-  }));
-
-  for (const h of history) {
-    if (poolIds.has(h.id)) continue; // pool entry already included
-    candidates.push({
-      id: h.id,
-      title: h.title,
-      url: h.url,
-      source: h.source,
-      sourceId: '',
-      publishedAt: h.publishedAt,
-      inPool: false,
-      inQueue: false,
-    });
-  }
-
-  return candidates;
-}
-
 const SCOPES: { label: string; value: SearchScope }[] = [
   { label: 'All', value: 'all' },
   { label: 'Feed', value: 'feed' },
@@ -79,7 +38,7 @@ export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onClo
   const [scope, setScope] = useState<SearchScope>('all');
   const [results, setResults] = useState<SearchCandidate[]>([]);
   const [remoteResults, setRemoteResults] = useState<SearchCandidate[]>([]);
-  const [history, setHistory] = useState<HistoryResult[]>([]);
+  const [history, setHistory] = useState<HistoryCandidate[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Load history once on mount

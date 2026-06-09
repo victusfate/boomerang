@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { kvGet, kvSet } from '../services/kvStore';
-import { writeHistoryEntry, writeHistoryEntries } from '../services/articleHistory';
+import { writeHistoryEntry, writeHistoryEntries, type HistoryEntry } from '../services/articleHistory';
 import { fetchAllSources, DEFAULT_SOURCES } from '../services/newsService';
 import { rankFeed } from '../services/algorithm';
 import {
@@ -35,6 +35,18 @@ interface FeedCacheDoc        { articles: StoredArticle[]; fetchedAt: number }
 interface ImportedSavesDoc    { articles: StoredArticle[] }
 interface ClassificationsDoc  { hits: LabelHit[] }
 interface ArticleTagsDoc      { hits: ArticleTag[] }
+
+function toHistoryEntry(article: Article, interactedAt: number): HistoryEntry {
+  return {
+    id: article.id,
+    title: article.title,
+    url: article.url,
+    source: article.source,
+    sourceId: article.sourceId,
+    publishedAt: article.publishedAt.toISOString(),
+    interactedAt,
+  };
+}
 
 function scrubPlaceholderSaves(
   prefs: UserPrefs,
@@ -582,6 +594,12 @@ export function useFeed(options?: UseFeedOptions) {
   }, []); // stable — reads allArticles via ref
 
   // ── Article interactions ──────────────────────────────────────────────────────
+  // Saved articles can live outside the RSS pool (imported bookmarks, aged-out
+  // saves) — history writes on dequeue must find those too.
+  const findKnownArticle = useCallback((id: string): Article | undefined =>
+    allArticlesRef.current.find(a => a.id === id)
+    ?? importedSavesRef.current.find(a => a.id === id), []);
+
   const handleOpen = useCallback((article: Article) => {
     const afterRead = markRead(article.id, prefsRef.current);
     const afterBoost = article.topics.reduce((p, t) => boostTopic(t, p), afterRead);
@@ -590,15 +608,7 @@ export function useFeed(options?: UseFeedOptions) {
       : afterBoost;
     updatePrefs(afterDequeue);
     recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, tags: articleTagsMapRef.current.get(article.id), action: 'read', ts: Date.now() });
-    void writeHistoryEntry({
-      id: article.id,
-      title: article.title,
-      url: article.url,
-      source: article.source,
-      sourceId: article.sourceId,
-      publishedAt: article.publishedAt.toISOString(),
-      interactedAt: Date.now(),
-    });
+    void writeHistoryEntry(toHistoryEntry(article, Date.now()));
   }, [updatePrefs]);
 
   const handleClearQueue = useCallback(() => {
@@ -607,41 +617,22 @@ export function useFeed(options?: UseFeedOptions) {
     updatePrefs(clearQueue(prefsRef.current));
     const entries = currentSaved
       .map(id => {
-        const article = allArticlesRef.current.find(a => a.id === id);
-        if (!article) return null;
-        return {
-          id: article.id,
-          title: article.title,
-          url: article.url,
-          source: article.source,
-          sourceId: article.sourceId,
-          publishedAt: article.publishedAt.toISOString(),
-          interactedAt: now,
-        };
+        const article = findKnownArticle(id);
+        return article ? toHistoryEntry(article, now) : null;
       })
       .filter((e): e is NonNullable<typeof e> => e !== null);
     if (entries.length > 0) void writeHistoryEntries(entries);
-  }, [updatePrefs]);
+  }, [updatePrefs, findKnownArticle]);
 
   const handleSave = useCallback((id: string) => {
     const isSaving = !prefsRef.current.savedIds.includes(id); // true = star, false = unstar
     updatePrefs(toggleSaved(id, prefsRef.current));
     // Only signal the rec backend on the initial save — unstar is a UI bookmark action,
     // not a preference reversal (topic weights from reading are already permanent).
-    const a = allArticlesRef.current.find(x => x.id === id);
+    const a = findKnownArticle(id);
     if (a && isSaving) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, tags: articleTagsMapRef.current.get(a.id), action: 'save', ts: Date.now() });
-    if (a && !isSaving) {
-      void writeHistoryEntry({
-        id: a.id,
-        title: a.title,
-        url: a.url,
-        source: a.source,
-        sourceId: a.sourceId,
-        publishedAt: a.publishedAt.toISOString(),
-        interactedAt: Date.now(),
-      });
-    }
-  }, [updatePrefs]);
+    if (a && !isSaving) void writeHistoryEntry(toHistoryEntry(a, Date.now()));
+  }, [updatePrefs, findKnownArticle]);
 
   const handleUpvote = useCallback((article: Article) => {
     updatePrefs(upvote(article, prefsRef.current));

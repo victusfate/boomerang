@@ -6,10 +6,13 @@ import { parseRecArticlesResponse } from '../services/recArticlesLookup';
 export function useHistoryBackfill(
   prefs: UserPrefs,
   platformWorkerUrl: string,
+  /** Prefs hydration flag from useFeed — backfill must not run against DEFAULT_PREFS. */
+  ready: boolean,
 ): { backfilled: boolean } {
   const [backfilled, setBackfilled] = useState(true); // optimistic: suppress Tier 2 until we know
 
   useEffect(() => {
+    if (!ready) return; // wait for prefs to hydrate; IndexedDB flag keeps this idempotent
     if (!platformWorkerUrl) {
       setBackfilled(true);
       return;
@@ -77,7 +80,7 @@ export function useHistoryBackfill(
     void run();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // run once on mount; prefs snapshot is intentional
+  }, [ready]); // runs when prefs become ready; prefs snapshot at that point is intentional
 
   return { backfilled };
 }

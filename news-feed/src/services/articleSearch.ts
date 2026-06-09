@@ -11,6 +11,81 @@ export interface SearchCandidate {
   inQueue: boolean;
 }
 
+/** Minimal article shape needed to build candidates (Article without feed-only fields). */
+export interface PoolArticle {
+  id: string;
+  title: string;
+  url: string;
+  source: string;
+  sourceId: string;
+  publishedAt: Date;
+}
+
+export interface HistoryCandidate {
+  id: string;
+  title: string;
+  url: string;
+  source: string;
+  publishedAt: string;
+}
+
+/**
+ * Build the search corpus from the three sources. Saved articles not in the
+ * RSS pool (imported bookmarks, aged-out saves) are still `inPool: true`
+ * because they are openable via onOpen; history entries already present in
+ * pool or queue are skipped (live entry wins).
+ */
+export function buildCandidates(
+  allArticles: PoolArticle[],
+  savedArticles: PoolArticle[],
+  history: HistoryCandidate[],
+): SearchCandidate[] {
+  const savedIds = new Set(savedArticles.map(a => a.id));
+  const liveIds = new Set(allArticles.map(a => a.id));
+
+  const candidates: SearchCandidate[] = allArticles.map(a => ({
+    id: a.id,
+    title: a.title,
+    url: a.url,
+    source: a.source,
+    sourceId: a.sourceId,
+    publishedAt: a.publishedAt.toISOString(),
+    inPool: true,
+    inQueue: savedIds.has(a.id),
+  }));
+
+  for (const a of savedArticles) {
+    if (liveIds.has(a.id)) continue; // already included above
+    liveIds.add(a.id);
+    candidates.push({
+      id: a.id,
+      title: a.title,
+      url: a.url,
+      source: a.source,
+      sourceId: a.sourceId,
+      publishedAt: a.publishedAt.toISOString(),
+      inPool: true,
+      inQueue: true,
+    });
+  }
+
+  for (const h of history) {
+    if (liveIds.has(h.id)) continue;
+    candidates.push({
+      id: h.id,
+      title: h.title,
+      url: h.url,
+      source: h.source,
+      sourceId: '',
+      publishedAt: h.publishedAt,
+      inPool: false,
+      inQueue: false,
+    });
+  }
+
+  return candidates;
+}
+
 const RANK_PREFIX = 1;
 const RANK_WORD_PREFIX = 2;
 const RANK_SUBSTRING = 3;
