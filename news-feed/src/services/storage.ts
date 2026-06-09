@@ -92,6 +92,13 @@ export function toggleSaved(id: string, prefs: UserPrefs): UserPrefs {
   };
 }
 
+export function clearQueue(prefs: UserPrefs): UserPrefs {
+  const now = Date.now();
+  const nextUnsavedAt = { ...(prefs.unsavedAtById ?? {}) };
+  for (const id of prefs.savedIds) nextUnsavedAt[id] = now;
+  return { ...prefs, savedIds: [], savedAtById: {}, unsavedAtById: nextUnsavedAt };
+}
+
 export function boostTopic(topic: Topic, prefs: UserPrefs): UserPrefs {
   const current = prefs.topicWeights[topic] ?? 1.0;
   return {
