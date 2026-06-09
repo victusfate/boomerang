@@ -9,8 +9,10 @@ export {
   ARTICLE_META_KEY_PREFIX,
   ARTICLE_META_TTL_SECONDS,
   MAX_ARTICLE_IDS_LOOKUP,
+  MAX_ARTICLE_IDS_LOOKUP_POST,
   articleMetaCacheKey,
   normalizeIdsParam,
+  normalizeIdsBody,
   normalizeArticleMeta,
   wireArticleFromFeed,
 } from './articleMetaContract';

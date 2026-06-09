@@ -335,7 +335,7 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
       const rawBody = await request.json().catch(() => null);
       const parsed = normalizeIdsBody(rawBody);
       if (parsed === null) {
-        return json({ ok: false, message: 'Body must be { ids: string[] }' }, request, env, 400);
+        return json({ ok: false, message: 'Body must be { ids: string[] }' }, request, env, { status: 400 });
       }
       ids = parsed;
     } else {

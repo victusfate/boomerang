@@ -48,10 +48,12 @@ export function normalizeIdsParam(raw: string | null): string[] {
 
 export function normalizeIdsBody(body: unknown): string[] | null {
   if (!body || typeof body !== 'object' || !Array.isArray((body as Record<string, unknown>).ids)) return null;
-  const ids = ((body as Record<string, unknown>).ids as unknown[])
+  const raw = (body as Record<string, unknown>).ids as unknown[];
+  if (raw.length > MAX_ARTICLE_IDS_LOOKUP_POST) return null;
+  const ids = raw
     .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
     .map(id => id.trim());
-  return Array.from(new Set(ids)).slice(0, MAX_ARTICLE_IDS_LOOKUP_POST);
+  return Array.from(new Set(ids));
 }
 
 export function normalizeArticleMeta(candidate: unknown): RecArticleMeta | null {
