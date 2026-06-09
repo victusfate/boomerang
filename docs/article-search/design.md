@@ -72,11 +72,11 @@ interface HistoryEntry {
 
 ### D5 — History backfill on first load
 
-On first app load after the feature ships (detected by absence of the `article-history:v1` key), a background task resolves all existing `readIds` + `unsavedAtById` IDs via batched `GET /rec/articles?ids=...` (50 IDs per request) and writes them to the history store, respecting the 500-entry cap (most recent interactions win).
+On first app load after the feature ships (detected by absence of the `article-history:backfilled` key in IndexedDB), a background task resolves all existing `readIds` + `unsavedAtById` IDs via a single `POST /rec/articles` request (up to 500 IDs in body) and writes them to the history store, respecting the 500-entry cap (most recent interactions win).
 
 - Runs in a `useEffect` with an `isFirstRun` guard stored in IndexedDB (`article-history:backfilled`)
-- Does not block the UI — results appear incrementally as batches resolve
-- Uses existing `/rec/articles` endpoint; no Ricochet changes required for core feature (see `ricochet-changes.md` for optional POST batch endpoint)
+- Does not block the UI — completes in the background
+- Uses `POST /rec/articles` (now live in platform-worker); `ARTICLES_POST_MAX = 500` matches the history store cap exactly — backfill is always a single request
 
 ### D6 — Tiered debounce (as-you-type)
 
