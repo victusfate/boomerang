@@ -109,7 +109,13 @@ export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onClo
   const handleResultClick = useCallback((c: SearchCandidate) => {
     if (c.inPool) {
       const article = articleById(c.id);
-      if (article) { onOpen(article); onClose(); return; }
+      if (article) {
+        onOpen(article); // bookkeeping: mark read, boost topics, record interaction
+        const url = normalizeArticleNavUrl(article.url);
+        if (url) window.open(url, '_blank', 'noopener,noreferrer');
+        onClose();
+        return;
+      }
     }
     // History-only: open URL directly (normalized — stored URLs may carry &amp; or bad protocols)
     const url = normalizeArticleNavUrl(c.url);
