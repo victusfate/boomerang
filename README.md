@@ -47,6 +47,14 @@ global popularity — and receive personalised boosts as interactions accumulate
 gracefully when the rec model has no history (cold-start falls back to
 recency × diversity ranking). See `news-feed/.env.example` for local ports.
 
+## Testing
+
+```bash
+make test          # unit tests (no browser or worker required)
+```
+
+For headless UI tests with Playwright (requires worker + preview server), see **[`docs/testing.md`](docs/testing.md)**.
+
 ## Local development
 
 ### Prerequisites
