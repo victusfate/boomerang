@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { kvGet, kvSet } from '../services/kvStore';
 import { writeHistoryEntry, writeHistoryEntries, type HistoryEntry } from '../services/articleHistory';
 import { addManualTag, removeManualTag } from '../services/tagEditorUtils';
+import { selectSavedArticles } from '../services/savedArticlesSelector';
 import { fetchAllSources, DEFAULT_SOURCES } from '../services/newsService';
 import { rankFeed } from '../services/algorithm';
 import {
@@ -828,28 +829,10 @@ export function useFeed(options?: UseFeedOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefsReady]); // one-shot: only runs once when prefs become ready
 
-  const savedIds  = new Set(prefs.savedIds);
-  const savedAtById = prefs.savedAtById ?? {};
-  const savedRank = new Map(prefs.savedIds.map((id, idx) => [id, idx]));
-  const poolIds   = new Set(articlePool.map(a => a.id));
-  const savedById = new Map<string, Article>();
-  for (const article of articlePool) {
-    if (savedIds.has(article.id)) savedById.set(article.id, article);
-  }
-  // Imported bookmark articles not already in the RSS pool
-  for (const article of importedSaves) {
-    if (savedIds.has(article.id) && !poolIds.has(article.id)) savedById.set(article.id, article);
-  }
-  const savedArticles = prefs.savedIds
-    .slice()
-    .sort((a, b) => {
-      const ta = savedAtById[a] ?? 0;
-      const tb = savedAtById[b] ?? 0;
-      if (tb !== ta) return tb - ta;
-      return (savedRank.get(b) ?? 0) - (savedRank.get(a) ?? 0);
-    })
-    .map(id => savedById.get(id))
-    .filter((article): article is Article => article !== undefined);
+  const savedArticles = useMemo(
+    () => selectSavedArticles(prefs, articlePool, importedSaves),
+    [prefs, articlePool, importedSaves],
+  );
 
   const articleTagsMap = useMemo(() => {
     const map = new Map<string, string[]>(articleTags.map(t => [t.articleId, t.tags]));
