@@ -183,6 +183,7 @@ export default function App() {
 
   const [view, setView] = useState<FeedView>('feed');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>(null);
+  const [initialQueueCount, setInitialQueueCount] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const [pullProgress, setPullProgress] = useState(0); // 0–1
   const canUseBrowserAi = isPromptApiAvailable();
@@ -210,6 +211,11 @@ export default function App() {
     }
   }, [onRefresh, forceMetaSync, forceSync, syncReady]);
   const initialSyncDoneRef = useRef(false);
+
+  useEffect(() => {
+    if (view === 'saved') setInitialQueueCount(savedArticles.length);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]); // intentionally snapshot on tab-enter only
 
   // Drive metadata sync target ids in useMetaWorker. `visibleArticles` is a fresh array every
   // render (useFeed does `allArticles.slice(0, visibleCount)`), so comparing by value and
@@ -462,6 +468,11 @@ export default function App() {
 
       {view === 'saved' && savedArticles.length > 0 && (
         <div className="queue-header">
+          {initialQueueCount > 0 && (
+            <span className="queue-progress">
+              {initialQueueCount - savedArticles.length} of {initialQueueCount} read
+            </span>
+          )}
           <button className="btn-clear-queue" onClick={onClearQueue}>
             Clear all
           </button>
