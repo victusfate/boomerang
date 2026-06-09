@@ -1,5 +1,6 @@
 AGENTS.md
 CLAUDE.md
+CODEOWNERS
 GEMINI.md
 docs/agent-authoring-requirements.md
 .claudeignore
@@ -96,3 +97,8 @@ skills/resume.md
 .agents/skills/resume/SKILL.md
 .agent/workflows/pause.md
 .agent/workflows/resume.md
+skills/protect-branch.md
+.claude/skills/protect-branch/SKILL.md
+.cursor/rules/protect-branch.mdc
+.agents/skills/protect-branch/SKILL.md
+.agent/workflows/protect-branch.md
