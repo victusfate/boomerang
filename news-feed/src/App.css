@@ -1817,3 +1817,33 @@ details[open] .rec-model-summary::before { content: '▾ '; }
   flex-direction: column;
   gap: 0;
 }
+
+/* ── Reading Queue tab ─────────────────────────────────────── */
+.queue-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 6px 16px 0;
+}
+
+.btn-clear-queue {
+  background: none;
+  border: 1px solid var(--border, #444);
+  border-radius: 6px;
+  color: var(--sub);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 10px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.btn-clear-queue:hover {
+  border-color: var(--text);
+  color: var(--text);
+}
+
+.queue-done {
+  color: var(--sub);
+  font-size: 14px;
+  text-align: center;
+}

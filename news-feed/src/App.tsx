@@ -111,7 +111,7 @@ export default function App() {
     allArticles,
     visibleArticles, savedArticles, hasMore, totalLoaded,
     loading, refreshing, fetching, error, prefs, lastRefresh, feedEnterIds,
-    onOpen, onSave, onUpvote, onDownvote, onSeen, onLoadMore,
+    onOpen, onSave, onClearQueue, onUpvote, onDownvote, onSeen, onLoadMore,
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
@@ -439,7 +439,7 @@ export default function App() {
           className={`tab ${view === 'saved' ? 'active' : ''}`}
           onClick={() => setView('saved')}
         >
-          Saved {savedArticles.length > 0 && <span className="tab-count">{savedArticles.length}</span>}
+          Queue {savedArticles.length > 0 && <span className="tab-count">{savedArticles.length}</span>}
         </button>
         <button
           role="tab"
@@ -458,6 +458,14 @@ export default function App() {
           activeFilter={activeFilter}
           onFilter={setActiveFilter}
         />
+      )}
+
+      {view === 'saved' && savedArticles.length > 0 && (
+        <div className="queue-header">
+          <button className="btn-clear-queue" onClick={onClearQueue}>
+            Clear all
+          </button>
+        </div>
       )}
 
       {!prefs.hideAiBar && (
@@ -585,8 +593,8 @@ export default function App() {
               <div className="feed-empty">
                 {view === 'saved' ? (
                   prefs.savedIds.length > 0
-                    ? <p>Loading saved articles…</p>
-                    : <p>No saved articles yet. Tap ☆ to bookmark.</p>
+                    ? <p>Loading queue…</p>
+                    : <p className="queue-done">Queue cleared ✓</p>
                 ) : activeFilter && hasMore ? null : (
                   <p>No articles match this filter.</p>
                 )}
