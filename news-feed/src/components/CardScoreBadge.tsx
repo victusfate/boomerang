@@ -1,4 +1,4 @@
-import { useCallback, useId, useState } from 'react';
+import { useId, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { FeedScoreInsight } from '../services/feedScoreBreakdown';
 
@@ -62,8 +62,15 @@ function ScorePopoverBody({ insight }: { insight: FeedScoreInsight }) {
 export function CardScoreBadge({ insight, loading = false }: Props) {
   const [open, setOpen] = useState(false);
   const popoverId = useId();
-  const show = useCallback(() => setOpen(true), []);
-  const hide = useCallback(() => setOpen(false), []);
+  const show = () => setOpen(true);
+  const hide = () => setOpen(false);
+  // Hover/focus open the popover for pointer+keyboard users; click/Enter/Space
+  // toggle it so touch and AT users can open it too (role="button" promises that).
+  const toggle = () => setOpen(o => !o);
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+    if (e.key === 'Escape') hide();
+  };
 
   if (loading) {
     return (
@@ -98,6 +105,8 @@ export function CardScoreBadge({ insight, loading = false }: Props) {
           role="button"
           aria-expanded={open}
           aria-describedby={open ? popoverId : undefined}
+          onClick={toggle}
+          onKeyDown={onKeyDown}
         >
           {chipLabel}
         </span>

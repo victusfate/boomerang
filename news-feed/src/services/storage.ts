@@ -37,8 +37,8 @@ const STOPWORDS = new Set([
 ]);
 
 const MAX_KEYWORDS = 500; // cap stored entries — evict lowest-magnitude on overflow
-const MAX_SEEN_IDS = 2_000; // keep only most-recent seen IDs
-const MAX_READ_IDS = 1_000; // keep only most-recent read IDs
+export const MAX_SEEN_IDS = 2_000; // keep only most-recent seen IDs
+export const MAX_READ_IDS = 1_000; // keep only most-recent read IDs
 
 export function extractKeywords(text: string): string[] {
   return [...new Set(
@@ -90,6 +90,13 @@ export function toggleSaved(id: string, prefs: UserPrefs): UserPrefs {
     savedAtById: { ...(prefs.savedAtById ?? {}), [id]: Date.now() },
     unsavedAtById: restUnsavedAt,
   };
+}
+
+export function clearQueue(prefs: UserPrefs): UserPrefs {
+  const now = Date.now();
+  const nextUnsavedAt = { ...(prefs.unsavedAtById ?? {}) };
+  for (const id of prefs.savedIds) nextUnsavedAt[id] = now;
+  return { ...prefs, savedIds: [], savedAtById: {}, unsavedAtById: nextUnsavedAt };
 }
 
 export function boostTopic(topic: Topic, prefs: UserPrefs): UserPrefs {
@@ -209,12 +216,17 @@ export function applyDecay(prefs: UserPrefs): UserPrefs {
     topicWeights[t] = w + (1.0 - w) * 0.1; // drift 10% back toward 1.0
   }
 
+  const sourceWeights: Record<string, number> = {};
+  for (const [src, w] of Object.entries(prefs.sourceWeights)) {
+    sourceWeights[src] = w + (1.0 - w) * 0.1; // drift 10% back toward 1.0
+  }
+
   const keywordWeights: Record<string, number> = {};
   for (const [kw, w] of Object.entries(prefs.keywordWeights)) {
     keywordWeights[kw] = w * 0.85; // decay magnitude by 15%
   }
 
-  return { ...prefs, topicWeights, keywordWeights, lastDecayAt: Date.now() };
+  return { ...prefs, topicWeights, sourceWeights, keywordWeights, lastDecayAt: Date.now() };
 }
 
 // ── Reset ─────────────────────────────────────────────────────────────────────
@@ -244,129 +256,6 @@ export function addCustomSource(source: CustomSource, prefs: UserPrefs): UserPre
 
 export function removeCustomSource(id: string, prefs: UserPrefs): UserPrefs {
   return { ...prefs, customSources: prefs.customSources.filter(s => s.id !== id) };
-}
-
-// ── Bookmark export / import ──────────────────────────────────────────────────
-// Encodes key preferences as a base64 URL fragment for cross-device restore.
-// Uses TextEncoder so non-ASCII source names survive the round-trip.
-// v2 adds optional savedSnapshots so starred items survive import in an empty profile
-// (e.g. private window) — RSS alone may not include older saved article IDs.
-
-export type BookmarkArticleSnapshot = Omit<Article, 'publishedAt'> & { publishedAt: string };
-
-export interface ImportedBookmark {
-  prefs: Partial<UserPrefs>;
-  /** Article bodies for saved IDs when re-exported from v2 bookmarks */
-  savedSnapshots?: BookmarkArticleSnapshot[];
-}
-
-interface BookmarkPayloadV1 {
-  v: 1;
-  upvotedIds:    string[];
-  downvotedIds:  string[];
-  savedIds:      string[];
-  savedAtById?:  Record<string, number>;
-  unsavedAtById?: Record<string, number>;
-  readIds:       string[];
-  customSources: CustomSource[];
-  enabledSources: string[];
-  enabledTopics:  string[];
-  topicWeights:   Partial<Record<Topic, number>>;
-  sourceWeights:  Record<string, number>;
-  keywordWeights: Record<string, number>;
-}
-
-interface BookmarkPayloadV2 extends Omit<BookmarkPayloadV1, 'v'> {
-  v: 2;
-  savedSnapshots?: BookmarkArticleSnapshot[];
-}
-
-function prefsToBookmarkFields(prefs: UserPrefs): Omit<BookmarkPayloadV1, 'v'> {
-  return {
-    upvotedIds:    prefs.upvotedIds,
-    downvotedIds:  prefs.downvotedIds,
-    savedIds:      prefs.savedIds,
-    savedAtById:   prefs.savedAtById ?? {},
-    unsavedAtById: prefs.unsavedAtById ?? {},
-    readIds:       prefs.readIds,
-    customSources: prefs.customSources,
-    enabledSources: prefs.enabledSources,
-    enabledTopics:  prefs.enabledTopics as string[],
-    topicWeights:   prefs.topicWeights,
-    sourceWeights:  prefs.sourceWeights,
-    keywordWeights: prefs.keywordWeights,
-  };
-}
-
-function articleToSnapshot(a: Article): BookmarkArticleSnapshot {
-  return { ...a, publishedAt: a.publishedAt.toISOString() };
-}
-
-/** @param savedArticles — current article rows for saved IDs (so imports work without RSS overlap) */
-export function exportPrefsBookmark(prefs: UserPrefs, savedArticles?: Article[]): string {
-  const fields = prefsToBookmarkFields(prefs);
-  const payload: BookmarkPayloadV2 = {
-    v: 2,
-    ...fields,
-    savedSnapshots:
-      savedArticles && savedArticles.length > 0 ? savedArticles.map(articleToSnapshot) : undefined,
-  };
-  const bytes = new TextEncoder().encode(JSON.stringify(payload));
-  let binary = '';
-  bytes.forEach(b => { binary += String.fromCharCode(b); });
-  return btoa(binary);
-}
-
-function parseBookmarkPrefs(p: Partial<Omit<BookmarkPayloadV1, 'v'>>): Partial<UserPrefs> {
-  const out: Partial<UserPrefs> = {};
-  if (Array.isArray(p.upvotedIds))    out.upvotedIds    = p.upvotedIds;
-  if (Array.isArray(p.downvotedIds))  out.downvotedIds  = p.downvotedIds;
-  if (Array.isArray(p.savedIds))      out.savedIds      = p.savedIds;
-  if (p.savedAtById && typeof p.savedAtById === 'object') out.savedAtById = p.savedAtById;
-  if (p.unsavedAtById && typeof p.unsavedAtById === 'object') out.unsavedAtById = p.unsavedAtById;
-  if (Array.isArray(p.readIds))       out.readIds       = p.readIds;
-  if (Array.isArray(p.customSources)) out.customSources = p.customSources;
-  if (Array.isArray(p.enabledSources)) out.enabledSources = p.enabledSources;
-  if (Array.isArray(p.enabledTopics))  out.enabledTopics  = p.enabledTopics as Topic[];
-  if (p.topicWeights && typeof p.topicWeights === 'object')   out.topicWeights   = p.topicWeights;
-  if (p.sourceWeights && typeof p.sourceWeights === 'object') out.sourceWeights  = p.sourceWeights;
-  if (p.keywordWeights && typeof p.keywordWeights === 'object') out.keywordWeights = p.keywordWeights;
-  return out;
-}
-
-export function importPrefsBookmark(encoded: string): ImportedBookmark | null {
-  try {
-    const binary = atob(encoded.trim());
-    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-    const json = new TextDecoder().decode(bytes);
-    const p = JSON.parse(json) as Partial<BookmarkPayloadV1 | BookmarkPayloadV2>;
-    if (p.v !== 1 && p.v !== 2) return null;
-    const prefs = parseBookmarkPrefs(p);
-    let savedSnapshots: BookmarkArticleSnapshot[] | undefined;
-    if (p.v === 2 && Array.isArray(p.savedSnapshots) && p.savedSnapshots.length > 0) {
-      savedSnapshots = p.savedSnapshots.filter(
-        s => s && typeof s.id === 'string' && typeof s.title === 'string' && typeof s.url === 'string',
-      );
-    }
-    return { prefs, savedSnapshots };
-  } catch {
-    return null;
-  }
-}
-
-/** Merge fetched articles with bookmark snapshots so saved items missing from RSS still appear. */
-export function mergePoolWithSavedSnapshots(
-  fetched: Article[],
-  savedIds: string[],
-  snapshots: Map<string, Article>,
-): Article[] {
-  const byId = new Map(fetched.map(a => [a.id, a]));
-  for (const id of savedIds) {
-    if (!byId.has(id) && snapshots.has(id)) {
-      byId.set(id, snapshots.get(id)!);
-    }
-  }
-  return Array.from(byId.values());
 }
 
 // ── OPML export / import ──────────────────────────────────────────────────────
@@ -403,7 +292,7 @@ export function exportOPML(
     groups.push(`    <outline text="${label}" title="${label}">\n${lines.join('\n')}\n    </outline>`);
   }
   if (customSources.length > 0) {
-    const lines = customSources.map(s => toOutline(s.name, s.feedUrl, s.id, ' boomerangCustom="true"'));
+    const lines = customSources.map(s => toOutline(s.name, s.feedUrl, s.id, ` boomerangCustom="true" boomerangId="${escapeXml(s.id)}"`));
     groups.push(`    <outline text="Custom" title="Custom">\n${lines.join('\n')}\n    </outline>`);
   }
 
@@ -443,7 +332,7 @@ export function importOPML(xml: string, defaultSources: NewsSource[]): ImportedO
     const outlines = Array.from(doc.querySelectorAll('outline[xmlUrl]'));
     if (outlines.length === 0) return null;
 
-    const opmlEntries = new Map<string, { disabled: boolean; custom: boolean; name: string }>();
+    const opmlEntries = new Map<string, { disabled: boolean; custom: boolean; name: string; id: string | null }>();
     for (const el of outlines) {
       const xmlUrl = el.getAttribute('xmlUrl')?.trim();
       if (!xmlUrl) continue;
@@ -451,6 +340,7 @@ export function importOPML(xml: string, defaultSources: NewsSource[]): ImportedO
         disabled: el.getAttribute('boomerangDisabled') === 'true',
         custom:   el.getAttribute('boomerangCustom')   === 'true',
         name:     el.getAttribute('text') || el.getAttribute('title') || xmlUrl,
+        id:       el.getAttribute('boomerangId'),
       });
     }
 
@@ -463,17 +353,16 @@ export function importOPML(xml: string, defaultSources: NewsSource[]): ImportedO
       if (!entry || entry.disabled) newDisabledIds.push(s.id);
     }
 
-    // URLs not matching any built-in source → custom sources
+    // URLs not matching any built-in source → custom sources.
+    // Ids come from boomerangId when present, else derive a stable id from
+    // the URL — so an export→import round trip preserves source identity and
+    // honors boomerangDisabled instead of silently re-enabling feeds.
     const newCustomSources: CustomSource[] = [];
-    let idx = 0;
-    for (const [url, { name }] of opmlEntries) {
-      if (!defaultUrlSet.has(url)) {
-        newCustomSources.push({
-          id: `custom-${Date.now().toString(36)}-${(idx++).toString(36)}`,
-          name,
-          feedUrl: url,
-        });
-      }
+    for (const [url, { name, disabled, id }] of opmlEntries) {
+      if (defaultUrlSet.has(url)) continue;
+      const sourceId = id ?? customSourceIdFromUrl(url);
+      newCustomSources.push({ id: sourceId, name, feedUrl: url });
+      if (disabled) newDisabledIds.push(sourceId);
     }
 
     return { disabledSourceIds: newDisabledIds, customSources: newCustomSources };
@@ -483,6 +372,13 @@ export function importOPML(xml: string, defaultSources: NewsSource[]): ImportedO
 }
 
 // ── Browser bookmarks export / import ─────────────────────────────────────────
+
+/** Stable custom-source id from the feed URL — repeat imports stay idempotent. */
+export function customSourceIdFromUrl(url: string): string {
+  let h = 0;
+  for (let i = 0; i < url.length; i++) { h = Math.imul(31, h) + url.charCodeAt(i) | 0; }
+  return `custom-${(h >>> 0).toString(36)}`;
+}
 
 function bmId(url: string): string {
   // Stable ID derived from URL so re-imports don't duplicate

@@ -25,8 +25,11 @@ const AD_URL_PATHS = [
   '/affiliate/', '/commerce/', '/commerce-content/',
 ];
 
-// ── URL query params common in affiliate/tracking links ──────────────────────
-const AD_URL_PARAMS = /[?&](utm_source|utm_medium|utm_campaign|affiliate|ref=asc|tag=|ascsubtag)/i;
+// ── URL query params ─────────────────────────────────────────────────────────
+// Affiliate params are a strong commerce signal; generic utm tracking is not —
+// many publishers stamp utm params on every RSS link, so it only nudges.
+const AFFILIATE_URL_PARAMS = /[?&](affiliate|ref=asc|tag=|ascsubtag)/i;
+const TRACKING_URL_PARAMS = /[?&](utm_source|utm_medium|utm_campaign)/i;
 
 // ── Source-specific URL patterns (editorial sites with ad sub-sections) ──────
 const SOURCE_URL_PATTERNS: Record<string, RegExp> = {
@@ -72,8 +75,9 @@ export function adScore(article: Article): number {
   // URL path signals
   if (AD_URL_PATHS.some(p => url.includes(p))) score += 9;
 
-  // Tracking/affiliate query params
-  if (AD_URL_PARAMS.test(article.url)) score += 6;
+  // Affiliate query params — strong; generic utm tracking — weak nudge
+  if (AFFILIATE_URL_PARAMS.test(article.url)) score += 6;
+  else if (TRACKING_URL_PARAMS.test(article.url)) score += 2;
 
   // Source-specific URL patterns
   const sourcePattern = SOURCE_URL_PATTERNS[article.sourceId];

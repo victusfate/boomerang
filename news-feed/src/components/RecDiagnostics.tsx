@@ -9,7 +9,7 @@ import {
 } from '../services/recWorker';
 import { PLATFORM_WORKER_URL } from '../config/workerEnv';
 import { articleCatalogMissingTitleLabel } from '../../../shared/articleRecordCatalog.ts';
-import { TOPIC_META } from './TopicFilter';
+import { TOPIC_META } from './topicFilterUtils';
 import type { RecStatus } from '../hooks/useRecWorker';
 import type { Topic } from '../types';
 
@@ -141,12 +141,19 @@ function SourceRow({ name, c, score, maxScore }: {
           <div className="rec-source-fill-neg" style={{ width: `${barPct}%` }} />
         ) : (
           <div className="rec-source-fill-stack" style={{ width: `${barPct}%` }}>
-            {ACTION_ORDER.map(action => {
+            {(() => {
+              // Divide by the positive-contribution sum, not the net score —
+              // with downvotes (negative weight) segments summed past 100%.
+              const positiveTotal = ACTION_ORDER.reduce((sum, action) => {
+                const contribution = counts(c, action) * (ACTION_WEIGHT[action] ?? 0);
+                return contribution > 0 ? sum + contribution : sum;
+              }, 0);
+              return ACTION_ORDER.map(action => {
               const n = counts(c, action);
               const weight = ACTION_WEIGHT[action] ?? 0;
               const contribution = n * weight;
               if (contribution <= 0) return null;
-              const segPct = contribution / score * 100;
+              const segPct = positiveTotal > 0 ? contribution / positiveTotal * 100 : 0;
               return (
                 <div
                   key={action}
@@ -155,7 +162,8 @@ function SourceRow({ name, c, score, maxScore }: {
                   title={`${action} ×${n} → +${contribution.toFixed(1)} pts`}
                 />
               );
-            })}
+              });
+            })()}
           </div>
         )}
       </div>
@@ -313,30 +321,35 @@ export function RecDiagnostics({
       ? `Resolved ${resolvedTitleCount}/${previewIds.length} titles`
       : null;
 
-  let sourceEntries: { id: string; name: string; c: ActionCounts; score: number }[] = [];
-  let topicEntries: { topic: string; score: number }[] = [];
-  let tagEntries: { tag: string; score: number }[] = [];
-  let maxSource = 1;
-  let maxTopic = 1;
-  let maxTag = 1;
-  if (data) {
-    sourceEntries = Object.entries(data.stats.sources)
+  const { sourceEntries, topicEntries, tagEntries, maxSource, maxTopic, maxTag } = useMemo(() => {
+    if (!data) {
+      return {
+        sourceEntries: [] as { id: string; name: string; c: ActionCounts; score: number }[],
+        topicEntries: [] as { topic: string; score: number }[],
+        tagEntries: [] as { tag: string; score: number }[],
+        maxSource: 1, maxTopic: 1, maxTag: 1,
+      };
+    }
+    const sourceEntries = Object.entries(data.stats.sources)
       .map(([id, c]) => ({ id, name: getSourceName(id), c, score: engagementScore(c) }))
       .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
       .slice(0, 12);
-    topicEntries = Object.entries(data.stats.topics)
+    const topicEntries = Object.entries(data.stats.topics)
       .map(([topic, c]) => ({ topic, score: engagementScore(c) }))
       .filter(e => e.score > 0)
       .sort((a, b) => b.score - a.score);
-    tagEntries = Object.entries(data.stats.tags ?? {})
+    const tagEntries = Object.entries(data.stats.tags ?? {})
       .map(([tag, c]) => ({ tag, score: engagementScore(c) }))
       .filter(e => e.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 12);
-    maxSource = sourceEntries[0] ? Math.abs(sourceEntries[0].score) : 1;
-    maxTopic = topicEntries[0]?.score || 1;
-    maxTag = tagEntries[0]?.score   || 1;
-  }
+    return {
+      sourceEntries, topicEntries, tagEntries,
+      maxSource: sourceEntries[0] ? Math.abs(sourceEntries[0].score) : 1,
+      maxTopic: topicEntries[0]?.score || 1,
+      maxTag: tagEntries[0]?.score || 1,
+    };
+  }, [data, getSourceName]);
 
   if (loading && !data) {
     return (

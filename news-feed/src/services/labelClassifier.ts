@@ -1,4 +1,4 @@
-import type { Article, ArticleTag, LabelHit, UserLabel } from '../types';
+import type { Article, ArticleTag, UserLabel } from '../types';
 
 export interface LMSession {
   prompt(text: string): Promise<string>;
@@ -244,34 +244,4 @@ export async function runTaggingPass(
     tagged: toTag.length,
     totalMs: Math.round(nowMs() - passT0),
   });
-}
-
-export async function runClassificationPass(
-  articles: Article[],
-  label: UserLabel,
-  existingHits: LabelHit[],
-): Promise<LabelHit[]> {
-  if (!isPromptApiAvailable()) return [];
-
-  const hitSet = new Set(
-    existingHits.filter(h => h.labelId === label.id).map(h => h.articleId),
-  );
-
-  const toClassify = articles.filter(a => !hitSet.has(a.id));
-  if (toClassify.length === 0) return [];
-
-  const availability = await getLanguageModelAvailability('before classify session');
-  if (!canCreateLanguageModel(availability)) return [];
-  const session: LMSession = await (globalThis as any).LanguageModel.create(
-    lmCreateOptions('You are a news article classifier. Answer only YES or NO.'),
-  );
-
-  const newHits: LabelHit[] = [];
-  for (const article of toClassify) {
-    const matches = await classifyArticle(article, label, session);
-    if (matches) {
-      newHits.push({ articleId: article.id, labelId: label.id, classifiedAt: Date.now() });
-    }
-  }
-  return newHits;
 }

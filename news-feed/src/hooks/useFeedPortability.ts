@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { selectSavedArticles } from '../services/savedArticlesSelector';
 import type { MutableRefObject } from 'react';
 import { kvSet } from '../services/kvStore';
 import { DEFAULT_SOURCES } from '../services/newsService';
@@ -49,27 +50,7 @@ export function useFeedPortability({
   handleImportOPML: (xml: string) => boolean;
 } {
   const handleExportBookmarks = useCallback(() => {
-    const savedIds = new Set(prefsRef.current.savedIds);
-    const savedAtById = prefsRef.current.savedAtById ?? {};
-    const savedRank = new Map(prefsRef.current.savedIds.map((id, idx) => [id, idx]));
-    const poolIds = new Set(articlePoolRef.current.map(a => a.id));
-    const savedById = new Map<string, Article>();
-    for (const article of articlePoolRef.current) {
-      if (savedIds.has(article.id)) savedById.set(article.id, article);
-    }
-    for (const article of importedSavesRef.current) {
-      if (savedIds.has(article.id) && !poolIds.has(article.id)) savedById.set(article.id, article);
-    }
-    const allSaved = prefsRef.current.savedIds
-      .slice()
-      .sort((a, b) => {
-        const ta = savedAtById[a] ?? 0;
-        const tb = savedAtById[b] ?? 0;
-        if (tb !== ta) return tb - ta;
-        return (savedRank.get(b) ?? 0) - (savedRank.get(a) ?? 0);
-      })
-      .map(id => savedById.get(id))
-      .filter((article): article is Article => article !== undefined);
+    const allSaved = selectSavedArticles(prefsRef.current, articlePoolRef.current, importedSavesRef.current);
     const html = exportBookmarkHTML(allSaved);
     triggerDownload(new Blob([html], { type: 'text/html' }), 'boomerang-saves.html');
   }, [prefsRef, articlePoolRef, importedSavesRef]);

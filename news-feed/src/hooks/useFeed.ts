@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { kvGet, kvSet } from '../services/kvStore';
+import { writeHistoryEntry, writeHistoryEntries, type HistoryEntry } from '../services/articleHistory';
+import { addManualTag, removeManualTag } from '../services/tagEditorUtils';
+import { selectSavedArticles } from '../services/savedArticlesSelector';
 import { fetchAllSources, DEFAULT_SOURCES } from '../services/newsService';
 import { rankFeed } from '../services/algorithm';
 import {
   DEFAULT_PREFS,
-  markRead, markSeen, toggleSaved,
+  markRead, markSeen, toggleSaved, clearQueue,
   boostTopic, toggleSource, toggleTopic, isSourceEnabled,
   upvote, downvote, applyDecay, resetLearnedWeights, clearViewedCache,
   addCustomSource, removeCustomSource,
@@ -34,6 +37,18 @@ interface FeedCacheDoc        { articles: StoredArticle[]; fetchedAt: number }
 interface ImportedSavesDoc    { articles: StoredArticle[] }
 interface ClassificationsDoc  { hits: LabelHit[] }
 interface ArticleTagsDoc      { hits: ArticleTag[] }
+
+function toHistoryEntry(article: Article, interactedAt: number): HistoryEntry {
+  return {
+    id: article.id,
+    title: article.title,
+    url: article.url,
+    source: article.source,
+    sourceId: article.sourceId,
+    publishedAt: article.publishedAt.toISOString(),
+    interactedAt,
+  };
+}
 
 function scrubPlaceholderSaves(
   prefs: UserPrefs,
@@ -407,11 +422,15 @@ export function useFeed(options?: UseFeedOptions) {
         const ranked = rankFeed(cached.articles, mergePrefs(cleanedPrefs, prefsRef.current), getRankRecIds());
         allArticlesRef.current = ranked;
         setAllArticles(ranked);
-        feedShownRef.current = true; // cache committed — background updates must not re-rank
-        if (ranked.length) setLoading(false);
-
-        // Mark cache as valid so we skip the auto-fetch on startup
-        setLastRefresh(new Date(cached.fetchedAt));
+        if (ranked.length) {
+          feedShownRef.current = true; // cache committed — background updates must not re-rank
+          setLoading(false);
+          // Mark cache as valid so we skip the auto-fetch on startup
+          setLastRefresh(new Date(cached.fetchedAt));
+        }
+        // ranked empty (all cached articles seen/deduped): leave lastRefresh
+        // unset so the prefsReady auto-fetch fires instead of wedging on the
+        // loading state.
 
         // Without this, `refresh()` never runs on cold start when cache exists — AI tagging
         // (and the status bar) only appeared after a manual refresh. Re-run the same pass as post-fetch.
@@ -551,9 +570,10 @@ export function useFeed(options?: UseFeedOptions) {
           publishRecCandidateIdsRef.current(articlePoolRef.current);
         }
         fetchingRef.current = false;
-      } else {
-        fetchingRef.current = false;
       }
+      // Superseded: the canceller bumped fetchId and handed the lock to a
+      // newer fetch — clearing it here would let a third refresh run
+      // concurrently with that one.
     }
   }, []); // stable — does not depend on volatile state
 
@@ -562,14 +582,10 @@ export function useFeed(options?: UseFeedOptions) {
   const handleSeen = useCallback((id: string) => {
     if (markedSeenRef.current.has(id)) return; // already counted this session
     markedSeenRef.current.add(id);
-    setPrefsState(prev => {
-      const next = markSeen([id], prev);
-      kvSet(PREFS_ID, next).catch(console.error);
-      return next;
-    });
+    updatePrefs(markSeen([id], prefsRef.current));
     const a = allArticlesRef.current.find(x => x.id === id);
     if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, tags: articleTagsMapRef.current.get(a.id), action: 'seen', ts: Date.now() });
-  }, []);
+  }, [updatePrefs]);
 
   // ── Pagination ────────────────────────────────────────────────────────────────
   const loadMore = useCallback(() => {
@@ -581,21 +597,58 @@ export function useFeed(options?: UseFeedOptions) {
   }, []); // stable — reads allArticles via ref
 
   // ── Article interactions ──────────────────────────────────────────────────────
+  // Saved articles can live outside the RSS pool (imported bookmarks, aged-out
+  // saves) — history writes on dequeue must find those too.
+  const findKnownArticle = useCallback((id: string): Article | undefined =>
+    allArticlesRef.current.find(a => a.id === id)
+    ?? importedSavesRef.current.find(a => a.id === id), []);
+
   const handleOpen = useCallback((article: Article) => {
-    const next = markRead(article.id, prefsRef.current);
-    const boosted = article.topics.reduce((p, t) => boostTopic(t, p), next);
-    updatePrefs(boosted);
+    const afterRead = markRead(article.id, prefsRef.current);
+    const afterBoost = article.topics.reduce((p, t) => boostTopic(t, p), afterRead);
+    const afterDequeue = afterBoost.savedIds.includes(article.id)
+      ? toggleSaved(article.id, afterBoost)
+      : afterBoost;
+    updatePrefs(afterDequeue);
     recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, tags: articleTagsMapRef.current.get(article.id), action: 'read', ts: Date.now() });
+    void writeHistoryEntry(toHistoryEntry(article, Date.now()));
   }, [updatePrefs]);
+
+  const handleClearQueue = useCallback(() => {
+    const currentSaved = prefsRef.current.savedIds;
+    const now = Date.now();
+    updatePrefs(clearQueue(prefsRef.current));
+    const entries = currentSaved
+      .map(id => {
+        const article = findKnownArticle(id);
+        return article ? toHistoryEntry(article, now) : null;
+      })
+      .filter((e): e is NonNullable<typeof e> => e !== null);
+    if (entries.length > 0) void writeHistoryEntries(entries);
+  }, [updatePrefs, findKnownArticle]);
 
   const handleSave = useCallback((id: string) => {
     const isSaving = !prefsRef.current.savedIds.includes(id); // true = star, false = unstar
     updatePrefs(toggleSaved(id, prefsRef.current));
     // Only signal the rec backend on the initial save — unstar is a UI bookmark action,
     // not a preference reversal (topic weights from reading are already permanent).
-    const a = allArticlesRef.current.find(x => x.id === id);
+    const a = findKnownArticle(id);
     if (a && isSaving) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, tags: articleTagsMapRef.current.get(a.id), action: 'save', ts: Date.now() });
-  }, [updatePrefs]);
+    if (a && !isSaving) void writeHistoryEntry(toHistoryEntry(a, Date.now()));
+  }, [updatePrefs, findKnownArticle]);
+
+  // Save an article that may live outside the pool (e.g. a history-only search
+  // result). Registers it in importedSaves first — same home as imported
+  // bookmarks — so selectSavedArticles can render it in the Queue.
+  const handleSaveExternal = useCallback((article: Article) => {
+    if (!findKnownArticle(article.id) && !prefsRef.current.savedIds.includes(article.id)) {
+      const merged = [...importedSavesRef.current.filter(a => a.id !== article.id), article];
+      importedSavesRef.current = merged;
+      setImportedSaves(merged);
+      kvSet(IMPORTED_SAVES_ID, { articles: dehydrate(merged) }).catch(console.error);
+    }
+    handleSave(article.id);
+  }, [handleSave, findKnownArticle]);
 
   const handleUpvote = useCallback((article: Article) => {
     updatePrefs(upvote(article, prefsRef.current));
@@ -629,51 +682,45 @@ export function useFeed(options?: UseFeedOptions) {
 
   const handleDeleteLabel = useCallback((labelId: string) => {
     updatePrefs(deleteUserLabel(labelId, prefsRef.current));
-    setLabelHits(prev => {
-      const filtered = prev.filter(h => h.labelId !== labelId);
-      labelHitsRef.current = filtered;
-      kvSet(CLASSIFICATIONS_ID, { hits: filtered }).catch(console.error);
-      return filtered;
-    });
+    const filtered = labelHitsRef.current.filter(h => h.labelId !== labelId);
+    labelHitsRef.current = filtered;
+    setLabelHits(filtered);
+    kvSet(CLASSIFICATIONS_ID, { hits: filtered }).catch(console.error);
   }, [updatePrefs]);
 
   const handleRenameLabel = useCallback((labelId: string, name: string) => {
     updatePrefs(renameUserLabel(labelId, name, prefsRef.current));
   }, [updatePrefs]);
 
-  const handleAddManualTag = useCallback((articleId: string, raw: string) => {
-    const tag = raw.trim().toLowerCase();
-    if (!tag) return;
-    setArticleTags(prev => {
-      const existing = prev.find(t => t.articleId === articleId);
-      let updated: ArticleTag[];
-      if (existing) {
-        if (existing.tags.includes(tag)) return prev;
-        updated = prev.map(t =>
-          t.articleId === articleId ? { ...t, tags: [...t.tags, tag], taggedAt: Date.now() } : t
-        );
-      } else {
-        updated = [...prev, { articleId, tags: [tag], taggedAt: Date.now() }];
-      }
-      articleTagsRef.current = updated;
-      kvSet(ARTICLE_TAGS_ID, { hits: updated }).catch(console.error);
-      return updated;
-    });
+  const commitArticleTags = useCallback((updated: ArticleTag[]) => {
+    articleTagsRef.current = updated;
+    setArticleTags(updated);
+    kvSet(ARTICLE_TAGS_ID, { hits: updated }).catch(console.error);
   }, []);
 
+  const handleAddManualTag = useCallback((articleId: string, raw: string) => {
+    const prev = articleTagsRef.current;
+    const existing = prev.find(t => t.articleId === articleId);
+    const newTags = addManualTag(existing?.tags ?? [], raw);
+    if (newTags === (existing?.tags ?? []) || newTags.length === (existing?.tags.length ?? 0)) return;
+    const updated = existing
+      ? prev.map(t =>
+        t.articleId === articleId ? { ...t, tags: newTags, taggedAt: Date.now() } : t
+      )
+      : [...prev, { articleId, tags: newTags, taggedAt: Date.now() }];
+    commitArticleTags(updated);
+  }, [commitArticleTags]);
+
   const handleRemoveManualTag = useCallback((articleId: string, tag: string) => {
-    setArticleTags(prev => {
-      const existing = prev.find(t => t.articleId === articleId);
-      if (!existing) return prev;
-      const newTags = existing.tags.filter(t => t !== tag);
-      const updated = newTags.length > 0
-        ? prev.map(t => t.articleId === articleId ? { ...t, tags: newTags, taggedAt: Date.now() } : t)
-        : prev.filter(t => t.articleId !== articleId);
-      articleTagsRef.current = updated;
-      kvSet(ARTICLE_TAGS_ID, { hits: updated }).catch(console.error);
-      return updated;
-    });
-  }, []);
+    const prev = articleTagsRef.current;
+    const existing = prev.find(t => t.articleId === articleId);
+    if (!existing) return;
+    const newTags = removeManualTag(existing.tags, tag);
+    const updated = newTags.length > 0
+      ? prev.map(t => t.articleId === articleId ? { ...t, tags: newTags, taggedAt: Date.now() } : t)
+      : prev.filter(t => t.articleId !== articleId);
+    commitArticleTags(updated);
+  }, [commitArticleTags]);
 
   const handleToggleAiBar = useCallback(() => {
     updatePrefs({ ...prefsRef.current, hideAiBar: !prefsRef.current.hideAiBar });
@@ -795,28 +842,10 @@ export function useFeed(options?: UseFeedOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefsReady]); // one-shot: only runs once when prefs become ready
 
-  const savedIds  = new Set(prefs.savedIds);
-  const savedAtById = prefs.savedAtById ?? {};
-  const savedRank = new Map(prefs.savedIds.map((id, idx) => [id, idx]));
-  const poolIds   = new Set(articlePool.map(a => a.id));
-  const savedById = new Map<string, Article>();
-  for (const article of articlePool) {
-    if (savedIds.has(article.id)) savedById.set(article.id, article);
-  }
-  // Imported bookmark articles not already in the RSS pool
-  for (const article of importedSaves) {
-    if (savedIds.has(article.id) && !poolIds.has(article.id)) savedById.set(article.id, article);
-  }
-  const savedArticles = prefs.savedIds
-    .slice()
-    .sort((a, b) => {
-      const ta = savedAtById[a] ?? 0;
-      const tb = savedAtById[b] ?? 0;
-      if (tb !== ta) return tb - ta;
-      return (savedRank.get(b) ?? 0) - (savedRank.get(a) ?? 0);
-    })
-    .map(id => savedById.get(id))
-    .filter((article): article is Article => article !== undefined);
+  const savedArticles = useMemo(
+    () => selectSavedArticles(prefs, articlePool, importedSaves),
+    [prefs, articlePool, importedSaves],
+  );
 
   const articleTagsMap = useMemo(() => {
     const map = new Map<string, string[]>(articleTags.map(t => [t.articleId, t.tags]));
@@ -849,6 +878,8 @@ export function useFeed(options?: UseFeedOptions) {
     lastRefresh,
     onOpen:         handleOpen,
     onSave:         handleSave,
+    onSaveExternal: handleSaveExternal,
+    onClearQueue:   handleClearQueue,
     onUpvote:       handleUpvote,
     onDownvote:     handleDownvote,
     onSeen:         handleSeen,

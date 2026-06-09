@@ -1,23 +1,29 @@
 import type { Env } from '../../env';
 import { corsHeaders } from '../../cors';
 import { json, tooManyRequests, checkRateLimit } from '../_shared/http';
-import { normaliseTags, mergeTagSets } from './tags';
+import { normaliseTags } from './tags';
 
 export { MetaDO } from './MetaDO';
 
 const RATE_LIMIT_MAX_REQUESTS = 30;
 
-const MAX_TAGS_PER_ARTICLE = 6;
+/** Matches rec's MAX_ARTICLE_IDS_LOOKUP — bounds parallel KV reads per request. */
+const MAX_META_IDS_LOOKUP = 50;
+/** Matches MetaDO MAX_BATCH_SIZE — the WS path enforces the same cap. */
+const MAX_META_TAGS_BATCH = 200;
+/** articleId becomes a KV key — bound length and charset (ids are 16-hex today). */
+const ARTICLE_ID_SHAPE = /^[\w-]{1,64}$/;
 
 import type { ArticleRecord } from './articleRecord';
-import { ARTICLE_RECORD_TTL_SECONDS, articleRecordKey } from './articleRecord';
+import { articleRecordKey } from './articleRecord';
 
 type ArticleMetaEntry = ArticleRecord;
 
 function parseIdsParam(url: URL): string[] {
   const raw = url.searchParams.get('ids') ?? '';
   if (!raw.trim()) return [];
-  return Array.from(new Set(raw.split(',').map(s => s.trim()).filter(Boolean)));
+  return Array.from(new Set(raw.split(',').map(s => s.trim()).filter(Boolean)))
+    .slice(0, MAX_META_IDS_LOOKUP);
 }
 
 async function loadMetaEntries(env: Env, ids: string[]): Promise<ArticleMetaEntry[]> {
@@ -25,24 +31,6 @@ async function loadMetaEntries(env: Env, ids: string[]): Promise<ArticleMetaEntr
     ids.map(id => env.ARTICLE_META.get<ArticleMetaEntry>(articleRecordKey(id), 'json')),
   );
   return entries.filter((e): e is ArticleMetaEntry => e !== null);
-}
-
-async function upsertMetaEntry(env: Env, articleId: string, incomingTags: string[]): Promise<void> {
-  const key = articleRecordKey(articleId);
-  const existing = await env.ARTICLE_META.get<ArticleMetaEntry>(key, 'json');
-  const merged = mergeTagSets(existing?.tags ?? [], incomingTags).slice(0, MAX_TAGS_PER_ARTICLE);
-  const updatedAt = Date.now();
-  const entry: ArticleMetaEntry = {
-    articleId,
-    tags: merged,
-    updatedAt,
-    title: existing?.title,
-    source: existing?.source,
-    sourceId: existing?.sourceId,
-    publishedAt: existing?.publishedAt,
-    url: existing?.url,
-  };
-  await env.ARTICLE_META.put(key, JSON.stringify(entry), { expirationTtl: ARTICLE_RECORD_TTL_SECONDS });
 }
 
 export async function handleMeta(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
@@ -68,11 +56,32 @@ export async function handleMeta(request: Request, env: Env, _ctx: ExecutionCont
       return json({ ok: false, message: 'Invalid JSON body' }, request, env, { status: 400 });
     }
     const articles = Array.isArray(body.articles) ? body.articles : [];
+    if (articles.length > MAX_META_TAGS_BATCH) {
+      return json(
+        { ok: false, message: `articles must contain at most ${MAX_META_TAGS_BATCH} entries` },
+        request, env, { status: 400 },
+      );
+    }
+    const valid: Array<{ articleId: string; tags: string[] }> = [];
     for (const item of articles) {
-      if (typeof item.articleId !== 'string' || !Array.isArray(item.tags)) continue;
+      if (typeof item.articleId !== 'string' || !ARTICLE_ID_SHAPE.test(item.articleId) || !Array.isArray(item.tags)) continue;
       const tags = normaliseTags(item.tags.filter((t): t is string => typeof t === 'string'));
       if (tags.length === 0) continue;
-      await upsertMetaEntry(env, item.articleId, tags);
+      valid.push({ articleId: item.articleId, tags });
+    }
+    if (valid.length > 0) {
+      // Route through MetaDO — single tag writer, and HTTP-submitted tags
+      // reach WS subscribers + the catchUp index like WS submissions.
+      const id = env.META_DO.idFromName('global');
+      const stub = env.META_DO.get(id);
+      const doRes = await stub.fetch(new Request('http://do-internal/submit-tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articles: valid }),
+      }));
+      if (!doRes.ok) {
+        return json({ ok: false, message: `Tag submit failed (${doRes.status})` }, request, env, { status: 502 });
+      }
     }
     return json({ ok: true }, request, env);
   }

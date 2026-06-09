@@ -10,7 +10,7 @@ import {
   type SyncRoom,
 } from '../services/syncWorker';
 import { PLATFORM_WORKER_URL, MISSING_PLATFORM_WORKER_MSG } from '../config/workerEnv';
-import { syncDebugLog } from '../config/debugSync';
+import { syncDebugLog, isSyncDebugEnabled } from '../config/debugSync';
 
 
 const MANUAL_SYNC_COOLDOWN_MS = 15_000;
@@ -211,20 +211,22 @@ export function useSyncWorker(
         const local: MergedState = { prefs: prefsRef.current, articleTags: articleTagsRef.current, labelHits: labelHitsRef.current, savedArticles: savedRef.current };
         merged = mergePayload(local, remote.payload);
 
-        const newTags = merged.articleTags.filter(
-          t => !local.articleTags.some(l => l.articleId === t.articleId && JSON.stringify([...l.tags].sort()) === JSON.stringify([...t.tags].sort())),
-        );
-        const newSaved = merged.savedArticles.filter(
-          a => !local.savedArticles.some(l => l.id === a.id),
-        );
-        const newSavedIds = merged.prefs.savedIds.filter(id => !local.prefs.savedIds.includes(id));
-        syncDebugLog('saved', 'poll:merged', {
-          roomId: r.roomId,
-          etag: remote.etag,
-          newTags: newTags.length,
-          newSaved: newSaved.length,
-          newSavedIds: newSavedIds.length,
-        });
+        if (isSyncDebugEnabled()) {
+          const newTags = merged.articleTags.filter(
+            t => !local.articleTags.some(l => l.articleId === t.articleId && JSON.stringify([...l.tags].sort()) === JSON.stringify([...t.tags].sort())),
+          );
+          const newSaved = merged.savedArticles.filter(
+            a => !local.savedArticles.some(l => l.id === a.id),
+          );
+          const newSavedIds = merged.prefs.savedIds.filter(id => !local.prefs.savedIds.includes(id));
+          syncDebugLog('saved', 'poll:merged', {
+            roomId: r.roomId,
+            etag: remote.etag,
+            newTags: newTags.length,
+            newSaved: newSaved.length,
+            newSavedIds: newSavedIds.length,
+          });
+        }
         onMergeRef.current(merged);
       }
       setSyncedAt(new Date());
@@ -419,7 +421,7 @@ export function useSyncWorker(
         syncDebugLog('saved', 'dirty:set', {
           reason: !lastPushedRef.current ? 'no-baseline-push-yet' : 'payload-changed',
         });
-      } else {
+      } else if (isSyncDebugEnabled()) {
         const fullJson = JSON.stringify(
           buildPayload(
             prefsRef.current, articleTagsRef.current, labelHitsRef.current, savedRef.current,
@@ -443,12 +445,15 @@ export function useSyncWorker(
   }, [room, syncReady, prefs, articleTags, labelHits, savedArticles]);
 
   // Auto-fire one sync run when there is dirty data and blockout clears.
+  // Keyed on the boolean so the 500ms cooldown ticker doesn't re-run the
+  // effect on every tick.
+  const cooldownActive = syncCooldownMs > 0;
   useEffect(() => {
     if (!room || !syncReady || !hasDirtyData) return;
-    if (syncInFlightRef.current || syncStatus === 'syncing' || syncCooldownMs > 0) return;
+    if (syncInFlightRef.current || syncStatus === 'syncing' || cooldownActive) return;
     syncDebugLog('saved', 'dirty:auto-sync');
     void forceSync();
-  }, [room, syncReady, hasDirtyData, syncStatus, syncCooldownMs, forceSync]);
+  }, [room, syncReady, hasDirtyData, syncStatus, cooldownActive, forceSync]);
 
   const generateLink = useCallback(async () => {
     const workerUrl = PLATFORM_WORKER_URL;

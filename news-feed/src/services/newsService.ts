@@ -147,19 +147,6 @@ export async function fetchAllSources(
   return fetchAllSourcesSplit(sources, customSources, onBatch);
 }
 
-/** Resolves article metadata for specific ids in one worker bundle request. */
-export async function fetchArticlesByIds(ids: string[]): Promise<Article[]> {
-  if (!PLATFORM_WORKER_URL) throw new Error(MISSING_PLATFORM_WORKER_MSG);
-  if (ids.length === 0) return [];
-  const uniqueIds = Array.from(new Set(ids));
-  // `/bundle?include=` accepts source ids, not article ids.
-  // Do one broad built-in-source fetch, then resolve requested ids from that pool.
-  const allBuiltInIds = DEFAULT_SOURCES.map(s => s.id);
-  const data = await fetchBundleJson(allBuiltInIds, [], DEFAULT_SOURCES);
-  const byId = new Set(uniqueIds);
-  return mapBundleArticles(data.articles).filter(a => byId.has(a.id));
-}
-
 async function fetchBundleJson(
   ids: string[],
   customSources: CustomSource[] = [],
@@ -207,9 +194,9 @@ async function loadArticlesFromWorker(
   const nonYtIds = sources.filter(s => !isYoutubeSourceId(s.id)).map(s => s.id);
   const needsNonYtCall = nonYtIds.length > 0 || customSources.length > 0;
 
-  type Wire = Omit<Article, 'publishedAt' | 'score'> & { publishedAt: string };
-  let nonYtWire: Wire[] = [];
-  let ytWire: Wire[] = [];
+  // Map each chunk once and append — re-mapping the cumulative wire array per
+  // chunk re-allocated O(total) Article objects on every progress callback.
+  const accumulated: Article[] = [];
 
   if (needsNonYtCall) {
     const queue = buildSortedNonYtWorkQueue(nonYtIds, customSources, sources);
@@ -219,9 +206,8 @@ async function loadArticlesFromWorker(
     for (const chunk of chunks) {
       const { ids, customSources: cs } = nonYtChunkToParams(chunk);
       const data = await fetchBundleJson(ids, cs, sources);
-      nonYtWire.push(...data.articles);
-      const merged = mapBundleArticles([...nonYtWire, ...ytWire]);
-      onProgress?.(merged);
+      accumulated.push(...mapBundleArticles(data.articles));
+      onProgress?.([...accumulated]);
       await new Promise<void>(r => queueMicrotask(r));
     }
   }
@@ -231,14 +217,13 @@ async function loadArticlesFromWorker(
     const ytChunks = chunkWorkQueue(ytIdsSorted, MAX_FEEDS_PER_BUNDLE);
     for (const idChunk of ytChunks) {
       const data = await fetchBundleJson(idChunk, [], sources);
-      ytWire.push(...data.articles);
-      const merged = mapBundleArticles([...nonYtWire, ...ytWire]);
-      onProgress?.(merged);
+      accumulated.push(...mapBundleArticles(data.articles));
+      onProgress?.([...accumulated]);
       await new Promise<void>(r => queueMicrotask(r));
     }
   }
 
-  return mapBundleArticles([...nonYtWire, ...ytWire]);
+  return accumulated;
 }
 
 /**

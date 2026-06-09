@@ -140,12 +140,13 @@ export function useRecHistoryReplay(
       }
 
       // Only fetch from /rec/articles for IDs not in localStorage cache
+      const needsKvFetchSet = new Set(needsKvFetch);
       if (needsKvFetch.length > 0) {
         try {
           const meta = await fetchRecArticles(PLATFORM_WORKER_URL, needsKvFetch);
           const metaById = new Map(meta.articles.map(m => [m.id, m]));
           for (const { articleId, action, ts } of capped) {
-            if (!needsKvFetch.includes(articleId)) continue;
+            if (!needsKvFetchSet.has(articleId)) continue;
             const m = metaById.get(articleId);
             if (!m?.sourceId) continue;
             const topics = inferTopics(m.sourceId);
@@ -171,7 +172,7 @@ export function useRecHistoryReplay(
       console.info('[rec] history replay: posting to platform worker', {
         total: resolved.length,
         skipped: pending.length - resolved.length,
-        fromCache: resolved.length - needsKvFetch.filter(id => resolved.some(r => r.articleId === id)).length,
+        fromCache: resolved.filter(r => !needsKvFetchSet.has(r.articleId)).length,
         kvFetched: needsKvFetch.length,
         ...summary,
       });

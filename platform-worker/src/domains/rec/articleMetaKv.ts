@@ -59,8 +59,16 @@ export function resetKvCountersForTest(): void { _kv.reads = 0; _kv.writes = 0; 
 
 // ─────────────────────────────────────────────────────────────────────────
 
+/**
+ * Above this many ids, skip the deprecated REC_STORE fallback: a worst-case
+ * 500-id POST batch would otherwise issue up to 1000 KV reads and brush the
+ * per-invocation subrequest cap before the hydrate path spends any budget.
+ */
+const LEGACY_FALLBACK_MAX_IDS = 250;
+
 export async function loadCachedArticleMeta(env: Env, ids: string[]): Promise<Map<string, RecArticleMeta>> {
   const out = new Map<string, RecArticleMeta>();
+  const skipLegacy = ids.length > LEGACY_FALLBACK_MAX_IDS;
   await Promise.all(ids.map(async (id) => {
     const fromMem = memCacheGet(id);
     if (fromMem) {
@@ -76,6 +84,7 @@ export async function loadCachedArticleMeta(env: Env, ids: string[]): Promise<Ma
       out.set(id, fromKv);
       return;
     }
+    if (skipLegacy) return;
     _kv.reads++;
     const legacyRaw = await env.REC_STORE.get(articleMetaCacheKey(id), 'json');
     const fromLegacy = normalizeArticleMeta(legacyRaw);

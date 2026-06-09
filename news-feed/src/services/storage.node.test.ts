@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_PREFS, addUserLabel, deleteUserLabel, renameUserLabel } from './storage.ts';
-import type { UserLabel } from '../types.ts';
+import { DEFAULT_PREFS, addUserLabel, deleteUserLabel, renameUserLabel, clearQueue, customSourceIdFromUrl } from './storage.ts';
+import type { UserLabel, UserPrefs } from '../types.ts';
 
 function label(name: string): UserLabel {
   return { id: `lbl-${name}`, name, color: '#888888' };
@@ -38,4 +38,48 @@ test('renameUserLabel updates name, preserves id and color', () => {
 
 test('DEFAULT_PREFS has empty userLabels', () => {
   assert.deepEqual(DEFAULT_PREFS.userLabels, []);
+});
+
+// ── clearQueue ────────────────────────────────────────────────────────────────
+
+function prefsWithSaved(...ids: string[]): UserPrefs {
+  const savedAtById: Record<string, number> = {};
+  ids.forEach((id, i) => { savedAtById[id] = 1000 + i; });
+  return { ...DEFAULT_PREFS, savedIds: ids, savedAtById };
+}
+
+test('clearQueue empties savedIds and savedAtById', () => {
+  const next = clearQueue(prefsWithSaved('a', 'b', 'c'));
+  assert.deepEqual(next.savedIds, []);
+  assert.deepEqual(next.savedAtById, {});
+});
+
+test('clearQueue records all cleared ids in unsavedAtById', () => {
+  const before = prefsWithSaved('a', 'b');
+  const next = clearQueue(before);
+  const ua = next.unsavedAtById ?? {};
+  assert.ok(typeof ua['a'] === 'number' && ua['a'] > 0);
+  assert.ok(typeof ua['b'] === 'number' && ua['b'] > 0);
+});
+
+test('clearQueue preserves existing unsavedAtById entries', () => {
+  const before: UserPrefs = { ...prefsWithSaved('a'), unsavedAtById: { old: 999 } };
+  const next = clearQueue(before);
+  const ua = next.unsavedAtById ?? {};
+  assert.equal(ua['old'], 999);
+  assert.ok(typeof ua['a'] === 'number');
+});
+
+test('clearQueue is a no-op when queue is already empty', () => {
+  const next = clearQueue(DEFAULT_PREFS);
+  assert.deepEqual(next.savedIds, []);
+  assert.deepEqual(next.savedAtById, {});
+});
+
+test('customSourceIdFromUrl is stable for the same URL', () => {
+  const a = customSourceIdFromUrl('https://example.com/feed.xml');
+  const b = customSourceIdFromUrl('https://example.com/feed.xml');
+  assert.equal(a, b);
+  assert.ok(a.startsWith('custom-'));
+  assert.notEqual(a, customSourceIdFromUrl('https://other.com/rss'));
 });

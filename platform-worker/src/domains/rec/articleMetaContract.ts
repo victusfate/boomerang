@@ -12,6 +12,7 @@ export const ARTICLE_META_KEY_PREFIX = 'rec:article-meta:';
 /** Matches ARTICLE_META KV TTL (see shared/articleRecordCatalog.ts) */
 export const ARTICLE_META_TTL_SECONDS = ARTICLE_RECORD_TTL_SECONDS;
 export const MAX_ARTICLE_IDS_LOOKUP = 50;
+export const MAX_ARTICLE_IDS_LOOKUP_POST = 500;
 
 export interface RecArticleMeta {
   id: string;
@@ -43,6 +44,16 @@ export function normalizeIdsParam(raw: string | null): string[] {
   if (!raw) return [];
   const ids = raw.split(',').map(s => s.trim()).filter(Boolean);
   return Array.from(new Set(ids)).slice(0, MAX_ARTICLE_IDS_LOOKUP);
+}
+
+export function normalizeIdsBody(body: unknown): string[] | null {
+  if (!body || typeof body !== 'object' || !Array.isArray((body as Record<string, unknown>).ids)) return null;
+  const raw = (body as Record<string, unknown>).ids as unknown[];
+  if (raw.length > MAX_ARTICLE_IDS_LOOKUP_POST) return null;
+  const ids = raw
+    .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+    .map(id => id.trim());
+  return Array.from(new Set(ids));
 }
 
 export function normalizeArticleMeta(candidate: unknown): RecArticleMeta | null {

@@ -4,7 +4,7 @@
  * @category Sync
  */
 
-import { DEFAULT_PREFS } from './storage.ts';
+import { MAX_READ_IDS, MAX_SEEN_IDS } from './storage.ts';
 import type { Article, ArticleTag, LabelHit, Topic, UserPrefs } from '../types.ts';
 
 export const SYNC_LOG = '[Sync]';
@@ -27,13 +27,6 @@ export function dehydrate(articles: Article[]): StoredArticle[] {
   return articles.map(a => ({ ...a, publishedAt: a.publishedAt.toISOString() }));
 }
 
-function toBase64Url(json: string): string {
-  const bytes = new TextEncoder().encode(json);
-  let binary = '';
-  bytes.forEach(b => { binary += String.fromCharCode(b); });
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
 function fromBase64Url(encoded: string): string {
   const b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
   const padded = b64.padEnd(Math.ceil(b64.length / 4) * 4, '=');
@@ -48,6 +41,11 @@ function uniqueStrings(...groups: (string[] | undefined)[]): string[] {
 
 function mergeById<T extends { id: string }>(left: T[], right: T[]): T[] {
   return Array.from(new Map([...left, ...right].map(item => [item.id, item])).values());
+}
+
+/** Keep the most-recent (tail) entries — matches markRead/markSeen eviction. */
+function capTail<T>(items: T[], max: number): T[] {
+  return items.length > max ? items.slice(-max) : items;
 }
 
 export function mergePrefs(left: UserPrefs, right: Partial<UserPrefs>): UserPrefs {
@@ -89,11 +87,11 @@ export function mergePrefs(left: UserPrefs, right: Partial<UserPrefs>): UserPref
     topicWeights:   { ...left.topicWeights, ...(right.topicWeights ?? {}) },
     sourceWeights:  { ...left.sourceWeights, ...(right.sourceWeights ?? {}) },
     keywordWeights: { ...left.keywordWeights, ...(right.keywordWeights ?? {}) },
-    readIds:        uniqueStrings(left.readIds, right.readIds),
+    readIds:        capTail(uniqueStrings(left.readIds, right.readIds), MAX_READ_IDS),
     savedIds:       finalSavedIds,
     savedAtById:    mergedSavedAtById,
     unsavedAtById:  mergedUnsavedAtById,
-    seenIds:        uniqueStrings(left.seenIds, right.seenIds),
+    seenIds:        capTail(uniqueStrings(left.seenIds, right.seenIds), MAX_SEEN_IDS),
     upvotedIds:     uniqueStrings(left.upvotedIds, right.upvotedIds),
     downvotedIds:   uniqueStrings(left.downvotedIds, right.downvotedIds),
     lastDecayAt:    Math.max(left.lastDecayAt, right.lastDecayAt ?? 0),
@@ -106,10 +104,6 @@ export function mergePrefs(left: UserPrefs, right: Partial<UserPrefs>): UserPref
     customSources: mergeById(left.customSources, right.customSources ?? []),
     userLabels: mergeById(left.userLabels, right.userLabels ?? []),
   };
-}
-
-export function mergeArticlesById(left: Article[], right: Article[]): Article[] {
-  return Array.from(new Map([...left, ...right].map(a => [a.id, a])).values());
 }
 
 function dedupeTagList(tags: string[]): string[] {
@@ -168,33 +162,3 @@ export function parseSyncHash(): Partial<SyncPayloadV1> | null {
   return null;
 }
 
-export function buildSyncShareUrl(
-  prefs: UserPrefs,
-  savedArticles: Article[],
-  articleTags: ArticleTag[],
-  labelHits: LabelHit[],
-): string {
-  if (typeof location === 'undefined') return '';
-  // Strip seenIds/readIds — they can reach thousands of entries, overrunning URL limits,
-  // and leaking browse history into browser history / Referer. The recipient re-builds
-  // their own seen/read state independently.
-  const { seenIds: _s, readIds: _r, ...shareablePrefs } = { ...DEFAULT_PREFS, ...prefs };
-  const payload: SyncPayloadV1 = {
-    v: 1,
-    prefs: { ...shareablePrefs, seenIds: [], readIds: [] },
-    savedArticles: dehydrate(savedArticles),
-    articleTags,
-    labelHits,
-  };
-  const encoded = toBase64Url(JSON.stringify(payload));
-  console.info(SYNC_LOG, 'built sync link payload', {
-    savedArticles: payload.savedArticles.length,
-    articleTags: payload.articleTags.length,
-    labelHits: payload.labelHits.length,
-    savedIds: payload.prefs.savedIds.length,
-    userLabels: payload.prefs.userLabels.length,
-    customSources: payload.prefs.customSources.length,
-    encodedLength: encoded.length,
-  });
-  return `${location.origin}${location.pathname}#sync=${encoded}`;
-}

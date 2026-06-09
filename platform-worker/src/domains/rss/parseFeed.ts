@@ -1,6 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { decode } from 'html-entities';
 import type { NewsSource, Topic } from './sources';
+import { detectTopics } from './topics';
 import { resolveArticleImageUrl, extractOgImageFromHtml, isAllowedOgFetchUrl } from './ogImage';
 
 /** Card snippet length (matches news-feed `.card-desc` clamp). */
@@ -17,29 +18,6 @@ export interface ArticleWire {
   sourceId: string;
   topics: Topic[];
   discussionUrl?: string;
-}
-
-const TOPIC_KEYWORDS: Record<Topic, string[]> = {
-  technology:   ['tech', 'software', 'ai', 'artificial intelligence', 'startup', 'computer', 'app', 'digital', 'cyber', 'robot', 'algorithm', 'data', 'cloud', 'code', 'developer', 'open source', 'programming', 'silicon', 'apple', 'google', 'microsoft', 'openai', 'llm', 'model'],
-  science:      ['science', 'research', 'study', 'scientists', 'discovery', 'space', 'nasa', 'biology', 'physics', 'chemistry', 'genome', 'dna', 'evolution', 'universe', 'quantum', 'experiment'],
-  world:        ['war', 'election', 'government', 'president', 'country', 'international', 'global', 'politics', 'diplomatic', 'treaty', 'sanctions', 'military', 'conflict', 'nato', 'un', 'china', 'russia', 'europe'],
-  business:     ['economy', 'market', 'stock', 'financial', 'business', 'trade', 'bank', 'investment', 'gdp', 'inflation', 'revenue', 'profit', 'merger', 'acquisition', 'ipo', 'venture', 'funding'],
-  health:       ['health', 'medical', 'vaccine', 'disease', 'hospital', 'doctor', 'treatment', 'cancer', 'mental health', 'drug', 'clinical', 'patient', 'fda', 'cdc', 'pandemic'],
-  environment:  ['climate', 'environment', 'carbon', 'emissions', 'renewable', 'solar', 'wind', 'fossil fuel', 'biodiversity', 'ocean', 'deforestation', 'sustainability', 'green'],
-  sports:       ['sports', 'football', 'basketball', 'baseball', 'soccer', 'tennis', 'nba', 'nfl', 'olympic', 'championship', 'tournament', 'athlete', 'league', 'fifa'],
-  entertainment:['movie', 'film', 'music', 'album', 'celebrity', 'award', 'oscar', 'grammy', 'streaming', 'netflix', 'disney', 'hollywood', 'concert', 'box office'],
-  general:      [],
-};
-
-function detectTopics(text: string): Topic[] {
-  const lower = text.toLowerCase();
-  const matched: Topic[] = [];
-  for (const [topic, keywords] of Object.entries(TOPIC_KEYWORDS) as [Topic, string[]][]) {
-    if (topic !== 'general' && keywords.some(kw => lower.includes(kw))) {
-      matched.push(topic);
-    }
-  }
-  return matched.length > 0 ? matched.slice(0, 3) : ['general'];
 }
 
 async function hashId(str: string): Promise<string> {

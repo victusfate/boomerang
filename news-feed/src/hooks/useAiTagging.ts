@@ -63,9 +63,17 @@ export function useAiTagging({
     aiModelPollTimerRef.current = window.setInterval(() => { void poll(); }, 5000);
   }, [stopAiModelPolling, allArticlesRef]);
 
+  // Cache-load, post-fetch, the model-ready poll, and the manual button can
+  // all schedule passes; one at a time — each pass owns its own LM session.
+  const passInFlightRef = useRef(false);
+
   const scheduleTaggingPass = useCallback((articles: Article[]) => {
     if (!isPromptApiAvailable()) {
       console.info('[AI Tags] schedule skipped — LanguageModel not available');
+      return;
+    }
+    if (passInFlightRef.current) {
+      console.info('[AI Tags] schedule skipped — a pass is already running');
       return;
     }
     const schedule: (cb: () => void) => void =
@@ -73,6 +81,7 @@ export function useAiTagging({
         ? (cb) => requestIdleCallback(() => cb(), { timeout: 5000 })
         : (cb) => setTimeout(cb, 0);
 
+    passInFlightRef.current = true;
     schedule(() => {
       void (async () => {
         const idleT0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -106,12 +115,12 @@ export function useAiTagging({
             done++;
             setClassificationStatus(`Tagging articles… ${done}/${toTag.length}`);
             metaCallbacks?.feedTaggedArticle(tag.articleId, tag.tags);
-            setArticleTags(prev => {
-              const updated = [...prev, tag];
-              articleTagsRef.current = updated;
-              kvSet(ARTICLE_TAGS_ID, { hits: updated }).catch(console.error);
-              return updated;
-            });
+            const prev = articleTagsRef.current;
+            if (prev.some(t => t.articleId === tag.articleId)) return; // dedupe per article
+            const updated = [...prev, tag];
+            articleTagsRef.current = updated;
+            setArticleTags(updated);
+            kvSet(ARTICLE_TAGS_ID, { hits: updated }).catch(console.error);
           }, {
             onModelStatus: (status) => {
               const copy = {
@@ -171,7 +180,7 @@ export function useAiTagging({
         if (done > 0) {
           setClassificationStatus(`Tagged — ${done} articles processed`);
         }
-      })();
+      })().finally(() => { passInFlightRef.current = false; });
     });
   }, [startAiModelPolling, allArticlesRef, articleTagsRef, setArticleTags, metaCallbacks]);
 

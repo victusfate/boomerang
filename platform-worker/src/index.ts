@@ -24,12 +24,12 @@ export default {
 
     // ── Health ────────────────────────────────────────────────────────────────
     if (path === '/health') {
-      return json({ ok: true, service: 'platform-worker' });
+      return json({ ok: true, service: 'platform-worker' }, 200, corsHeaders(request, env));
     }
-    if (path === '/health/rss')  return json({ ok: true, domain: 'rss' });
-    if (path === '/health/sync') return json({ ok: true, domain: 'sync' });
-    if (path === '/health/meta') return json({ ok: true, domain: 'meta' });
-    if (path === '/health/rec')  return json({ ok: true, domain: 'rec' });
+    if (path === '/health/rss')  return json({ ok: true, domain: 'rss' }, 200, corsHeaders(request, env));
+    if (path === '/health/sync') return json({ ok: true, domain: 'sync' }, 200, corsHeaders(request, env));
+    if (path === '/health/meta') return json({ ok: true, domain: 'meta' }, 200, corsHeaders(request, env));
+    if (path === '/health/rec')  return json({ ok: true, domain: 'rec' }, 200, corsHeaders(request, env));
 
     // ── RSS domain ────────────────────────────────────────────────────────────
     if (path === '/bundle' || path === '/og-image' || path === '/image') {
@@ -67,6 +67,6 @@ export default {
 
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     await scheduledMeta(env);
-    scheduledRec(env, ctx);
+    await scheduledRec(env, ctx);
   },
 } satisfies ExportedHandler<Env>;

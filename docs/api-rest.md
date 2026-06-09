@@ -1,6 +1,6 @@
 # Boomerang Platform Worker — REST API
 
-_v0.1.0 · generated 2026-05-29_
+_v0.1.0 · generated 2026-06-09_
 
 <!-- Generated from `platform-worker/src/apiRoutes.ts` — do not edit by hand. -->
 
@@ -26,7 +26,7 @@ Exceeding a limit returns **429 Too Many Requests** with a `Retry-After` header.
 
 Worker liveness check.
 
-**Response:** `{ ok: true, domain: "worker" }`
+**Response:** `{ ok: true, service: "platform-worker" }`
 
 ### **`GET`** `/health/rss`
 
@@ -58,7 +58,7 @@ Rec domain liveness check.
 
 Fetch and merge articles from multiple RSS/Atom feeds.
 
-**Request:** Query: `include` (comma-separated source IDs), `customFeeds` (base64 gzip-encoded custom source list)
+**Request:** Query: `include` (comma-separated source IDs), `customFeeds` (base64-encoded JSON custom source list, max 20 feeds)
 
 **Response:** `{ articles: Article[] }`
 
@@ -92,7 +92,7 @@ Create a new sync room and return its credentials.
 
 **Request:** Empty body or `{}`
 
-**Response:** `{ roomId: string, token: string, workerUrl: string }`
+**Response:** `{ roomId: string, token: string }`
 
 ### **`GET`** `/sync/:roomId/blocks/:cid`
 
@@ -122,7 +122,7 @@ Write room metadata; supports `If-Match` for optimistic concurrency.
 
 **Request:** JSON payload: `{ prefs, savedArticles, articleTags, labelHits }`
 
-**Response:** `{ ok: true }` or 409 on ETag conflict.
+**Response:** `200` on success or `412 Precondition Failed` on ETag conflict.
 
 ### **`DELETE`** `/sync/:roomId`
 
@@ -202,9 +202,19 @@ Bulk article-metadata lookup from the KV ARTICLE_META catalogue.
 
 **Rate limit:** Per-IP (30 req/min)
 
-**Request:** Query: `ids` (comma-separated article IDs)
+**Request:** Query: `ids` (comma-separated article IDs, max 50)
 
 **Response:** `{ ok, requested, found, missing, articles: RecArticleMeta[] }`
+
+### **`POST`** `/rec/articles`
+
+Batch article-metadata lookup — body variant for large id sets (history backfill).
+
+**Rate limit:** Per-IP (30 req/min, shared with GET)
+
+**Request:** `{ ids: string[] }` — max 500 ids; 400 above the cap.
+
+**Response:** Same shape as GET `/rec/articles`.
 
 ### **`GET`** `/rec/debug`
 

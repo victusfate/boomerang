@@ -5,6 +5,8 @@ import { useMetaWorker } from './hooks/useMetaWorker';
 import { useRecWorker } from './hooks/useRecWorker';
 import { useRecHistoryReplay } from './hooks/useRecHistoryReplay';
 import { useOGImageBatch } from './hooks/useOGImageBatch';
+import { useHistoryBackfill } from './hooks/useHistoryBackfill';
+import { SearchOverlay } from './components/SearchOverlay';
 import { ArticleCard } from './components/ArticleCard';
 import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
@@ -19,15 +21,20 @@ import {
   countSourceArticles,
 } from './services/feedScoreBreakdown';
 import type { ActiveFilter, FeedView } from './types';
+import { PLATFORM_WORKER_URL } from './config/workerEnv';
+import { timeAgo } from './services/timeAgo';
 
 const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
 
-type SyncIndicatorState = 'idle' | 'setup' | 'active' | 'syncing' | 'error';
-
-function formatRelativeMinutes(date: Date): string {
-  const mins = Math.floor((Date.now() - date.getTime()) / 60000);
-  return mins < 1 ? 'just now' : `${mins}m ago`;
+/** Word-boundary label↔tag match — bare substring made "AI" match "rain". */
+function labelMatchesTag(label: string, tag: string): boolean {
+  if (label === tag) return true;
+  const asWord = (needle: string) =>
+    new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+  return asWord(label).test(tag) || asWord(tag).test(label);
 }
+
+type SyncIndicatorState = 'idle' | 'setup' | 'active' | 'syncing' | 'error';
 
 function formatCooldownLabel(remainingMs: number): string {
   return `Cooldown ${Math.max(1, Math.ceil(remainingMs / 1000))}s`;
@@ -56,7 +63,7 @@ function syncIndicatorState(
     };
   }
   if (syncActive) {
-    const label = syncedAt ? `Synced ${formatRelativeMinutes(syncedAt)}` : 'Sync on';
+    const label = syncedAt ? `Synced ${timeAgo(syncedAt, 'ago')}` : 'Sync on';
     return { state: 'active', label, title: 'Sync is active.' };
   }
   if (syncEnvError) {
@@ -111,7 +118,7 @@ export default function App() {
     allArticles,
     visibleArticles, savedArticles, hasMore, totalLoaded,
     loading, refreshing, fetching, error, prefs, lastRefresh, feedEnterIds,
-    onOpen, onSave, onUpvote, onDownvote, onSeen, onLoadMore,
+    onOpen, onSave, onSaveExternal, onClearQueue, onUpvote, onDownvote, onSeen, onLoadMore,
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
@@ -183,8 +190,23 @@ export default function App() {
 
   const [view, setView] = useState<FeedView>('feed');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>(null);
+  const [initialQueueCount, setInitialQueueCount] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
-  const [pullProgress, setPullProgress] = useState(0); // 0–1
+  const [showSearch, setShowSearch] = useState(false);
+  const { backfilled } = useHistoryBackfill(prefs, PLATFORM_WORKER_URL, syncReady);
+  // Pull-to-refresh visuals are driven by direct DOM writes — setState per
+  // touchmove frame re-renders the whole app (every card) during the drag.
+  const pullIndicatorRef = useRef<HTMLDivElement>(null);
+  const setPullVisual = useCallback((progress: number) => {
+    const el = pullIndicatorRef.current;
+    if (!el) return;
+    el.style.display = progress > 0 ? 'flex' : 'none';
+    const inner = el.firstElementChild as HTMLElement | null;
+    if (!inner) return;
+    inner.style.opacity = String(progress);
+    inner.style.transform = `scale(${0.5 + progress * 0.5})`;
+    inner.classList.toggle('spin-ready', progress >= 1);
+  }, []);
   const canUseBrowserAi = isPromptApiAvailable();
   const combinedSyncCooldownMs = Math.max(syncCooldownMs, metaSyncCooldownMs);
   const syncIndicator = syncIndicatorState(
@@ -210,6 +232,19 @@ export default function App() {
     }
   }, [onRefresh, forceMetaSync, forceSync, syncReady]);
   const initialSyncDoneRef = useRef(false);
+
+  useEffect(() => {
+    if (view === 'saved') setInitialQueueCount(savedArticles.length);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]); // intentionally snapshot on tab-enter only
+
+  // Starring new articles while on the Queue tab grows the queue past the
+  // snapshot — bump the snapshot so progress never reads negative.
+  useEffect(() => {
+    if (view === 'saved' && savedArticles.length > initialQueueCount) {
+      setInitialQueueCount(savedArticles.length);
+    }
+  }, [view, savedArticles.length, initialQueueCount]);
 
   // Drive metadata sync target ids in useMetaWorker. `visibleArticles` is a fresh array every
   // render (useFeed does `allArticles.slice(0, visibleCount)`), so comparing by value and
@@ -259,7 +294,7 @@ export default function App() {
   const pullGestureRef = useRef({ active: false, startY: 0, progress: 0 });
 
   useEffect(() => {
-    if (showSettings) return; // don't capture gestures when settings modal is open
+    if (showSettings || showSearch) return; // don't capture gestures when a modal layer is open
     let triggered = false;
 
     const onTouchStart = (e: TouchEvent) => {
@@ -272,10 +307,10 @@ export default function App() {
       const g = pullGestureRef.current;
       if (!g.active) return;
       const delta = e.touches[0].clientY - g.startY;
-      if (delta <= 0) { g.active = false; setPullProgress(0); return; }
+      if (delta <= 0) { g.active = false; setPullVisual(0); return; }
       const progress = Math.min(delta / PULL_THRESHOLD, 1);
       g.progress = progress;
-      setPullProgress(progress);
+      setPullVisual(progress);
       // Prevent native scroll-bounce while we're handling the pull
       if (window.scrollY <= 5) e.preventDefault();
     };
@@ -286,7 +321,7 @@ export default function App() {
       const willRefresh = g.progress >= 1 && !triggered;
       g.active = false;
       g.progress = 0;
-      setPullProgress(0);
+      setPullVisual(0);
       if (willRefresh) { triggered = true; onRefreshRef.current(); }
     };
 
@@ -298,7 +333,7 @@ export default function App() {
       document.removeEventListener('touchmove', onTouchMove);
       document.removeEventListener('touchend', onTouchEnd);
     };
-  }, [showSettings]); // pullGestureRef is stable; onRefreshRef is kept current above
+  }, [showSettings, showSearch]); // pullGestureRef is stable; onRefreshRef is kept current above
 
   // Sentinel element watched by IntersectionObserver to trigger load-more.
   // The callback is kept in a ref so the observer itself is only created once
@@ -343,7 +378,7 @@ export default function App() {
     if (activeFilter?.kind === 'label') {
       const labelName = (prefs.userLabels ?? []).find(l => l.id === activeFilter.value)?.name?.toLowerCase() ?? '';
       if (!labelName) return [];
-      list = list.filter(a => (articleTagsMap.get(a.id) ?? []).some((t: string) => t.includes(labelName) || labelName.includes(t)));
+      list = list.filter(a => (articleTagsMap.get(a.id) ?? []).some((t: string) => labelMatchesTag(labelName, t)));
     }
     return list;
   }, [visibleArticles, savedArticles, view, activeFilter, articleTagsMap, prefs.userLabels]);
@@ -352,6 +387,16 @@ export default function App() {
   const recRankMap = useMemo(() => buildRecRankMap(recArticleIds), [recArticleIds]);
   const feedSourceCounts = useMemo(() => countSourceArticles(allArticles), [allArticles]);
   const feedScoresLoading = showFeedScores && !recBootstrapDone;
+  // Precomputed per-card insight — inline computation ran for every card on
+  // every App render, including renders unrelated to ranking.
+  const feedScoreInsightById = useMemo(() => {
+    if (!showFeedScores) return null;
+    const m = new Map<string, ReturnType<typeof computeFeedScoreInsight>>();
+    for (const a of filteredArticles) {
+      m.set(a.id, computeFeedScoreInsight(a, feedSourceCounts, recRankMap, recScoreById));
+    }
+    return m;
+  }, [showFeedScores, filteredArticles, feedSourceCounts, recRankMap, recScoreById]);
 
   // When a topic filter is active and the visible slice has no matches yet,
   // automatically load more so the user isn't stuck on a false empty state.
@@ -364,11 +409,7 @@ export default function App() {
   const { ogMap, sentinelRef: ogSentinelRef, fetchedUpTo: ogFetchedUpTo } =
     useOGImageBatch(filteredArticles, 10);
 
-  function formatLastRefresh() {
-    if (!lastRefresh) return '';
-    const mins = Math.floor((Date.now() - lastRefresh.getTime()) / 60000);
-    return mins < 1 ? 'just now' : `${mins}m ago`;
-  }
+  const formatLastRefresh = () => (lastRefresh ? timeAgo(lastRefresh, 'ago') : '');
 
   return (
     <>
@@ -392,6 +433,14 @@ export default function App() {
           >
             <span className="sync-indicator-dot" aria-hidden="true" />
             <span>{syncIndicator.label}</span>
+          </button>
+          <button
+            className="icon-btn"
+            onClick={() => setShowSearch(true)}
+            aria-label="Search"
+            title="Search"
+          >
+            🔍
           </button>
           <button
             className="icon-btn"
@@ -439,7 +488,7 @@ export default function App() {
           className={`tab ${view === 'saved' ? 'active' : ''}`}
           onClick={() => setView('saved')}
         >
-          Saved {savedArticles.length > 0 && <span className="tab-count">{savedArticles.length}</span>}
+          Queue {savedArticles.length > 0 && <span className="tab-count">{savedArticles.length}</span>}
         </button>
         <button
           role="tab"
@@ -458,6 +507,19 @@ export default function App() {
           activeFilter={activeFilter}
           onFilter={setActiveFilter}
         />
+      )}
+
+      {view === 'saved' && savedArticles.length > 0 && (
+        <div className="queue-header">
+          {initialQueueCount > 0 && (
+            <span className="queue-progress">
+              {initialQueueCount - savedArticles.length} of {initialQueueCount} read
+            </span>
+          )}
+          <button className="btn-clear-queue" onClick={onClearQueue}>
+            Clear all
+          </button>
+        </div>
       )}
 
       {!prefs.hideAiBar && (
@@ -488,16 +550,11 @@ export default function App() {
         </div>
       )}
 
-      {pullProgress > 0 && (
-        <div className="pull-indicator">
-          <div
-            className="pull-indicator-inner"
-            style={{ opacity: pullProgress, transform: `scale(${0.5 + pullProgress * 0.5})` }}
-          >
-            <RefreshIcon spinning={pullProgress >= 1} />
-          </div>
+      <div className="pull-indicator" ref={pullIndicatorRef} style={{ display: 'none' }}>
+        <div className="pull-indicator-inner">
+          <RefreshIcon spinning={false} />
         </div>
-      )}
+      </div>
 
       <main className={view === 'rec' ? 'rec-view' : 'feed'}>
         {view === 'rec' ? (
@@ -556,14 +613,7 @@ export default function App() {
                   onAddManualTag={onAddManualTag}
                   onRemoveManualTag={onRemoveManualTag}
                   feedScoresLoading={feedScoresLoading}
-                  feedScoreInsight={showFeedScores
-                    ? computeFeedScoreInsight(
-                      article,
-                      feedSourceCounts,
-                      recRankMap,
-                      recScoreById,
-                    )
-                    : undefined}
+                  feedScoreInsight={feedScoreInsightById?.get(article.id)}
                 />
                 {index === Math.min(ogFetchedUpTo, filteredArticles.length) - 1 && (
                   <div ref={ogSentinelRef} aria-hidden="true" />
@@ -585,8 +635,8 @@ export default function App() {
               <div className="feed-empty">
                 {view === 'saved' ? (
                   prefs.savedIds.length > 0
-                    ? <p>Loading saved articles…</p>
-                    : <p>No saved articles yet. Tap ☆ to bookmark.</p>
+                    ? <p>Loading queue…</p>
+                    : <p className="queue-done">Queue cleared ✓</p>
                 ) : activeFilter && hasMore ? null : (
                   <p>No articles match this filter.</p>
                 )}
@@ -595,6 +645,21 @@ export default function App() {
           </>
         )}
       </main>
+
+      {showSearch && (
+        <SearchOverlay
+          allArticles={allArticles}
+          savedArticles={savedArticles}
+          prefs={prefs}
+          onOpen={onOpen}
+          onSaveExternal={onSaveExternal}
+          onUpvote={onUpvote}
+          onDownvote={onDownvote}
+          onClose={() => setShowSearch(false)}
+          platformWorkerUrl={PLATFORM_WORKER_URL}
+          backfilled={backfilled}
+        />
+      )}
 
       {showSettings && (
         <Settings

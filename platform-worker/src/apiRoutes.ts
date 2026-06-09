@@ -18,7 +18,7 @@ export const API_ROUTES: RouteDoc[] = [
     method: 'GET',
     path: '/health',
     summary: 'Worker liveness check.',
-    response: '`{ ok: true, domain: "worker" }`',
+    response: '`{ ok: true, service: "platform-worker" }`',
   },
   {
     method: 'GET',
@@ -50,7 +50,7 @@ export const API_ROUTES: RouteDoc[] = [
     method: 'GET',
     path: '/bundle',
     summary: 'Fetch and merge articles from multiple RSS/Atom feeds.',
-    request: 'Query: `include` (comma-separated source IDs), `customFeeds` (base64 gzip-encoded custom source list)',
+    request: 'Query: `include` (comma-separated source IDs), `customFeeds` (base64-encoded JSON custom source list, max 20 feeds)',
     response: '`{ articles: Article[] }`',
     notes: 'Sources are sorted by feed URL to maximise CDN cache hit rate. YouTube and non-YouTube sources are fetched in separate tiers.',
   },
@@ -77,7 +77,7 @@ export const API_ROUTES: RouteDoc[] = [
     summary: 'Create a new sync room and return its credentials.',
     rateLimit: 'Per-IP',
     request: 'Empty body or `{}`',
-    response: '`{ roomId: string, token: string, workerUrl: string }`',
+    response: '`{ roomId: string, token: string }`',
   },
   {
     method: 'GET',
@@ -104,7 +104,7 @@ export const API_ROUTES: RouteDoc[] = [
     summary: 'Write room metadata; supports `If-Match` for optimistic concurrency.',
     auth: 'Bearer token',
     request: 'JSON payload: `{ prefs, savedArticles, articleTags, labelHits }`',
-    response: '`{ ok: true }` or 409 on ETag conflict.',
+    response: '`200` on success or `412 Precondition Failed` on ETag conflict.',
   },
   {
     method: 'DELETE',
@@ -170,8 +170,16 @@ export const API_ROUTES: RouteDoc[] = [
     path: '/rec/articles',
     summary: 'Bulk article-metadata lookup from the KV ARTICLE_META catalogue.',
     rateLimit: 'Per-IP (30 req/min)',
-    request: 'Query: `ids` (comma-separated article IDs)',
+    request: 'Query: `ids` (comma-separated article IDs, max 50)',
     response: '`{ ok, requested, found, missing, articles: RecArticleMeta[] }`',
+  },
+  {
+    method: 'POST',
+    path: '/rec/articles',
+    summary: 'Batch article-metadata lookup — body variant for large id sets (history backfill).',
+    rateLimit: 'Per-IP (30 req/min, shared with GET)',
+    request: '`{ ids: string[] }` — max 500 ids; 400 above the cap.',
+    response: 'Same shape as GET `/rec/articles`.',
   },
   {
     method: 'GET',

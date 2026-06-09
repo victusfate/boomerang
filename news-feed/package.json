@@ -7,7 +7,7 @@
     "icons": "node scripts/generate-icons.mjs",
     "prebuild": "node scripts/generate-icons.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types src/services/feedPartition.node.test.ts src/services/labelClassifier.node.test.ts src/services/storage.node.test.ts src/services/labelSuggester.node.test.ts src/components/TopicFilter.node.test.ts src/services/syncWorker.node.test.ts src/services/metaSyncTrigger.node.test.ts src/services/recArticlesLookup.node.test.ts src/services/articleRecordCatalog.node.test.ts src/services/recPoolMerge.node.test.ts src/services/feedScoreBreakdown.node.test.ts",
+    "test": "node --test --experimental-strip-types src/services/feedPartition.node.test.ts src/services/labelClassifier.node.test.ts src/services/storage.node.test.ts src/services/labelSuggester.node.test.ts src/components/TopicFilter.node.test.ts src/services/syncWorker.node.test.ts src/services/metaSyncTrigger.node.test.ts src/services/recArticlesLookup.node.test.ts src/services/articleRecordCatalog.node.test.ts src/services/recPoolMerge.node.test.ts src/services/feedScoreBreakdown.node.test.ts src/services/articleHistory.node.test.ts src/services/articleSearch.node.test.ts src/services/syncShare.node.test.ts src/services/adFilter.node.test.ts src/services/metaWorker.node.test.ts src/services/savedArticlesSelector.node.test.ts",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "build:gh-pages": "node scripts/generate-icons.mjs && npm run typecheck && cross-env GITHUB_PAGES=true vite build",
@@ -47,6 +47,6 @@
   "allowScripts": {
     "fsevents@2.3.3": true,
     "sharp@0.33.5": true,
-    "github:victusfate/ricochet#cd06ce915543d7944940730d5e7610e32f741bfe": true
+    "github:victusfate/ricochet#cea561ba8595bd049d14fa4700588864b74675eb": true
   }
 }

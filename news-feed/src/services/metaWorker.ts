@@ -1,6 +1,4 @@
-export function metaWorkerWsUrl(base: string): string {
-  return base.replace(/^http/, 'ws') + '/ws';
-}
+import { parseRetryAfterMs } from './retryAfter.ts';
 
 export interface ArticleMetaEntry {
   articleId: string;
@@ -18,15 +16,7 @@ export class MetaRateLimitError extends Error {
   }
 }
 
-function parseRetryAfterMs(res: Response): number | undefined {
-  const raw = res.headers.get('Retry-After');
-  if (!raw) return undefined;
-  const asSeconds = Number(raw);
-  if (Number.isFinite(asSeconds)) return Math.max(0, Math.round(asSeconds * 1000));
-  const asDate = Date.parse(raw);
-  if (Number.isNaN(asDate)) return undefined;
-  return Math.max(0, asDate - Date.now());
-}
+
 
 export async function fetchMetaTags(base: string, articleIds: string[]): Promise<ArticleMetaEntry[]> {
   if (articleIds.length === 0) return [];
@@ -53,26 +43,3 @@ export async function submitMetaTags(
   if (!res.ok) throw new Error(`meta POST failed: ${res.status}`);
 }
 
-// Client → DO
-export interface SubscribeMsg   { type: 'subscribe'; articleIds: string[] }
-export interface CatchUpMsg     { type: 'catchUp'; since: number; before?: number }
-export interface SubmitTagsMsg  { type: 'submitTags'; articles: Array<{ articleId: string; tags: string[] }> }
-export interface PongMsg        { type: 'pong' }
-export type ClientMsg = SubscribeMsg | CatchUpMsg | SubmitTagsMsg | PongMsg;
-
-// DO → Client
-export interface WelcomeMsg  { type: 'welcome' }
-export interface PingMsg     { type: 'ping' }
-export interface TagsMsg     { type: 'tags'; articleId: string; tags: string[]; updatedAt: number }
-export interface CatchUpReplyMsg { type: 'catchUp'; updates: Array<{ articleId: string; tags: string[]; updatedAt: number }>; hasMore?: boolean; cursor?: number }
-export type ServerMsg = WelcomeMsg | PingMsg | TagsMsg | CatchUpReplyMsg;
-
-export function parseServerMsg(raw: string): ServerMsg | null {
-  try {
-    const msg = JSON.parse(raw) as ServerMsg;
-    if (typeof msg.type !== 'string') return null;
-    return msg;
-  } catch {
-    return null;
-  }
-}

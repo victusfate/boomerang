@@ -6,6 +6,7 @@ import type { RecCoreResponse, RecRankRequest, RecResponse } from '@victusfate/r
 import { isValidEvent, REC_MAX_CANDIDATES, parseTopicWeights } from '@victusfate/ricochet';
 import {
   normalizeIdsParam,
+  normalizeIdsBody,
   lookupArticleMetaByIds,
   hydrateArticleMetaFromFeeds,
   defaultBundleCacheRequest,
@@ -205,11 +206,17 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
     }
 
     const stub = getRecDOStub(env);
-    await stub.fetch(new Request('http://do-internal/ingest', {
+    const ingest = await stub.fetch(new Request('http://do-internal/ingest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(valid),
     }));
+    if (!ingest.ok) {
+      return json(
+        { ok: false, message: `Ingest failed (${ingest.status})` },
+        request, env, { status: 502 },
+      );
+    }
 
     return json({ ok: true, queued: valid.length }, request, env);
   }
@@ -325,11 +332,22 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
     }
   }
 
-  if (pathname === '/rec/articles' && request.method === 'GET') {
+  if (pathname === '/rec/articles' && (request.method === 'GET' || request.method === 'POST')) {
     const limited = checkRateLimit(request, 'rec-articles', RATE_LIMIT_ARTICLES_MAX);
     if (limited.limited) return tooManyRequests(request, env, limited.retryAfterSeconds);
 
-    const ids = normalizeIdsParam(url.searchParams.get('ids'));
+    let ids: string[];
+    if (request.method === 'POST') {
+      const rawBody = await request.json().catch(() => null);
+      const parsed = normalizeIdsBody(rawBody);
+      if (parsed === null) {
+        return json({ ok: false, message: 'Body must be { ids: string[] }' }, request, env, { status: 400 });
+      }
+      ids = parsed;
+    } else {
+      ids = normalizeIdsParam(url.searchParams.get('ids'));
+    }
+
     if (ids.length === 0) {
       return json({ ok: true, requested: 0, found: 0, missing: [], articles: [] }, request, env);
     }

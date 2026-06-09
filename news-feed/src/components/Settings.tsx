@@ -6,16 +6,25 @@ import { isPromptApiAvailable } from '../services/labelClassifier';
 import type { Article, CustomSource, Topic, UserLabel, UserPrefs } from '../types';
 import type { MetaStatus } from '../hooks/useMetaWorker';
 import type { SyncErrorDetails } from '../hooks/useSyncWorker';
-import { TOPIC_META } from './TopicFilter';
-
-const ALL_TOPICS = (Object.keys(TOPIC_META) as Topic[]).filter(t => t !== 'general');
-
-function formatSyncedAt(d: Date): string {
-  const mins = Math.floor((Date.now() - d.getTime()) / 60000);
-  return mins < 1 ? 'just now' : `${mins}m ago`;
-}
+import { TOPIC_META, SHOWN_TOPICS } from './topicFilterUtils';
+import { timeAgo } from '../services/timeAgo';
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+function SyncErrorDetailsBlock({ details, marginTop }: { details: SyncErrorDetails | null; marginTop: string }) {
+  if (!details) return null;
+  return (
+    <details className="settings-hint" style={{ marginTop }}>
+      <summary>Show technical sync details</summary>
+      <code>
+        phase={details.phase}
+        {' | '}roomId={details.roomId ?? 'n/a'}
+        {' | '}worker={details.workerUrl ?? 'n/a'}
+        {details.endpoint ? ` | endpoint=${details.endpoint}` : ''}
+      </code>
+    </details>
+  );
+}
 
 interface Props {
   prefs: UserPrefs;
@@ -85,12 +94,18 @@ export function Settings({
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [copied, setCopied]       = useState(false);
 
+  // onClose is usually an inline arrow from App — keep it in a ref so this
+  // effect never re-runs mid-session (a re-run steals focus from whatever
+  // input the user is typing in).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     previousFocusRef.current = document.activeElement;
     panelRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key === 'Escape') { onCloseRef.current(); return; }
       if (e.key === 'Tab' && panelRef.current) {
         const focusable = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
         if (focusable.length === 0) return;
@@ -109,7 +124,7 @@ export function Settings({
       document.removeEventListener('keydown', handleKeyDown);
       (previousFocusRef.current as HTMLElement | null)?.focus();
     };
-  }, [onClose]);
+  }, []); // mount-only: focus trap must not re-run while the modal is open
 
   const handleAddSource = (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,16 +144,25 @@ export function Settings({
       .catch(() => setQrDataUrl(''));
   }, [syncUrl]);
 
+  // Status-reset timers must not fire after unmount.
+  const statusTimersRef = useRef<number[]>([]);
+  const scheduleStatusReset = useCallback((fn: () => void, ms: number) => {
+    statusTimersRef.current.push(window.setTimeout(fn, ms));
+  }, []);
+  useEffect(() => () => {
+    for (const id of statusTimersRef.current) clearTimeout(id);
+  }, []);
+
   const handleCopyShareUrl = useCallback(async () => {
     if (!syncUrl) return;
     try {
       await navigator.clipboard.writeText(syncUrl);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      scheduleStatusReset(() => setCopied(false), 2000);
     } catch {
       // fallback: select the text
     }
-  }, [syncUrl]);
+  }, [syncUrl, scheduleStatusReset]);
 
   const handleAddLabel = (e: React.FormEvent) => {
     e.preventDefault();
@@ -155,6 +179,9 @@ export function Settings({
     try {
       const results = await onSuggestLabels([]);
       setSuggestions(results);
+    } catch (e) {
+      console.error('[labels] suggest failed', e);
+      setSuggestions([]);
     } finally {
       setSuggesting(false);
     }
@@ -178,7 +205,7 @@ export function Settings({
       const xml = ev.target?.result as string;
       const ok = onImportOPML(xml);
       setImportStatus(ok ? 'ok' : 'error');
-      if (ok) setTimeout(() => setImportStatus('idle'), 3000);
+      if (ok) scheduleStatusReset(() => setImportStatus('idle'), 3000);
     };
     reader.readAsText(file);
     // Reset so the same file can be re-imported
@@ -193,7 +220,7 @@ export function Settings({
       const html = ev.target?.result as string;
       const ok = onImportBookmarks(html);
       setBmImportStatus(ok ? 'ok' : 'error');
-      if (ok) setTimeout(() => setBmImportStatus('idle'), 3000);
+      if (ok) scheduleStatusReset(() => setBmImportStatus('idle'), 3000);
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -212,7 +239,7 @@ export function Settings({
           <h3>Topics</h3>
           <p className="settings-hint">Articles you read boost topic weight automatically.</p>
           <div className="settings-grid">
-            {ALL_TOPICS.map(topic => {
+            {SHOWN_TOPICS.map(topic => {
               const meta    = TOPIC_META[topic];
               const enabled = isTopicEnabled(topic, prefs);
               const weight  = prefs.topicWeights[topic] ?? 1.0;
@@ -509,17 +536,7 @@ export function Settings({
               {syncError && (
                 <>
                   <p className="sync-error">{syncError}</p>
-                  {syncErrorDetails && (
-                    <details className="settings-hint" style={{ marginTop: '6px' }}>
-                      <summary>Show technical sync details</summary>
-                      <code>
-                        phase={syncErrorDetails.phase}
-                        {' | '}roomId={syncErrorDetails.roomId ?? 'n/a'}
-                        {' | '}worker={syncErrorDetails.workerUrl ?? 'n/a'}
-                        {syncErrorDetails.endpoint ? ` | endpoint=${syncErrorDetails.endpoint}` : ''}
-                      </code>
-                    </details>
-                  )}
+                  <SyncErrorDetailsBlock details={syncErrorDetails} marginTop="6px" />
                 </>
               )}
             </>
@@ -532,7 +549,7 @@ export function Settings({
                 <span className={`sync-dot sync-dot--${syncStatus}`} />
                 <span className="sync-status-label">
                   {syncStatus === 'syncing' && 'Syncing…'}
-                  {syncStatus === 'active' && syncedAt && `Synced ${formatSyncedAt(syncedAt)}`}
+                  {syncStatus === 'active' && syncedAt && `Synced ${timeAgo(syncedAt, 'ago')}`}
                   {syncStatus === 'active' && !syncedAt && 'Active'}
                   {syncStatus === 'error' && `Error: ${syncError}`}
                 </span>
@@ -572,17 +589,7 @@ export function Settings({
               >
                 Revoke sync
               </button>
-              {syncErrorDetails && (
-                <details className="settings-hint" style={{ marginTop: '8px' }}>
-                  <summary>Show technical sync details</summary>
-                  <code>
-                    phase={syncErrorDetails.phase}
-                    {' | '}roomId={syncErrorDetails.roomId ?? 'n/a'}
-                    {' | '}worker={syncErrorDetails.workerUrl ?? 'n/a'}
-                    {syncErrorDetails.endpoint ? ` | endpoint=${syncErrorDetails.endpoint}` : ''}
-                  </code>
-                </details>
-              )}
+              <SyncErrorDetailsBlock details={syncErrorDetails} marginTop="8px" />
             </>
           )}
         </section>

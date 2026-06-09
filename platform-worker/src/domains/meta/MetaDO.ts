@@ -6,7 +6,6 @@ import {
   articleRecordKey,
 } from './articleRecord';
 
-const MAX_MISSED_PONGS = 2;
 const MAX_BATCH_SIZE = 200;
 const MAX_MSG_PER_MIN = 20;
 const MAX_TAGS_PER_ARTICLE = 6;
@@ -16,13 +15,17 @@ const CATCHUP_PAGE_SIZE = 200;
 export type ArticleMetaEntry = ArticleRecord;
 
 interface SessionState {
-  missedPongs: number;
   subscribedIds: Set<string>;
   msgCount: number;
   msgWindowStart: number;
 }
 
 export class MetaDO implements DurableObject {
+  /**
+   * In-memory view of per-socket state. The DO uses the hibernation API, so
+   * this map is empty after a wake-up — always go through getSession(), which
+   * rehydrates from the socket's serialized attachment.
+   */
   private sessions = new Map<WebSocket, SessionState>();
 
   constructor(private state: DurableObjectState, private env: Env) {
@@ -50,36 +53,63 @@ export class MetaDO implements DurableObject {
       return new Response(null, { status: 204 });
     }
 
+    // HTTP tag submissions route through the DO so there is a single writer
+    // for tag updates — and HTTP-submitted tags reach WS subscribers and
+    // catchUp exactly like WS-submitted ones.
+    if (url.pathname === '/submit-tags' && request.method === 'POST') {
+      const body = await request.json().catch(() => null) as
+        { articles?: Array<{ articleId: string; tags: string[] }> } | null;
+      const articles = Array.isArray(body?.articles) ? body.articles : [];
+      if (articles.length > MAX_BATCH_SIZE) {
+        return new Response(JSON.stringify({ ok: false, message: `max ${MAX_BATCH_SIZE} articles` }), { status: 400 });
+      }
+      await this.processSubmitTags(articles);
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
 
     this.state.acceptWebSocket(server);
-    this.sessions.set(server, {
-      missedPongs: 0,
+    const session: SessionState = {
       subscribedIds: new Set(),
       msgCount: 0,
       msgWindowStart: Date.now(),
-    });
+    };
+    this.sessions.set(server, session);
+    this.persistSession(server, session);
     server.send(JSON.stringify({ type: 'welcome' }));
 
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  webSocketOpen(ws: WebSocket): void {
-    if (!this.sessions.has(ws)) {
-      this.sessions.set(ws, {
-        missedPongs: 0,
-        subscribedIds: new Set(),
-        msgCount: 0,
-        msgWindowStart: Date.now(),
-      });
-      ws.send(JSON.stringify({ type: 'welcome' }));
+  /** Rehydrate session state from the socket attachment after hibernation. */
+  private getSession(ws: WebSocket): SessionState {
+    let session = this.sessions.get(ws);
+    if (!session) {
+      let ids: string[] = [];
+      try {
+        const att = ws.deserializeAttachment() as { subscribedIds?: string[] } | null;
+        if (att && Array.isArray(att.subscribedIds)) ids = att.subscribedIds;
+      } catch {
+        // no attachment — fresh session
+      }
+      session = { subscribedIds: new Set(ids), msgCount: 0, msgWindowStart: Date.now() };
+      this.sessions.set(ws, session);
+    }
+    return session;
+  }
+
+  private persistSession(ws: WebSocket, session: SessionState): void {
+    try {
+      ws.serializeAttachment({ subscribedIds: [...session.subscribedIds] });
+    } catch {
+      // attachment size limit exceeded — session survives in memory only
     }
   }
 
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
-    const session = this.sessions.get(ws);
-    if (!session) return;
+    const session = this.getSession(ws);
 
     const now = Date.now();
     if (now - session.msgWindowStart >= 60_000) {
@@ -96,11 +126,6 @@ export class MetaDO implements DurableObject {
       return;
     }
 
-    if (msg.type === 'pong') {
-      session.missedPongs = 0;
-      return;
-    }
-
     this.handleMessage(ws, session, msg);
   }
 
@@ -112,18 +137,6 @@ export class MetaDO implements DurableObject {
     this.sessions.delete(ws);
   }
 
-  ping(): void {
-    for (const [ws, session] of this.sessions) {
-      session.missedPongs++;
-      if (session.missedPongs > MAX_MISSED_PONGS) {
-        ws.close(1001, 'heartbeat timeout');
-        this.sessions.delete(ws);
-      } else {
-        ws.send(JSON.stringify({ type: 'ping' }));
-      }
-    }
-  }
-
   protected handleMessage(
     ws: WebSocket,
     session: SessionState,
@@ -133,6 +146,7 @@ export class MetaDO implements DurableObject {
       const ids = msg.articleIds;
       if (Array.isArray(ids)) {
         session.subscribedIds = new Set(ids.filter((id): id is string => typeof id === 'string'));
+        this.persistSession(ws, session);
       }
       return;
     }
@@ -165,6 +179,11 @@ export class MetaDO implements DurableObject {
 
   private async kvWrite(articleId: string, incomingTags: string[]): Promise<void> {
     const key = articleRecordKey(articleId);
+    // Known lossiness: rec's persistArticleMeta read-merge-writes catalog
+    // fields on this same key. Tag writes all flow through this DO (single
+    // tag writer), but a concurrent catalog write can still last-write-win;
+    // both writers preserve the other's fields, so the window is one
+    // read-to-put span.
     const existing = await this.env.ARTICLE_META.get<ArticleMetaEntry>(key, 'json');
 
     const existingTags = existing?.tags ?? [];
@@ -216,18 +235,25 @@ export class MetaDO implements DurableObject {
     const hasMore = rows.length === CATCHUP_PAGE_SIZE;
     const cursor = hasMore ? rows[rows.length - 1].updated_at : undefined;
 
-    ws.send(JSON.stringify({ type: 'catchUp', updates, hasMore, cursor }));
-  }
-
-  protected broadcast(articleId: string, tags: string[], updatedAt: number): void {
-    for (const [ws, session] of this.sessions) {
-      if (session.subscribedIds.has(articleId)) {
-        ws.send(JSON.stringify({ type: 'tags', articleId, tags, updatedAt }));
-      }
+    try {
+      ws.send(JSON.stringify({ type: 'catchUp', updates, hasMore, cursor }));
+    } catch {
+      this.sessions.delete(ws);
     }
   }
 
-  protected getSessions(): Map<WebSocket, SessionState> {
-    return this.sessions;
+  protected broadcast(articleId: string, tags: string[], updatedAt: number): void {
+    // Iterate the runtime's socket list, not the in-memory map — after
+    // hibernation the map is empty while sockets are still connected.
+    for (const ws of this.state.getWebSockets()) {
+      const session = this.getSession(ws);
+      if (!session.subscribedIds.has(articleId)) continue;
+      try {
+        ws.send(JSON.stringify({ type: 'tags', articleId, tags, updatedAt }));
+      } catch {
+        // closed socket — drop its session; runtime fires webSocketClose separately
+        this.sessions.delete(ws);
+      }
+    }
   }
 }

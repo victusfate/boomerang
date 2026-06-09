@@ -152,11 +152,15 @@ export function useOGImageBatch(
     const observer = new IntersectionObserver(
       entries => {
         if (!entries[0].isIntersecting) return;
-        setFetchedUpTo(prev => {
-          const next = prev + batchSize;
-          fetchedUpToRef.current = next;
-          return next;
-        });
+        // Clamp at the list length: with a short list the sentinel never
+        // leaves the viewport, and unbounded growth re-runs this effect in
+        // an observe → setState loop.
+        const total = articlesRef.current.length;
+        const prev = fetchedUpToRef.current;
+        if (prev >= total) return;
+        const next = Math.min(prev + batchSize, total);
+        fetchedUpToRef.current = next;
+        setFetchedUpTo(next);
       },
       { rootMargin: '400px' },
     );
