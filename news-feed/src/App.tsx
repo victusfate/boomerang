@@ -118,7 +118,7 @@ export default function App() {
     allArticles,
     visibleArticles, savedArticles, hasMore, totalLoaded,
     loading, refreshing, fetching, error, prefs, lastRefresh, feedEnterIds,
-    onOpen, onSave, onClearQueue, onUpvote, onDownvote, onSeen, onLoadMore,
+    onOpen, onSave, onSaveExternal, onClearQueue, onUpvote, onDownvote, onSeen, onLoadMore,
     onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onRefresh,
     onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
     onExportBookmarks, onImportBookmarks,
@@ -652,7 +652,7 @@ export default function App() {
           savedArticles={savedArticles}
           prefs={prefs}
           onOpen={onOpen}
-          onSave={onSave}
+          onSaveExternal={onSaveExternal}
           onUpvote={onUpvote}
           onDownvote={onDownvote}
           onClose={() => setShowSearch(false)}

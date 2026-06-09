@@ -637,6 +637,19 @@ export function useFeed(options?: UseFeedOptions) {
     if (a && !isSaving) void writeHistoryEntry(toHistoryEntry(a, Date.now()));
   }, [updatePrefs, findKnownArticle]);
 
+  // Save an article that may live outside the pool (e.g. a history-only search
+  // result). Registers it in importedSaves first — same home as imported
+  // bookmarks — so selectSavedArticles can render it in the Queue.
+  const handleSaveExternal = useCallback((article: Article) => {
+    if (!findKnownArticle(article.id) && !prefsRef.current.savedIds.includes(article.id)) {
+      const merged = [...importedSavesRef.current.filter(a => a.id !== article.id), article];
+      importedSavesRef.current = merged;
+      setImportedSaves(merged);
+      kvSet(IMPORTED_SAVES_ID, { articles: dehydrate(merged) }).catch(console.error);
+    }
+    handleSave(article.id);
+  }, [handleSave, findKnownArticle]);
+
   const handleUpvote = useCallback((article: Article) => {
     updatePrefs(upvote(article, prefsRef.current));
     // No re-rank: card stays visible; ▲ highlight comes from prefs.upvotedIds.
@@ -865,6 +878,7 @@ export function useFeed(options?: UseFeedOptions) {
     lastRefresh,
     onOpen:         handleOpen,
     onSave:         handleSave,
+    onSaveExternal: handleSaveExternal,
     onClearQueue:   handleClearQueue,
     onUpvote:       handleUpvote,
     onDownvote:     handleDownvote,

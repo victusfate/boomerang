@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Article, UserPrefs } from '../types';
 import { readHistoryEntries } from '../services/articleHistory';
 import {
-  buildCandidates, searchArticles,
+  buildCandidates, candidateToArticle, searchArticles,
   type HistoryCandidate, type SearchCandidate, type SearchScope,
 } from '../services/articleSearch';
 import { parseRecArticlesResponse } from '../services/recArticlesLookup';
@@ -14,7 +14,8 @@ interface Props {
   savedArticles: Article[];
   prefs: UserPrefs;
   onOpen: (article: Article) => void;
-  onSave: (id: string) => void;
+  /** Save that also registers out-of-pool articles (history results) in importedSaves. */
+  onSaveExternal: (article: Article) => void;
   onUpvote: (article: Article) => void;
   onDownvote: (article: Article) => void;
   onClose: () => void;
@@ -29,7 +30,7 @@ const SCOPES: { label: string; value: SearchScope }[] = [
   { label: 'History', value: 'history' },
 ];
 
-export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onSave, onUpvote, onDownvote, onClose, platformWorkerUrl, backfilled }: Props) {
+export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onSaveExternal, onUpvote, onDownvote, onClose, platformWorkerUrl, backfilled }: Props) {
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<SearchScope>('all');
   const [results, setResults] = useState<SearchCandidate[]>([]);
@@ -47,6 +48,7 @@ export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onSav
         title: e.title,
         url: e.url,
         source: e.source,
+        sourceId: e.sourceId,
         publishedAt: e.publishedAt,
       })))
     );
@@ -73,6 +75,7 @@ export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onSav
           title: a.title,
           url: a.url,
           source: a.source,
+          sourceId: a.sourceId,
           publishedAt: a.publishedAt,
         })));
       } catch {
@@ -165,7 +168,9 @@ export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onSav
             <p className="search-empty">No results for "{q}".</p>
           )}
           {results.map(r => {
-            const article = r.inPool ? articleById(r.id) : undefined;
+            // History-only rows get a synthesized minimal Article so votes and
+            // saves work on them too (empty topics — source/keyword weights still apply).
+            const article = (r.inPool ? articleById(r.id) : undefined) ?? candidateToArticle(r);
             const saved    = prefs.savedIds.includes(r.id);
             const votedUp  = prefs.upvotedIds.includes(r.id);
             const votedDown = prefs.downvotedIds.includes(r.id);
@@ -182,28 +187,26 @@ export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onSav
                     {r.inQueue && <span className="search-result-badge">queued</span>}
                   </span>
                 </button>
-                {article && (
-                  <div className="search-result-actions">
-                    <button
-                      className={`btn-vote btn-upvote${votedUp ? ' active' : ''}`}
-                      onClick={() => onUpvote(article)}
-                      aria-label={votedUp ? 'Remove upvote' : 'More like this'}
-                      title={votedUp ? 'Remove upvote' : 'More like this'}
-                    >▲</button>
-                    <button
-                      className={`btn-save${saved ? ' saved' : ''}`}
-                      onClick={() => onSave(r.id)}
-                      aria-label={saved ? 'Remove bookmark' : 'Bookmark'}
-                      title={saved ? 'Remove bookmark' : 'Bookmark'}
-                    >{saved ? '★' : '☆'}</button>
-                    <button
-                      className={`btn-vote btn-downvote${votedDown ? ' active' : ''}`}
-                      onClick={() => onDownvote(article)}
-                      aria-label={votedDown ? 'Remove downvote' : 'Less like this'}
-                      title={votedDown ? 'Remove downvote' : 'Less like this'}
-                    >▼</button>
-                  </div>
-                )}
+                <div className="search-result-actions">
+                  <button
+                    className={`btn-vote btn-upvote${votedUp ? ' active' : ''}`}
+                    onClick={() => onUpvote(article)}
+                    aria-label={votedUp ? 'Remove upvote' : 'More like this'}
+                    title={votedUp ? 'Remove upvote' : 'More like this'}
+                  >▲</button>
+                  <button
+                    className={`btn-save${saved ? ' saved' : ''}`}
+                    onClick={() => onSaveExternal(article)}
+                    aria-label={saved ? 'Remove bookmark' : 'Bookmark'}
+                    title={saved ? 'Remove bookmark' : 'Bookmark'}
+                  >{saved ? '★' : '☆'}</button>
+                  <button
+                    className={`btn-vote btn-downvote${votedDown ? ' active' : ''}`}
+                    onClick={() => onDownvote(article)}
+                    aria-label={votedDown ? 'Remove downvote' : 'Less like this'}
+                    title={votedDown ? 'Remove downvote' : 'Less like this'}
+                  >▼</button>
+                </div>
               </div>
             );
           })}

@@ -1,3 +1,5 @@
+import type { Article } from '../types';
+
 export type SearchScope = 'all' | 'feed' | 'queue' | 'history';
 
 export interface SearchCandidate {
@@ -26,6 +28,8 @@ export interface HistoryCandidate {
   title: string;
   url: string;
   source: string;
+  /** Optional: entries stored before sourceId tracking degrade to ''. */
+  sourceId?: string;
   publishedAt: string;
 }
 
@@ -77,7 +81,7 @@ export function buildCandidates(
       title: h.title,
       url: h.url,
       source: h.source,
-      sourceId: '',
+      sourceId: h.sourceId ?? '',
       publishedAt: h.publishedAt,
       inPool: false,
       inQueue: false,
@@ -85,6 +89,24 @@ export function buildCandidates(
   }
 
   return candidates;
+}
+
+/**
+ * Synthesize a minimal Article from a history-only candidate so vote/save
+ * actions work on it. Empty topics/description: votes still register the id,
+ * adjust the source weight, and extract keywords from the title.
+ */
+export function candidateToArticle(c: SearchCandidate): Article {
+  return {
+    id: c.id,
+    title: c.title,
+    url: c.url,
+    description: '',
+    publishedAt: new Date(c.publishedAt),
+    source: c.source,
+    sourceId: c.sourceId,
+    topics: [],
+  };
 }
 
 const RANK_PREFIX = 1;
