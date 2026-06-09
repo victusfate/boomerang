@@ -1976,3 +1976,6 @@ details[open] .rec-model-summary::before { content: '▾ '; }
 .search-result-history .search-result-title {
   opacity: 0.85;
 }
+
+/* Pull indicator spin state is toggled via classList from the gesture handler */
+.pull-indicator-inner.spin-ready svg { animation: spin 1s linear infinite; }

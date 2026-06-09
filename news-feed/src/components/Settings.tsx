@@ -81,12 +81,18 @@ export function Settings({
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [copied, setCopied]       = useState(false);
 
+  // onClose is usually an inline arrow from App — keep it in a ref so this
+  // effect never re-runs mid-session (a re-run steals focus from whatever
+  // input the user is typing in).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     previousFocusRef.current = document.activeElement;
     panelRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key === 'Escape') { onCloseRef.current(); return; }
       if (e.key === 'Tab' && panelRef.current) {
         const focusable = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
         if (focusable.length === 0) return;
@@ -105,7 +111,7 @@ export function Settings({
       document.removeEventListener('keydown', handleKeyDown);
       (previousFocusRef.current as HTMLElement | null)?.focus();
     };
-  }, [onClose]);
+  }, []); // mount-only: focus trap must not re-run while the modal is open
 
   const handleAddSource = (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,16 +131,25 @@ export function Settings({
       .catch(() => setQrDataUrl(''));
   }, [syncUrl]);
 
+  // Status-reset timers must not fire after unmount.
+  const statusTimersRef = useRef<number[]>([]);
+  const scheduleStatusReset = useCallback((fn: () => void, ms: number) => {
+    statusTimersRef.current.push(window.setTimeout(fn, ms));
+  }, []);
+  useEffect(() => () => {
+    for (const id of statusTimersRef.current) clearTimeout(id);
+  }, []);
+
   const handleCopyShareUrl = useCallback(async () => {
     if (!syncUrl) return;
     try {
       await navigator.clipboard.writeText(syncUrl);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      scheduleStatusReset(() => setCopied(false), 2000);
     } catch {
       // fallback: select the text
     }
-  }, [syncUrl]);
+  }, [syncUrl, scheduleStatusReset]);
 
   const handleAddLabel = (e: React.FormEvent) => {
     e.preventDefault();
@@ -151,6 +166,9 @@ export function Settings({
     try {
       const results = await onSuggestLabels([]);
       setSuggestions(results);
+    } catch (e) {
+      console.error('[labels] suggest failed', e);
+      setSuggestions([]);
     } finally {
       setSuggesting(false);
     }
@@ -174,7 +192,7 @@ export function Settings({
       const xml = ev.target?.result as string;
       const ok = onImportOPML(xml);
       setImportStatus(ok ? 'ok' : 'error');
-      if (ok) setTimeout(() => setImportStatus('idle'), 3000);
+      if (ok) scheduleStatusReset(() => setImportStatus('idle'), 3000);
     };
     reader.readAsText(file);
     // Reset so the same file can be re-imported
@@ -189,7 +207,7 @@ export function Settings({
       const html = ev.target?.result as string;
       const ok = onImportBookmarks(html);
       setBmImportStatus(ok ? 'ok' : 'error');
-      if (ok) setTimeout(() => setBmImportStatus('idle'), 3000);
+      if (ok) scheduleStatusReset(() => setBmImportStatus('idle'), 3000);
     };
     reader.readAsText(file);
     e.target.value = '';

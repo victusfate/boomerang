@@ -186,7 +186,19 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const { backfilled } = useHistoryBackfill(prefs, PLATFORM_WORKER_URL, syncReady);
-  const [pullProgress, setPullProgress] = useState(0); // 0–1
+  // Pull-to-refresh visuals are driven by direct DOM writes — setState per
+  // touchmove frame re-renders the whole app (every card) during the drag.
+  const pullIndicatorRef = useRef<HTMLDivElement>(null);
+  const setPullVisual = useCallback((progress: number) => {
+    const el = pullIndicatorRef.current;
+    if (!el) return;
+    el.style.display = progress > 0 ? 'flex' : 'none';
+    const inner = el.firstElementChild as HTMLElement | null;
+    if (!inner) return;
+    inner.style.opacity = String(progress);
+    inner.style.transform = `scale(${0.5 + progress * 0.5})`;
+    inner.classList.toggle('spin-ready', progress >= 1);
+  }, []);
   const canUseBrowserAi = isPromptApiAvailable();
   const combinedSyncCooldownMs = Math.max(syncCooldownMs, metaSyncCooldownMs);
   const syncIndicator = syncIndicatorState(
@@ -287,10 +299,10 @@ export default function App() {
       const g = pullGestureRef.current;
       if (!g.active) return;
       const delta = e.touches[0].clientY - g.startY;
-      if (delta <= 0) { g.active = false; setPullProgress(0); return; }
+      if (delta <= 0) { g.active = false; setPullVisual(0); return; }
       const progress = Math.min(delta / PULL_THRESHOLD, 1);
       g.progress = progress;
-      setPullProgress(progress);
+      setPullVisual(progress);
       // Prevent native scroll-bounce while we're handling the pull
       if (window.scrollY <= 5) e.preventDefault();
     };
@@ -301,7 +313,7 @@ export default function App() {
       const willRefresh = g.progress >= 1 && !triggered;
       g.active = false;
       g.progress = 0;
-      setPullProgress(0);
+      setPullVisual(0);
       if (willRefresh) { triggered = true; onRefreshRef.current(); }
     };
 
@@ -367,6 +379,16 @@ export default function App() {
   const recRankMap = useMemo(() => buildRecRankMap(recArticleIds), [recArticleIds]);
   const feedSourceCounts = useMemo(() => countSourceArticles(allArticles), [allArticles]);
   const feedScoresLoading = showFeedScores && !recBootstrapDone;
+  // Precomputed per-card insight — inline computation ran for every card on
+  // every App render, including renders unrelated to ranking.
+  const feedScoreInsightById = useMemo(() => {
+    if (!showFeedScores) return null;
+    const m = new Map<string, ReturnType<typeof computeFeedScoreInsight>>();
+    for (const a of filteredArticles) {
+      m.set(a.id, computeFeedScoreInsight(a, feedSourceCounts, recRankMap, recScoreById));
+    }
+    return m;
+  }, [showFeedScores, filteredArticles, feedSourceCounts, recRankMap, recScoreById]);
 
   // When a topic filter is active and the visible slice has no matches yet,
   // automatically load more so the user isn't stuck on a false empty state.
@@ -520,16 +542,11 @@ export default function App() {
         </div>
       )}
 
-      {pullProgress > 0 && (
-        <div className="pull-indicator">
-          <div
-            className="pull-indicator-inner"
-            style={{ opacity: pullProgress, transform: `scale(${0.5 + pullProgress * 0.5})` }}
-          >
-            <RefreshIcon spinning={pullProgress >= 1} />
-          </div>
+      <div className="pull-indicator" ref={pullIndicatorRef} style={{ display: 'none' }}>
+        <div className="pull-indicator-inner">
+          <RefreshIcon spinning={false} />
         </div>
-      )}
+      </div>
 
       <main className={view === 'rec' ? 'rec-view' : 'feed'}>
         {view === 'rec' ? (
@@ -588,14 +605,7 @@ export default function App() {
                   onAddManualTag={onAddManualTag}
                   onRemoveManualTag={onRemoveManualTag}
                   feedScoresLoading={feedScoresLoading}
-                  feedScoreInsight={showFeedScores
-                    ? computeFeedScoreInsight(
-                      article,
-                      feedSourceCounts,
-                      recRankMap,
-                      recScoreById,
-                    )
-                    : undefined}
+                  feedScoreInsight={feedScoreInsightById?.get(article.id)}
                 />
                 {index === Math.min(ogFetchedUpTo, filteredArticles.length) - 1 && (
                   <div ref={ogSentinelRef} aria-hidden="true" />
