@@ -8,7 +8,7 @@
 | **Interaction history store** | Local IndexedDB store (`article-history:v1`) of full article metadata written at every read or dequeue event; capped at 500 entries, evict oldest by `interactedAt` |
 | **Corpus** | The union of three sources searched on every query: RSS pool, Queue, and interaction history store |
 | **History backfill** | One-time background migration on first app load: resolves existing `readIds` + `unsavedAtById` IDs via `/rec/articles` and populates the history store |
-| **Tiered debounce** | Three-tier latency model: pool results render at 0ms, history store results at ~150ms, remote resolution at ~400ms |
+| **Tiered debounce** | Two-tier latency model: local results (RSS pool + history store) at ~150ms, remote resolution at ~400ms |
 | **Scope chip** | Pill-style filter button (`[All] [Feed] [Queue] [History]`) reusing the existing `topic-pill` CSS class |
 | **Paid tier hook** | 500-entry cap on the history store; "unlimited history" reserved as a future paid feature |
 | **Dequeue** | Remove an article from the Queue — either by opening it (auto-dequeue) or by tapping ★ to unstar. Defined in `reading-queue/design.md`; used here as a write trigger for the history store |
@@ -80,15 +80,14 @@ On first app load after the feature ships (detected by absence of the `article-h
 
 ### D6 — Tiered debounce (as-you-type)
 
-Results render incrementally as the user types, using three latency tiers:
+Results render as the user types using two latency tiers:
 
 | Tier | Source | Debounce | Rationale |
 |---|---|---|---|
-| 1 | RSS pool (in-memory) | 0ms — instant | Pure synchronous filter |
-| 2 | History store (IndexedDB) | ~150ms | Async read; fast enough to feel instant |
-| 3 | Remote `/rec/articles` | ~400ms | Only needed during backfill window for IDs not yet local |
+| 1 | RSS pool (sync) + history store (IndexedDB) | ~150ms | Both are effectively instant at ≤500 entries; single debounce covers both |
+| 2 | Remote `/rec/articles` | ~400ms | Only needed during backfill window for IDs not yet local |
 
-After backfill completes, Tier 3 is effectively never triggered — all results come from Tier 1 and 2.
+After backfill completes, Tier 2 is never triggered — all results come from Tier 1.
 
 ### D7 — Result card shape
 
@@ -106,12 +105,13 @@ The overlay renders as a layer on top of the current view. A separate `showSearc
 
 ```mermaid
 flowchart TD
-    A[User types in search overlay] --> B{Tier 1: RSS pool}
-    B --> C[Instant results — in-memory filter]
-    A --> D{Tier 2: History store\n~150ms debounce}
-    D --> E[IndexedDB read → merge results]
-    A --> F{Tier 3: Remote /rec/articles\n~400ms debounce}
-    F --> G[Only during backfill window\nfor IDs not yet local]
+    A[User types in search overlay] --> B{Tier 1: ~150ms debounce}
+    B --> C[RSS pool sync filter]
+    B --> D[IndexedDB history read]
+    C --> E[Merge → render results]
+    D --> E
+    A --> F{Tier 2: ~400ms debounce}
+    F --> G[Remote /rec/articles\nonly during backfill window]
 
     H[handleOpen / dequeue] --> I[Write HistoryEntry to IndexedDB]
     I --> J{Cap > 500?}
@@ -132,7 +132,7 @@ flowchart TD
 | Scenario | Behavior |
 |---|---|
 | Article in history store but also in current RSS pool | Pool result takes precedence; shown under Feed chip, not History |
-| History store not yet backfilled, user searches immediately | Tier 1 (pool) results show instantly; Tier 3 resolves remaining matches remotely |
+| History store not yet backfilled, user searches immediately | Tier 1 (pool) results show at 150ms; Tier 2 resolves remaining history matches remotely at 400ms |
 | `/rec/articles` returns `missing` IDs during backfill | Skip silently — article aged out of 180-day KV window |
 | User opens search overlay with empty query | Show empty state: "Search your feed and reading history" |
 | Search query matches nothing in any tier | "No results for [query]" |
