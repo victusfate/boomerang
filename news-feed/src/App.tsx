@@ -652,6 +652,9 @@ export default function App() {
           savedArticles={savedArticles}
           prefs={prefs}
           onOpen={onOpen}
+          onSave={onSave}
+          onUpvote={onUpvote}
+          onDownvote={onDownvote}
           onClose={() => setShowSearch(false)}
           platformWorkerUrl={PLATFORM_WORKER_URL}
           backfilled={backfilled}

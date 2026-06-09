@@ -1787,22 +1787,48 @@ html[data-theme="light"] .import-status.error {
 }
 
 .search-result-item {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
-  background: none;
-  border: none;
   border-bottom: 1px solid var(--border, #222);
-  color: var(--text, #e0e0e0);
-  cursor: pointer;
-  padding: 10px 16px;
-  text-align: left;
   transition: background 0.1s;
 }
 
 .search-result-item:hover,
-.search-result-item:focus {
+.search-result-item:focus-within {
   background: color-mix(in srgb, var(--text) 6%, var(--card));
-  outline: none;
+}
+
+.search-result-body {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--text, #e0e0e0);
+  cursor: pointer;
+  padding: 10px 16px;
+  text-align: left;
+}
+
+.search-result-body:focus { outline: none; }
+
+.search-result-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding-right: 8px;
+}
+
+.search-result-actions .btn-vote {
+  padding: 6px 8px;
+  min-width: 32px;
+  font-size: 0.875rem;
+}
+
+.search-result-actions .btn-save {
+  padding: 6px 8px;
+  min-width: 32px;
+  font-size: 1.1rem;
 }
 
 .search-result-title {

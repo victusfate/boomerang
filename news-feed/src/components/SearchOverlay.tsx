@@ -14,6 +14,9 @@ interface Props {
   savedArticles: Article[];
   prefs: UserPrefs;
   onOpen: (article: Article) => void;
+  onSave: (id: string) => void;
+  onUpvote: (article: Article) => void;
+  onDownvote: (article: Article) => void;
   onClose: () => void;
   platformWorkerUrl: string;
   backfilled: boolean;
@@ -26,7 +29,7 @@ const SCOPES: { label: string; value: SearchScope }[] = [
   { label: 'History', value: 'history' },
 ];
 
-export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onClose, platformWorkerUrl, backfilled }: Props) {
+export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onSave, onUpvote, onDownvote, onClose, platformWorkerUrl, backfilled }: Props) {
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<SearchScope>('all');
   const [results, setResults] = useState<SearchCandidate[]>([]);
@@ -161,20 +164,49 @@ export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onClo
           {q && results.length === 0 && (
             <p className="search-empty">No results for "{q}".</p>
           )}
-          {results.map(r => (
-            <button
-              key={r.id}
-              className={`search-result-item${!r.inPool ? ' search-result-history' : ''}`}
-              onClick={() => handleResultClick(r)}
-            >
-              <span className="search-result-title">{r.title}</span>
-              <span className="search-result-meta">
-                {r.source} · {timeAgo(new Date(r.publishedAt), 'ago')}
-                {!r.inPool && <span className="search-result-badge">history</span>}
-                {r.inQueue && <span className="search-result-badge">queued</span>}
-              </span>
-            </button>
-          ))}
+          {results.map(r => {
+            const article = r.inPool ? articleById(r.id) : undefined;
+            const saved    = prefs.savedIds.includes(r.id);
+            const votedUp  = prefs.upvotedIds.includes(r.id);
+            const votedDown = prefs.downvotedIds.includes(r.id);
+            return (
+              <div
+                key={r.id}
+                className={`search-result-item${!r.inPool ? ' search-result-history' : ''}`}
+              >
+                <button className="search-result-body" onClick={() => handleResultClick(r)}>
+                  <span className="search-result-title">{r.title}</span>
+                  <span className="search-result-meta">
+                    {r.source} · {timeAgo(new Date(r.publishedAt), 'ago')}
+                    {!r.inPool && <span className="search-result-badge">history</span>}
+                    {r.inQueue && <span className="search-result-badge">queued</span>}
+                  </span>
+                </button>
+                {article && (
+                  <div className="search-result-actions">
+                    <button
+                      className={`btn-vote btn-upvote${votedUp ? ' active' : ''}`}
+                      onClick={() => onUpvote(article)}
+                      aria-label={votedUp ? 'Remove upvote' : 'More like this'}
+                      title={votedUp ? 'Remove upvote' : 'More like this'}
+                    >▲</button>
+                    <button
+                      className={`btn-save${saved ? ' saved' : ''}`}
+                      onClick={() => onSave(r.id)}
+                      aria-label={saved ? 'Remove bookmark' : 'Bookmark'}
+                      title={saved ? 'Remove bookmark' : 'Bookmark'}
+                    >{saved ? '★' : '☆'}</button>
+                    <button
+                      className={`btn-vote btn-downvote${votedDown ? ' active' : ''}`}
+                      onClick={() => onDownvote(article)}
+                      aria-label={votedDown ? 'Remove downvote' : 'Less like this'}
+                      title={votedDown ? 'Remove downvote' : 'Less like this'}
+                    >▼</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
