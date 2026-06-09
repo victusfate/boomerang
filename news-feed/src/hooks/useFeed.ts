@@ -420,11 +420,15 @@ export function useFeed(options?: UseFeedOptions) {
         const ranked = rankFeed(cached.articles, mergePrefs(cleanedPrefs, prefsRef.current), getRankRecIds());
         allArticlesRef.current = ranked;
         setAllArticles(ranked);
-        feedShownRef.current = true; // cache committed — background updates must not re-rank
-        if (ranked.length) setLoading(false);
-
-        // Mark cache as valid so we skip the auto-fetch on startup
-        setLastRefresh(new Date(cached.fetchedAt));
+        if (ranked.length) {
+          feedShownRef.current = true; // cache committed — background updates must not re-rank
+          setLoading(false);
+          // Mark cache as valid so we skip the auto-fetch on startup
+          setLastRefresh(new Date(cached.fetchedAt));
+        }
+        // ranked empty (all cached articles seen/deduped): leave lastRefresh
+        // unset so the prefsReady auto-fetch fires instead of wedging on the
+        // loading state.
 
         // Without this, `refresh()` never runs on cold start when cache exists — AI tagging
         // (and the status bar) only appeared after a manual refresh. Re-run the same pass as post-fetch.
@@ -564,9 +568,10 @@ export function useFeed(options?: UseFeedOptions) {
           publishRecCandidateIdsRef.current(articlePoolRef.current);
         }
         fetchingRef.current = false;
-      } else {
-        fetchingRef.current = false;
       }
+      // Superseded: the canceller bumped fetchId and handed the lock to a
+      // newer fetch — clearing it here would let a third refresh run
+      // concurrently with that one.
     }
   }, []); // stable — does not depend on volatile state
 
@@ -575,14 +580,10 @@ export function useFeed(options?: UseFeedOptions) {
   const handleSeen = useCallback((id: string) => {
     if (markedSeenRef.current.has(id)) return; // already counted this session
     markedSeenRef.current.add(id);
-    setPrefsState(prev => {
-      const next = markSeen([id], prev);
-      kvSet(PREFS_ID, next).catch(console.error);
-      return next;
-    });
+    updatePrefs(markSeen([id], prefsRef.current));
     const a = allArticlesRef.current.find(x => x.id === id);
     if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, tags: articleTagsMapRef.current.get(a.id), action: 'seen', ts: Date.now() });
-  }, []);
+  }, [updatePrefs]);
 
   // ── Pagination ────────────────────────────────────────────────────────────────
   const loadMore = useCallback(() => {
@@ -666,51 +667,46 @@ export function useFeed(options?: UseFeedOptions) {
 
   const handleDeleteLabel = useCallback((labelId: string) => {
     updatePrefs(deleteUserLabel(labelId, prefsRef.current));
-    setLabelHits(prev => {
-      const filtered = prev.filter(h => h.labelId !== labelId);
-      labelHitsRef.current = filtered;
-      kvSet(CLASSIFICATIONS_ID, { hits: filtered }).catch(console.error);
-      return filtered;
-    });
+    const filtered = labelHitsRef.current.filter(h => h.labelId !== labelId);
+    labelHitsRef.current = filtered;
+    setLabelHits(filtered);
+    kvSet(CLASSIFICATIONS_ID, { hits: filtered }).catch(console.error);
   }, [updatePrefs]);
 
   const handleRenameLabel = useCallback((labelId: string, name: string) => {
     updatePrefs(renameUserLabel(labelId, name, prefsRef.current));
   }, [updatePrefs]);
 
+  const commitArticleTags = useCallback((updated: ArticleTag[]) => {
+    articleTagsRef.current = updated;
+    setArticleTags(updated);
+    kvSet(ARTICLE_TAGS_ID, { hits: updated }).catch(console.error);
+  }, []);
+
   const handleAddManualTag = useCallback((articleId: string, raw: string) => {
     const tag = raw.trim().toLowerCase();
     if (!tag) return;
-    setArticleTags(prev => {
-      const existing = prev.find(t => t.articleId === articleId);
-      let updated: ArticleTag[];
-      if (existing) {
-        if (existing.tags.includes(tag)) return prev;
-        updated = prev.map(t =>
-          t.articleId === articleId ? { ...t, tags: [...t.tags, tag], taggedAt: Date.now() } : t
-        );
-      } else {
-        updated = [...prev, { articleId, tags: [tag], taggedAt: Date.now() }];
-      }
-      articleTagsRef.current = updated;
-      kvSet(ARTICLE_TAGS_ID, { hits: updated }).catch(console.error);
-      return updated;
-    });
-  }, []);
+    const prev = articleTagsRef.current;
+    const existing = prev.find(t => t.articleId === articleId);
+    if (existing?.tags.includes(tag)) return;
+    const updated = existing
+      ? prev.map(t =>
+        t.articleId === articleId ? { ...t, tags: [...t.tags, tag], taggedAt: Date.now() } : t
+      )
+      : [...prev, { articleId, tags: [tag], taggedAt: Date.now() }];
+    commitArticleTags(updated);
+  }, [commitArticleTags]);
 
   const handleRemoveManualTag = useCallback((articleId: string, tag: string) => {
-    setArticleTags(prev => {
-      const existing = prev.find(t => t.articleId === articleId);
-      if (!existing) return prev;
-      const newTags = existing.tags.filter(t => t !== tag);
-      const updated = newTags.length > 0
-        ? prev.map(t => t.articleId === articleId ? { ...t, tags: newTags, taggedAt: Date.now() } : t)
-        : prev.filter(t => t.articleId !== articleId);
-      articleTagsRef.current = updated;
-      kvSet(ARTICLE_TAGS_ID, { hits: updated }).catch(console.error);
-      return updated;
-    });
-  }, []);
+    const prev = articleTagsRef.current;
+    const existing = prev.find(t => t.articleId === articleId);
+    if (!existing) return;
+    const newTags = existing.tags.filter(t => t !== tag);
+    const updated = newTags.length > 0
+      ? prev.map(t => t.articleId === articleId ? { ...t, tags: newTags, taggedAt: Date.now() } : t)
+      : prev.filter(t => t.articleId !== articleId);
+    commitArticleTags(updated);
+  }, [commitArticleTags]);
 
   const handleToggleAiBar = useCallback(() => {
     updatePrefs({ ...prefsRef.current, hideAiBar: !prefsRef.current.hideAiBar });

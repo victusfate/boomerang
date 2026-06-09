@@ -155,8 +155,14 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
 
   const flush = useCallback(() => {
     if (pendingBufferRef.current.length === 0) return;
+    if (!PLATFORM_WORKER_URL) return; // guard before splice — don't discard pending tags
+    if (blockedUntilRef.current && Date.now() < blockedUntilRef.current) {
+      // Rate-limited: keep the buffer intact and retry once the backoff expires.
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = setTimeout(flush, Math.max(FLUSH_INTERVAL_MS, blockedUntilRef.current - Date.now()));
+      return;
+    }
     const batch = pendingBufferRef.current.splice(0, MAX_BATCH);
-    if (!PLATFORM_WORKER_URL) return;
     syncDebugLog('meta', 'push:start', { batchSize: batch.length });
     void submitMetaTags(PLATFORM_WORKER_URL, batch)
       .then(() => {
