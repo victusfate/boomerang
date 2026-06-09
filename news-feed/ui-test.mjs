@@ -49,6 +49,24 @@ await page.waitForTimeout(300);
 const feedVisible = await page.locator('[role="tab"][aria-selected="true"]').textContent();
 assert('Feed tab is active after clicking', feedVisible.includes('Feed'));
 
+console.log('\n── Search overlay ───────────────────────────────');
+const searchBtn = await page.locator('[aria-label="Search"]').count();
+assert('Search icon button is in the header', searchBtn > 0);
+await page.locator('[aria-label="Search"]').click();
+await page.waitForTimeout(300);
+const overlay = await page.locator('.search-overlay').count();
+assert('Search overlay opens on icon click', overlay > 0);
+const input = await page.locator('.search-input').count();
+assert('Search input is present', input > 0);
+const chips = await page.locator('.search-chips .topic-pill').count();
+assert('Filter chips render (All/Feed/Queue/History)', chips === 4);
+const emptyState = await page.locator('.search-empty').count();
+assert('Empty state shown when query is empty', emptyState > 0);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+const overlayAfterEsc = await page.locator('.search-overlay').count();
+assert('Escape closes the overlay', overlayAfterEsc === 0);
+
 console.log(`\n${passed + failed} checks — ${passed} passed, ${failed} failed`);
 await browser.close();
 process.exit(failed > 0 ? 1 : 0);

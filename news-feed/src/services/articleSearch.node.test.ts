@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { searchArticles, type SearchCandidate, type SearchScope } from './articleSearch.ts';
+import { searchArticles, type SearchCandidate } from './articleSearch.ts';
 
 function candidate(
   id: string,
@@ -61,8 +61,6 @@ test('prefix match ranks above word-prefix match', () => {
 
 test('word-prefix match ranks above substring match', () => {
   const wordPrefix = candidate('word', 'The Rust guide');
-  const sub = candidate('sub', 'Adjustments to systems');  // 'ust' not a word prefix
-  // 'rust' won't match 'systems' at all; use a cleaner pair
   const sub2 = candidate('sub2', 'Trust nobody');  // 'rust' appears mid-word
   const results = searchArticles('rust', [sub2, wordPrefix], 'all');
   assert.equal(results[0].id, 'word');

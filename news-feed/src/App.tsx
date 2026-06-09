@@ -5,6 +5,8 @@ import { useMetaWorker } from './hooks/useMetaWorker';
 import { useRecWorker } from './hooks/useRecWorker';
 import { useRecHistoryReplay } from './hooks/useRecHistoryReplay';
 import { useOGImageBatch } from './hooks/useOGImageBatch';
+import { useHistoryBackfill } from './hooks/useHistoryBackfill';
+import { SearchOverlay } from './components/SearchOverlay';
 import { ArticleCard } from './components/ArticleCard';
 import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
@@ -19,6 +21,7 @@ import {
   countSourceArticles,
 } from './services/feedScoreBreakdown';
 import type { ActiveFilter, FeedView } from './types';
+import { PLATFORM_WORKER_URL } from './config/workerEnv';
 
 const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
 
@@ -185,6 +188,8 @@ export default function App() {
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>(null);
   const [initialQueueCount, setInitialQueueCount] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const { backfilled } = useHistoryBackfill(prefs, PLATFORM_WORKER_URL);
   const [pullProgress, setPullProgress] = useState(0); // 0–1
   const canUseBrowserAi = isPromptApiAvailable();
   const combinedSyncCooldownMs = Math.max(syncCooldownMs, metaSyncCooldownMs);
@@ -401,6 +406,14 @@ export default function App() {
           </button>
           <button
             className="icon-btn"
+            onClick={() => setShowSearch(true)}
+            aria-label="Search"
+            title="Search"
+          >
+            🔍
+          </button>
+          <button
+            className="icon-btn"
             onClick={onManualRefresh}
             disabled={loading}
             aria-label="Refresh feed"
@@ -614,6 +627,18 @@ export default function App() {
           </>
         )}
       </main>
+
+      {showSearch && (
+        <SearchOverlay
+          allArticles={allArticles}
+          savedArticles={savedArticles}
+          prefs={prefs}
+          onOpen={onOpen}
+          onClose={() => setShowSearch(false)}
+          platformWorkerUrl={PLATFORM_WORKER_URL}
+          backfilled={backfilled}
+        />
+      )}
 
       {showSettings && (
         <Settings
