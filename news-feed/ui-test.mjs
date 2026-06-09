@@ -1,7 +1,7 @@
 import pkg from '/opt/node22/lib/node_modules/playwright/index.js';
 const { chromium } = pkg;
 
-const BASE = 'http://localhost:4173';
+const BASE = 'http://localhost:5173';
 let passed = 0;
 let failed = 0;
 
