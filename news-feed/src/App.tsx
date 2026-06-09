@@ -26,6 +26,14 @@ import { timeAgo } from './services/timeAgo';
 
 const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
 
+/** Word-boundary label↔tag match — bare substring made "AI" match "rain". */
+function labelMatchesTag(label: string, tag: string): boolean {
+  if (label === tag) return true;
+  const asWord = (needle: string) =>
+    new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+  return asWord(label).test(tag) || asWord(tag).test(label);
+}
+
 type SyncIndicatorState = 'idle' | 'setup' | 'active' | 'syncing' | 'error';
 
 function formatCooldownLabel(remainingMs: number): string {
@@ -370,7 +378,7 @@ export default function App() {
     if (activeFilter?.kind === 'label') {
       const labelName = (prefs.userLabels ?? []).find(l => l.id === activeFilter.value)?.name?.toLowerCase() ?? '';
       if (!labelName) return [];
-      list = list.filter(a => (articleTagsMap.get(a.id) ?? []).some((t: string) => t.includes(labelName) || labelName.includes(t)));
+      list = list.filter(a => (articleTagsMap.get(a.id) ?? []).some((t: string) => labelMatchesTag(labelName, t)));
     }
     return list;
   }, [visibleArticles, savedArticles, view, activeFilter, articleTagsMap, prefs.userLabels]);

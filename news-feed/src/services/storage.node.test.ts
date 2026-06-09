@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_PREFS, addUserLabel, deleteUserLabel, renameUserLabel, clearQueue } from './storage.ts';
+import { DEFAULT_PREFS, addUserLabel, deleteUserLabel, renameUserLabel, clearQueue, customSourceIdFromUrl } from './storage.ts';
 import type { UserLabel, UserPrefs } from '../types.ts';
 
 function label(name: string): UserLabel {
@@ -74,4 +74,12 @@ test('clearQueue is a no-op when queue is already empty', () => {
   const next = clearQueue(DEFAULT_PREFS);
   assert.deepEqual(next.savedIds, []);
   assert.deepEqual(next.savedAtById, {});
+});
+
+test('customSourceIdFromUrl is stable for the same URL', () => {
+  const a = customSourceIdFromUrl('https://example.com/feed.xml');
+  const b = customSourceIdFromUrl('https://example.com/feed.xml');
+  assert.equal(a, b);
+  assert.ok(a.startsWith('custom-'));
+  assert.notEqual(a, customSourceIdFromUrl('https://other.com/rss'));
 });

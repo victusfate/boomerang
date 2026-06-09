@@ -4,7 +4,7 @@
  * @category Sync
  */
 
-import { DEFAULT_PREFS } from './storage.ts';
+import { DEFAULT_PREFS, MAX_READ_IDS, MAX_SEEN_IDS } from './storage.ts';
 import type { Article, ArticleTag, LabelHit, Topic, UserPrefs } from '../types.ts';
 
 export const SYNC_LOG = '[Sync]';
@@ -50,6 +50,11 @@ function mergeById<T extends { id: string }>(left: T[], right: T[]): T[] {
   return Array.from(new Map([...left, ...right].map(item => [item.id, item])).values());
 }
 
+/** Keep the most-recent (tail) entries — matches markRead/markSeen eviction. */
+function capTail<T>(items: T[], max: number): T[] {
+  return items.length > max ? items.slice(-max) : items;
+}
+
 export function mergePrefs(left: UserPrefs, right: Partial<UserPrefs>): UserPrefs {
   const mergedSavedAtById: Record<string, number> = { ...(left.savedAtById ?? {}) };
   for (const [id, ts] of Object.entries(right.savedAtById ?? {})) {
@@ -89,11 +94,11 @@ export function mergePrefs(left: UserPrefs, right: Partial<UserPrefs>): UserPref
     topicWeights:   { ...left.topicWeights, ...(right.topicWeights ?? {}) },
     sourceWeights:  { ...left.sourceWeights, ...(right.sourceWeights ?? {}) },
     keywordWeights: { ...left.keywordWeights, ...(right.keywordWeights ?? {}) },
-    readIds:        uniqueStrings(left.readIds, right.readIds),
+    readIds:        capTail(uniqueStrings(left.readIds, right.readIds), MAX_READ_IDS),
     savedIds:       finalSavedIds,
     savedAtById:    mergedSavedAtById,
     unsavedAtById:  mergedUnsavedAtById,
-    seenIds:        uniqueStrings(left.seenIds, right.seenIds),
+    seenIds:        capTail(uniqueStrings(left.seenIds, right.seenIds), MAX_SEEN_IDS),
     upvotedIds:     uniqueStrings(left.upvotedIds, right.upvotedIds),
     downvotedIds:   uniqueStrings(left.downvotedIds, right.downvotedIds),
     lastDecayAt:    Math.max(left.lastDecayAt, right.lastDecayAt ?? 0),

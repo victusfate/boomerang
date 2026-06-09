@@ -37,8 +37,8 @@ const STOPWORDS = new Set([
 ]);
 
 const MAX_KEYWORDS = 500; // cap stored entries — evict lowest-magnitude on overflow
-const MAX_SEEN_IDS = 2_000; // keep only most-recent seen IDs
-const MAX_READ_IDS = 1_000; // keep only most-recent read IDs
+export const MAX_SEEN_IDS = 2_000; // keep only most-recent seen IDs
+export const MAX_READ_IDS = 1_000; // keep only most-recent read IDs
 
 export function extractKeywords(text: string): string[] {
   return [...new Set(
@@ -216,12 +216,17 @@ export function applyDecay(prefs: UserPrefs): UserPrefs {
     topicWeights[t] = w + (1.0 - w) * 0.1; // drift 10% back toward 1.0
   }
 
+  const sourceWeights: Record<string, number> = {};
+  for (const [src, w] of Object.entries(prefs.sourceWeights)) {
+    sourceWeights[src] = w + (1.0 - w) * 0.1; // drift 10% back toward 1.0
+  }
+
   const keywordWeights: Record<string, number> = {};
   for (const [kw, w] of Object.entries(prefs.keywordWeights)) {
     keywordWeights[kw] = w * 0.85; // decay magnitude by 15%
   }
 
-  return { ...prefs, topicWeights, keywordWeights, lastDecayAt: Date.now() };
+  return { ...prefs, topicWeights, sourceWeights, keywordWeights, lastDecayAt: Date.now() };
 }
 
 // ── Reset ─────────────────────────────────────────────────────────────────────
@@ -410,7 +415,7 @@ export function exportOPML(
     groups.push(`    <outline text="${label}" title="${label}">\n${lines.join('\n')}\n    </outline>`);
   }
   if (customSources.length > 0) {
-    const lines = customSources.map(s => toOutline(s.name, s.feedUrl, s.id, ' boomerangCustom="true"'));
+    const lines = customSources.map(s => toOutline(s.name, s.feedUrl, s.id, ` boomerangCustom="true" boomerangId="${escapeXml(s.id)}"`));
     groups.push(`    <outline text="Custom" title="Custom">\n${lines.join('\n')}\n    </outline>`);
   }
 
@@ -450,7 +455,7 @@ export function importOPML(xml: string, defaultSources: NewsSource[]): ImportedO
     const outlines = Array.from(doc.querySelectorAll('outline[xmlUrl]'));
     if (outlines.length === 0) return null;
 
-    const opmlEntries = new Map<string, { disabled: boolean; custom: boolean; name: string }>();
+    const opmlEntries = new Map<string, { disabled: boolean; custom: boolean; name: string; id: string | null }>();
     for (const el of outlines) {
       const xmlUrl = el.getAttribute('xmlUrl')?.trim();
       if (!xmlUrl) continue;
@@ -458,6 +463,7 @@ export function importOPML(xml: string, defaultSources: NewsSource[]): ImportedO
         disabled: el.getAttribute('boomerangDisabled') === 'true',
         custom:   el.getAttribute('boomerangCustom')   === 'true',
         name:     el.getAttribute('text') || el.getAttribute('title') || xmlUrl,
+        id:       el.getAttribute('boomerangId'),
       });
     }
 
@@ -470,17 +476,16 @@ export function importOPML(xml: string, defaultSources: NewsSource[]): ImportedO
       if (!entry || entry.disabled) newDisabledIds.push(s.id);
     }
 
-    // URLs not matching any built-in source → custom sources
+    // URLs not matching any built-in source → custom sources.
+    // Ids come from boomerangId when present, else derive a stable id from
+    // the URL — so an export→import round trip preserves source identity and
+    // honors boomerangDisabled instead of silently re-enabling feeds.
     const newCustomSources: CustomSource[] = [];
-    let idx = 0;
-    for (const [url, { name }] of opmlEntries) {
-      if (!defaultUrlSet.has(url)) {
-        newCustomSources.push({
-          id: `custom-${Date.now().toString(36)}-${(idx++).toString(36)}`,
-          name,
-          feedUrl: url,
-        });
-      }
+    for (const [url, { name, disabled, id }] of opmlEntries) {
+      if (defaultUrlSet.has(url)) continue;
+      const sourceId = id ?? customSourceIdFromUrl(url);
+      newCustomSources.push({ id: sourceId, name, feedUrl: url });
+      if (disabled) newDisabledIds.push(sourceId);
     }
 
     return { disabledSourceIds: newDisabledIds, customSources: newCustomSources };
@@ -490,6 +495,13 @@ export function importOPML(xml: string, defaultSources: NewsSource[]): ImportedO
 }
 
 // ── Browser bookmarks export / import ─────────────────────────────────────────
+
+/** Stable custom-source id from the feed URL — repeat imports stay idempotent. */
+export function customSourceIdFromUrl(url: string): string {
+  let h = 0;
+  for (let i = 0; i < url.length; i++) { h = Math.imul(31, h) + url.charCodeAt(i) | 0; }
+  return `custom-${(h >>> 0).toString(36)}`;
+}
 
 function bmId(url: string): string {
   // Stable ID derived from URL so re-imports don't duplicate
