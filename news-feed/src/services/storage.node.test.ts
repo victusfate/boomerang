@@ -57,15 +57,17 @@ test('clearQueue empties savedIds and savedAtById', () => {
 test('clearQueue records all cleared ids in unsavedAtById', () => {
   const before = prefsWithSaved('a', 'b');
   const next = clearQueue(before);
-  assert.ok(typeof next.unsavedAtById['a'] === 'number' && next.unsavedAtById['a'] > 0);
-  assert.ok(typeof next.unsavedAtById['b'] === 'number' && next.unsavedAtById['b'] > 0);
+  const ua = next.unsavedAtById ?? {};
+  assert.ok(typeof ua['a'] === 'number' && ua['a'] > 0);
+  assert.ok(typeof ua['b'] === 'number' && ua['b'] > 0);
 });
 
 test('clearQueue preserves existing unsavedAtById entries', () => {
   const before: UserPrefs = { ...prefsWithSaved('a'), unsavedAtById: { old: 999 } };
   const next = clearQueue(before);
-  assert.equal(next.unsavedAtById['old'], 999);
-  assert.ok(typeof next.unsavedAtById['a'] === 'number');
+  const ua = next.unsavedAtById ?? {};
+  assert.equal(ua['old'], 999);
+  assert.ok(typeof ua['a'] === 'number');
 });
 
 test('clearQueue is a no-op when queue is already empty', () => {
