@@ -71,6 +71,7 @@ export function buildCandidates(
 
   for (const h of history) {
     if (liveIds.has(h.id)) continue;
+    liveIds.add(h.id); // dedupe within history (e.g. local + remote backfill copies)
     candidates.push({
       id: h.id,
       title: h.title,

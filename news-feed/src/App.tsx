@@ -22,15 +22,11 @@ import {
 } from './services/feedScoreBreakdown';
 import type { ActiveFilter, FeedView } from './types';
 import { PLATFORM_WORKER_URL } from './config/workerEnv';
+import { timeAgo } from './services/timeAgo';
 
 const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
 
 type SyncIndicatorState = 'idle' | 'setup' | 'active' | 'syncing' | 'error';
-
-function formatRelativeMinutes(date: Date): string {
-  const mins = Math.floor((Date.now() - date.getTime()) / 60000);
-  return mins < 1 ? 'just now' : `${mins}m ago`;
-}
 
 function formatCooldownLabel(remainingMs: number): string {
   return `Cooldown ${Math.max(1, Math.ceil(remainingMs / 1000))}s`;
@@ -59,7 +55,7 @@ function syncIndicatorState(
     };
   }
   if (syncActive) {
-    const label = syncedAt ? `Synced ${formatRelativeMinutes(syncedAt)}` : 'Sync on';
+    const label = syncedAt ? `Synced ${timeAgo(syncedAt, 'ago')}` : 'Sync on';
     return { state: 'active', label, title: 'Sync is active.' };
   }
   if (syncEnvError) {
@@ -222,6 +218,14 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]); // intentionally snapshot on tab-enter only
 
+  // Starring new articles while on the Queue tab grows the queue past the
+  // snapshot — bump the snapshot so progress never reads negative.
+  useEffect(() => {
+    if (view === 'saved' && savedArticles.length > initialQueueCount) {
+      setInitialQueueCount(savedArticles.length);
+    }
+  }, [view, savedArticles.length, initialQueueCount]);
+
   // Drive metadata sync target ids in useMetaWorker. `visibleArticles` is a fresh array every
   // render (useFeed does `allArticles.slice(0, visibleCount)`), so comparing by value and
   // returning `prev` avoids setState → render → setState loops.
@@ -375,11 +379,7 @@ export default function App() {
   const { ogMap, sentinelRef: ogSentinelRef, fetchedUpTo: ogFetchedUpTo } =
     useOGImageBatch(filteredArticles, 10);
 
-  function formatLastRefresh() {
-    if (!lastRefresh) return '';
-    const mins = Math.floor((Date.now() - lastRefresh.getTime()) / 60000);
-    return mins < 1 ? 'just now' : `${mins}m ago`;
-  }
+  const formatLastRefresh = () => (lastRefresh ? timeAgo(lastRefresh, 'ago') : '');
 
   return (
     <>

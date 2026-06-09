@@ -7,13 +7,9 @@ import type { Article, CustomSource, Topic, UserLabel, UserPrefs } from '../type
 import type { MetaStatus } from '../hooks/useMetaWorker';
 import type { SyncErrorDetails } from '../hooks/useSyncWorker';
 import { TOPIC_META } from './TopicFilter';
+import { timeAgo } from '../services/timeAgo';
 
 const ALL_TOPICS = (Object.keys(TOPIC_META) as Topic[]).filter(t => t !== 'general');
-
-function formatSyncedAt(d: Date): string {
-  const mins = Math.floor((Date.now() - d.getTime()) / 60000);
-  return mins < 1 ? 'just now' : `${mins}m ago`;
-}
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
@@ -532,7 +528,7 @@ export function Settings({
                 <span className={`sync-dot sync-dot--${syncStatus}`} />
                 <span className="sync-status-label">
                   {syncStatus === 'syncing' && 'Syncing…'}
-                  {syncStatus === 'active' && syncedAt && `Synced ${formatSyncedAt(syncedAt)}`}
+                  {syncStatus === 'active' && syncedAt && `Synced ${timeAgo(syncedAt, 'ago')}`}
                   {syncStatus === 'active' && !syncedAt && 'Active'}
                   {syncStatus === 'error' && `Error: ${syncError}`}
                 </span>

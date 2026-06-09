@@ -6,6 +6,8 @@ import {
   type HistoryCandidate, type SearchCandidate, type SearchScope,
 } from '../services/articleSearch';
 import { parseRecArticlesResponse } from '../services/recArticlesLookup';
+import { normalizeArticleNavUrl } from '../services/articleNavUrl';
+import { timeAgo } from '../services/timeAgo';
 
 interface Props {
   allArticles: Article[];
@@ -15,15 +17,6 @@ interface Props {
   onClose: () => void;
   platformWorkerUrl: string;
   backfilled: boolean;
-}
-
-function timeAgoIso(iso: string): string {
-  const secs = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (secs < 60) return 'just now';
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
-  if (secs < 604800) return `${Math.floor(secs / 86400)}d ago`;
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 const SCOPES: { label: string; value: SearchScope }[] = [
@@ -37,8 +30,10 @@ export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onClo
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<SearchScope>('all');
   const [results, setResults] = useState<SearchCandidate[]>([]);
-  const [remoteResults, setRemoteResults] = useState<SearchCandidate[]>([]);
   const [history, setHistory] = useState<HistoryCandidate[]>([]);
+  // Remote candidates resolved once per mount during the backfill window —
+  // the response is query-independent, so filtering happens locally.
+  const [remoteCandidates, setRemoteCandidates] = useState<HistoryCandidate[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Load history once on mount
@@ -54,6 +49,37 @@ export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onClo
     );
   }, []);
 
+  // Backfill window only: resolve prior interaction IDs remotely, once.
+  useEffect(() => {
+    if (backfilled || !platformWorkerUrl) return;
+    const controller = new AbortController();
+    const ids = Object.keys(prefs.unsavedAtById ?? {}).concat(prefs.readIds ?? []).slice(0, 500);
+    if (ids.length === 0) return;
+    void (async () => {
+      try {
+        const res = await fetch(`${platformWorkerUrl}/rec/articles`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids }),
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const data = parseRecArticlesResponse(await res.json());
+        setRemoteCandidates(data.articles.map(a => ({
+          id: a.id,
+          title: a.title,
+          url: a.url,
+          source: a.source,
+          publishedAt: a.publishedAt,
+        })));
+      } catch {
+        // aborted or network failure — local results still work
+      }
+    })();
+    return () => controller.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backfilled, platformWorkerUrl]); // prefs snapshot at mount is intentional
+
   // Auto-focus on open
   useEffect(() => {
     inputRef.current?.focus();
@@ -66,45 +92,15 @@ export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onClo
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  // Tier 1 debounce: ~150ms — pool + history (both instant at 500 entries)
+  // Single ~150ms debounce — pool, queue, local history, and any remote
+  // backfill candidates are all filtered locally.
   useEffect(() => {
     const timer = setTimeout(() => {
-      const candidates = buildCandidates(allArticles, savedArticles, history);
+      const candidates = buildCandidates(allArticles, savedArticles, [...history, ...remoteCandidates]);
       setResults(searchArticles(query, candidates, scope));
-      setRemoteResults([]); // clear stale remote results on new query
     }, 150);
     return () => clearTimeout(timer);
-  }, [query, scope, allArticles, savedArticles, history]);
-
-  // Tier 2 debounce: ~400ms — remote lookup, only before backfill completes
-  useEffect(() => {
-    if (backfilled || !platformWorkerUrl || !query.trim()) return;
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(`${platformWorkerUrl}/rec/articles`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: Object.keys(prefs.unsavedAtById ?? {}).concat(prefs.readIds ?? []).slice(0, 500) }),
-        });
-        if (!res.ok) return;
-        const data = parseRecArticlesResponse(await res.json());
-        const remoteCandidates: SearchCandidate[] = data.articles.map(a => ({
-          id: a.id,
-          title: a.title,
-          url: a.url,
-          source: a.source,
-          sourceId: a.sourceId,
-          publishedAt: a.publishedAt,
-          inPool: false,
-          inQueue: false,
-        }));
-        setRemoteResults(searchArticles(query, remoteCandidates, scope));
-      } catch {
-        // ignore
-      }
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [query, scope, backfilled, platformWorkerUrl, prefs.unsavedAtById, prefs.readIds]);
+  }, [query, scope, allArticles, savedArticles, history, remoteCandidates]);
 
   const articleById = useCallback((id: string): Article | undefined => {
     return allArticles.find(a => a.id === id) ?? savedArticles.find(a => a.id === id);
@@ -115,17 +111,11 @@ export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onClo
       const article = articleById(c.id);
       if (article) { onOpen(article); onClose(); return; }
     }
-    // History-only: open URL directly
-    window.open(c.url, '_blank', 'noopener,noreferrer');
+    // History-only: open URL directly (normalized — stored URLs may carry &amp; or bad protocols)
+    const url = normalizeArticleNavUrl(c.url);
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
     onClose();
   }, [articleById, onOpen, onClose]);
-
-  // Merge tier 1 + tier 2, pool-wins dedup
-  const allResults = (() => {
-    const seen = new Set(results.map(r => r.id));
-    const extra = remoteResults.filter(r => !seen.has(r.id));
-    return [...results, ...extra];
-  })();
 
   const q = query.trim();
 
@@ -158,23 +148,22 @@ export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onClo
           ))}
         </div>
 
-        <div className="search-results" role="list">
+        <div className="search-results">
           {!q && (
             <p className="search-empty">Search your feed and reading history.</p>
           )}
-          {q && allResults.length === 0 && (
+          {q && results.length === 0 && (
             <p className="search-empty">No results for "{q}".</p>
           )}
-          {allResults.map(r => (
+          {results.map(r => (
             <button
               key={r.id}
               className={`search-result-item${!r.inPool ? ' search-result-history' : ''}`}
               onClick={() => handleResultClick(r)}
-              role="listitem"
             >
               <span className="search-result-title">{r.title}</span>
               <span className="search-result-meta">
-                {r.source} · {timeAgoIso(r.publishedAt)}
+                {r.source} · {timeAgo(new Date(r.publishedAt), 'ago')}
                 {!r.inPool && <span className="search-result-badge">history</span>}
                 {r.inQueue && <span className="search-result-badge">queued</span>}
               </span>

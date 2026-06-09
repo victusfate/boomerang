@@ -168,3 +168,13 @@ test('buildCandidates skips history entries already saved out-of-pool', () => {
   assert.equal(out.filter(c => c.id === 'x').length, 1);
   assert.equal(out[0].inQueue, true);
 });
+
+test('buildCandidates dedupes duplicate ids within the history list', () => {
+  const history = [
+    { id: 'd', title: 'Local copy', url: 'u', source: 's', publishedAt: '2024-01-01T00:00:00Z' },
+    { id: 'd', title: 'Remote copy', url: 'u', source: 's', publishedAt: '2024-01-01T00:00:00Z' },
+  ];
+  const out = buildCandidates([], [], history);
+  assert.equal(out.filter(c => c.id === 'd').length, 1);
+  assert.equal(out[0].title, 'Local copy'); // first wins
+});

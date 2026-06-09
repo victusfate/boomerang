@@ -3,28 +3,8 @@ import type { Article, UserPrefs } from '../types';
 import { TOPIC_META } from './TopicFilter';
 import { CardScoreBadge } from './CardScoreBadge';
 import type { FeedScoreInsight } from '../services/feedScoreBreakdown';
-
-/** Match worker `normalizeHttpUrl` — fixes `&amp;` in stored URLs and canonicalizes for href / window.open. */
-function normalizeArticleNavUrl(raw: string): string {
-  let s = raw.trim();
-  if (s.includes('&amp;')) s = s.replace(/&amp;/g, '&');
-  try {
-    const u = new URL(s);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return '';
-    return u.href;
-  } catch {
-    return '';
-  }
-}
-
-function timeAgo(date: Date): string {
-  const secs = (Date.now() - date.getTime()) / 1000;
-  if (secs < 60) return 'just now';
-  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
-  if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
-  if (secs < 604800) return `${Math.floor(secs / 86400)}d`;
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
+import { timeAgo } from '../services/timeAgo';
+import { normalizeArticleNavUrl } from '../services/articleNavUrl';
 
 /** ms the card must be ≥50% visible before it counts as "seen" */
 const DWELL_MS = 3_000;
@@ -79,6 +59,10 @@ export function ArticleCard({
   const primaryTopic = article.topics[0];
   const topicMeta    = TOPIC_META[primaryTopic];
   const navUrl       = useMemo(() => normalizeArticleNavUrl(article.url), [article.url]);
+  const discussionNavUrl = useMemo(
+    () => (article.discussionUrl ? normalizeArticleNavUrl(article.discussionUrl) : ''),
+    [article.discussionUrl],
+  );
   const isVideo =
     article.imageUrl?.includes('img.youtube.com') === true
     || /youtube\.com|youtu\.be/i.test(navUrl);
@@ -130,6 +114,7 @@ export function ArticleCard({
 
   const handleArticleNavClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (e.button !== 0) return;
+    if (!navUrl) { e.preventDefault(); return; } // invalid stored URL — don't open a blank tab
     if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) { deferMarkOpen(); return; }
     e.preventDefault();
     window.open(navUrl, '_blank', 'noopener,noreferrer');
@@ -276,9 +261,9 @@ export function ArticleCard({
             >
               {isVideo ? 'Watch →' : 'Read →'}
             </a>
-            {article.discussionUrl && normalizeArticleNavUrl(article.discussionUrl) && (
+            {discussionNavUrl && (
               <a
-                href={normalizeArticleNavUrl(article.discussionUrl)}
+                href={discussionNavUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn-discuss"
