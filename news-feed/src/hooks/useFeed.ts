@@ -4,7 +4,7 @@ import { fetchAllSources, DEFAULT_SOURCES } from '../services/newsService';
 import { rankFeed } from '../services/algorithm';
 import {
   DEFAULT_PREFS,
-  markRead, markSeen, toggleSaved,
+  markRead, markSeen, toggleSaved, clearQueue,
   boostTopic, toggleSource, toggleTopic, isSourceEnabled,
   upvote, downvote, applyDecay, resetLearnedWeights, clearViewedCache,
   addCustomSource, removeCustomSource,
@@ -582,10 +582,17 @@ export function useFeed(options?: UseFeedOptions) {
 
   // ── Article interactions ──────────────────────────────────────────────────────
   const handleOpen = useCallback((article: Article) => {
-    const next = markRead(article.id, prefsRef.current);
-    const boosted = article.topics.reduce((p, t) => boostTopic(t, p), next);
-    updatePrefs(boosted);
+    const afterRead = markRead(article.id, prefsRef.current);
+    const afterBoost = article.topics.reduce((p, t) => boostTopic(t, p), afterRead);
+    const afterDequeue = afterBoost.savedIds.includes(article.id)
+      ? toggleSaved(article.id, afterBoost)
+      : afterBoost;
+    updatePrefs(afterDequeue);
     recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, tags: articleTagsMapRef.current.get(article.id), action: 'read', ts: Date.now() });
+  }, [updatePrefs]);
+
+  const handleClearQueue = useCallback(() => {
+    updatePrefs(clearQueue(prefsRef.current));
   }, [updatePrefs]);
 
   const handleSave = useCallback((id: string) => {
@@ -849,6 +856,7 @@ export function useFeed(options?: UseFeedOptions) {
     lastRefresh,
     onOpen:         handleOpen,
     onSave:         handleSave,
+    onClearQueue:   handleClearQueue,
     onUpvote:       handleUpvote,
     onDownvote:     handleDownvote,
     onSeen:         handleSeen,
