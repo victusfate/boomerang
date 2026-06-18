@@ -40,6 +40,22 @@ const MAX_KEYWORDS = 500; // cap stored entries — evict lowest-magnitude on ov
 export const MAX_SEEN_IDS = 2_000; // keep only most-recent seen IDs
 export const MAX_READ_IDS = 1_000; // keep only most-recent read IDs
 
+const TOPIC_WEIGHT_MIN        = 0.1;
+const TOPIC_WEIGHT_MAX        = 3.0;
+const SOURCE_WEIGHT_MAX       = 3.0;
+const SOURCE_WEIGHT_MIN       = 0.1;
+const KEYWORD_WEIGHT_MAX      = 5.0;
+const KEYWORD_WEIGHT_MIN      = -5.0;
+const UPVOTE_TOPIC_DELTA      = 0.3;
+const UPVOTE_SOURCE_DELTA     = 0.2;
+const UPVOTE_KEYWORD_DELTA    = 0.4;
+const DOWNVOTE_TOPIC_DELTA    = 0.2;
+const DOWNVOTE_SOURCE_DELTA   = 0.15;
+const DOWNVOTE_KEYWORD_DELTA  = 0.3;
+const BOOST_TOPIC_DELTA       = 0.2;
+const DECAY_DRIFT_RATE        = 0.1;  // drift 10% toward neutral per decay cycle
+const KEYWORD_DECAY_FACTOR    = 0.85; // reduce keyword magnitude 15% per cycle
+
 export function extractKeywords(text: string): string[] {
   return [...new Set(
     text.toLowerCase()
@@ -103,7 +119,7 @@ export function boostTopic(topic: Topic, prefs: UserPrefs): UserPrefs {
   const current = prefs.topicWeights[topic] ?? 1.0;
   return {
     ...prefs,
-    topicWeights: { ...prefs.topicWeights, [topic]: Math.min(current + 0.2, 3.0) },
+    topicWeights: { ...prefs.topicWeights, [topic]: Math.min(current + BOOST_TOPIC_DELTA, TOPIC_WEIGHT_MAX) },
   };
 }
 
@@ -143,18 +159,18 @@ export function upvote(article: Article, prefs: UserPrefs): UserPrefs {
 
   const topicWeights = { ...prefs.topicWeights };
   for (const t of article.topics) {
-    topicWeights[t] = Math.min((topicWeights[t] ?? 1.0) + 0.3, 3.0);
+    topicWeights[t] = Math.min((topicWeights[t] ?? 1.0) + UPVOTE_TOPIC_DELTA, TOPIC_WEIGHT_MAX);
   }
 
   const srcId = article.sourceId;
   const sourceWeights = {
     ...prefs.sourceWeights,
-    [srcId]: Math.min((prefs.sourceWeights[srcId] ?? 1.0) + 0.2, 3.0),
+    [srcId]: Math.min((prefs.sourceWeights[srcId] ?? 1.0) + UPVOTE_SOURCE_DELTA, SOURCE_WEIGHT_MAX),
   };
 
   const keywordWeights = { ...prefs.keywordWeights };
   for (const kw of extractKeywords(article.title + ' ' + article.description)) {
-    keywordWeights[kw] = Math.min((keywordWeights[kw] ?? 0) + 0.4, 5.0);
+    keywordWeights[kw] = Math.min((keywordWeights[kw] ?? 0) + UPVOTE_KEYWORD_DELTA, KEYWORD_WEIGHT_MAX);
   }
 
   return {
@@ -178,18 +194,18 @@ export function downvote(article: Article, prefs: UserPrefs): UserPrefs {
 
   const topicWeights = { ...prefs.topicWeights };
   for (const t of article.topics) {
-    topicWeights[t] = Math.max((topicWeights[t] ?? 1.0) - 0.2, 0.1);
+    topicWeights[t] = Math.max((topicWeights[t] ?? 1.0) - DOWNVOTE_TOPIC_DELTA, TOPIC_WEIGHT_MIN);
   }
 
   const srcId = article.sourceId;
   const sourceWeights = {
     ...prefs.sourceWeights,
-    [srcId]: Math.max((prefs.sourceWeights[srcId] ?? 1.0) - 0.15, 0.1),
+    [srcId]: Math.max((prefs.sourceWeights[srcId] ?? 1.0) - DOWNVOTE_SOURCE_DELTA, SOURCE_WEIGHT_MIN),
   };
 
   const keywordWeights = { ...prefs.keywordWeights };
   for (const kw of extractKeywords(article.title + ' ' + article.description)) {
-    keywordWeights[kw] = Math.max((keywordWeights[kw] ?? 0) - 0.3, -5.0);
+    keywordWeights[kw] = Math.max((keywordWeights[kw] ?? 0) - DOWNVOTE_KEYWORD_DELTA, KEYWORD_WEIGHT_MIN);
   }
 
   return {
@@ -213,17 +229,17 @@ export function applyDecay(prefs: UserPrefs): UserPrefs {
 
   const topicWeights: Partial<Record<Topic, number>> = {};
   for (const [t, w] of Object.entries(prefs.topicWeights) as [Topic, number][]) {
-    topicWeights[t] = w + (1.0 - w) * 0.1; // drift 10% back toward 1.0
+    topicWeights[t] = w + (1.0 - w) * DECAY_DRIFT_RATE;
   }
 
   const sourceWeights: Record<string, number> = {};
   for (const [src, w] of Object.entries(prefs.sourceWeights)) {
-    sourceWeights[src] = w + (1.0 - w) * 0.1; // drift 10% back toward 1.0
+    sourceWeights[src] = w + (1.0 - w) * DECAY_DRIFT_RATE;
   }
 
   const keywordWeights: Record<string, number> = {};
   for (const [kw, w] of Object.entries(prefs.keywordWeights)) {
-    keywordWeights[kw] = w * 0.85; // decay magnitude by 15%
+    keywordWeights[kw] = w * KEYWORD_DECAY_FACTOR;
   }
 
   return { ...prefs, topicWeights, sourceWeights, keywordWeights, lastDecayAt: Date.now() };

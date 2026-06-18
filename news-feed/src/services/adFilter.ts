@@ -48,6 +48,16 @@ const AD_TITLE_PATTERNS = [
   /\b(black friday|cyber monday|prime day)\b.*\b(deal|sale|discount)\b/i,
 ];
 
+const AD_SCORE_THRESHOLD         = 10;
+const AD_SCORE_STRONG_KEYWORD    = 10;
+const AD_SCORE_URL_PATH          = 9;
+const AD_SCORE_MODERATE_MULTI    = 8;
+const AD_SCORE_AFFILIATE_PARAM   = 6;
+const AD_SCORE_TITLE_PATTERN     = 5;
+const AD_SCORE_MODERATE_SINGLE   = 2;
+const AD_SCORE_TRACKING_PARAM    = 2;
+const MODERATE_HIT_THRESHOLD     = 2;
+
 function countMatches(text: string, keywords: string[]): number {
   return keywords.filter(kw => text.includes(kw)).length;
 }
@@ -65,33 +75,33 @@ export function adScore(article: Article): number {
   let score = 0;
 
   // Strong keyword match → instant filter
-  if (countMatches(text, STRONG_KEYWORDS) > 0) score += 10;
+  if (countMatches(text, STRONG_KEYWORDS) > 0) score += AD_SCORE_STRONG_KEYWORD;
 
   // Two or more moderate keywords → filter
   const moderateHits = countMatches(text, MODERATE_KEYWORDS);
-  if (moderateHits >= 2) score += 8;
-  else if (moderateHits === 1) score += 2;
+  if (moderateHits >= MODERATE_HIT_THRESHOLD) score += AD_SCORE_MODERATE_MULTI;
+  else if (moderateHits === 1) score += AD_SCORE_MODERATE_SINGLE;
 
   // URL path signals
-  if (AD_URL_PATHS.some(p => url.includes(p))) score += 9;
+  if (AD_URL_PATHS.some(p => url.includes(p))) score += AD_SCORE_URL_PATH;
 
   // Affiliate query params — strong; generic utm tracking — weak nudge
-  if (AFFILIATE_URL_PARAMS.test(article.url)) score += 6;
-  else if (TRACKING_URL_PARAMS.test(article.url)) score += 2;
+  if (AFFILIATE_URL_PARAMS.test(article.url)) score += AD_SCORE_AFFILIATE_PARAM;
+  else if (TRACKING_URL_PARAMS.test(article.url)) score += AD_SCORE_TRACKING_PARAM;
 
   // Source-specific URL patterns
   const sourcePattern = SOURCE_URL_PATTERNS[article.sourceId];
-  if (sourcePattern?.test(article.url)) score += 10;
+  if (sourcePattern?.test(article.url)) score += AD_SCORE_STRONG_KEYWORD;
 
   // Title pattern signals
-  if (AD_TITLE_PATTERNS.some(p => p.test(article.title))) score += 5;
+  if (AD_TITLE_PATTERNS.some(p => p.test(article.title))) score += AD_SCORE_TITLE_PATTERN;
 
   return score;
 }
 
 /** Returns true if the article should be hidden as promotional content. */
 export function isAd(article: Article): boolean {
-  return adScore(article) >= 10;
+  return adScore(article) >= AD_SCORE_THRESHOLD;
 }
 
 /** Filter a list of articles, removing promotional content. */

@@ -2,8 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Article } from '../types';
 import { getRssWorkerBaseUrl } from '../services/newsService';
 
-const OG_LS_KEY = 'og_cache_v1';
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const OG_LS_KEY              = 'og_cache_v1';
+const CACHE_TTL_MS           = 24 * 60 * 60 * 1_000;
+const OG_FETCH_TIMEOUT_MS    = 10_000;
+const OG_OBSERVER_ROOT_MARGIN = '400px';
 
 interface CacheEntry {
   imageUrl: string | null;
@@ -100,7 +102,7 @@ export function useOGImageBatch(
         try {
           const res = await fetch(
             `${workerBase}/og-image?url=${encodeURIComponent(pageUrl)}`,
-            { signal: AbortSignal.timeout(10_000) },
+            { signal: AbortSignal.timeout(OG_FETCH_TIMEOUT_MS) },
           );
           if (!res.ok) {
             lsCache.current.set(pageUrl, { imageUrl: null, cachedAt: Date.now() });
@@ -162,7 +164,7 @@ export function useOGImageBatch(
         fetchedUpToRef.current = next;
         setFetchedUpTo(next);
       },
-      { rootMargin: '400px' },
+      { rootMargin: OG_OBSERVER_ROOT_MARGIN },
     );
     observer.observe(el);
     return () => observer.disconnect();
