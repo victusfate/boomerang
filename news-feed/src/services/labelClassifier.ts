@@ -5,9 +5,9 @@ import {
   isPromptApiAvailable,
   isProbablyMobileBrowser,
   getLanguageModelAvailability,
-} from './labelClassifierDiagnostics';
+} from './labelClassifierDiagnostics.ts';
 
-export { isPromptApiAvailable, getPromptApiAvailability } from './labelClassifierDiagnostics';
+export { isPromptApiAvailable, getPromptApiAvailability } from './labelClassifierDiagnostics.ts';
 
 export interface LMSession {
   prompt(text: string): Promise<string>;
