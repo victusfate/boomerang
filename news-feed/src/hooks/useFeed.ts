@@ -3,16 +3,16 @@ import { kvGet, kvSet } from '../services/kvStore';
 import { writeHistoryEntry, writeHistoryEntries, type HistoryEntry } from '../services/articleHistory';
 import { addManualTag, removeManualTag } from '../services/tagEditorUtils';
 import { selectSavedArticles } from '../services/savedArticlesSelector';
-import { fetchAllSources, DEFAULT_SOURCES } from '../services/newsService';
 import { rankFeed } from '../services/algorithm';
 import {
   markRead, markSeen, toggleSaved, clearQueue,
-  boostTopic, toggleSource, isSourceEnabled,
+  boostTopic, toggleSource,
   upvote, downvote, resetLearnedWeights, clearViewedCache,
   addCustomSource, removeCustomSource,
   deleteUserLabel,
 } from '../services/storage';
 import { usePrefs, PREFS_ID } from './usePrefs';
+import { useArticlePool, PAGE_SIZE, CACHE_ID } from './useArticlePool';
 import {
   dehydrate,
   hydrate,
@@ -29,8 +29,6 @@ import type { RecInteractionInput } from '../services/recWorker';
 import { useAiTagging, ARTICLE_TAGS_ID } from './useAiTagging';
 import { useFeedPortability, IMPORTED_SAVES_ID } from './useFeedPortability';
 
-const PAGE_SIZE          = 5;
-const CACHE_ID           = 'feed-cache';
 const CLASSIFICATIONS_ID = 'ai-classifications';
 interface FeedCacheDoc        { articles: StoredArticle[]; fetchedAt: number }
 interface ImportedSavesDoc    { articles: StoredArticle[] }
@@ -113,124 +111,27 @@ export function useFeed(options?: UseFeedOptions) {
     onToggleTopic, onToggleAiBar, onToggleTheme, onAddLabel, onRenameLabel,
   } = usePrefs();
 
-  const [allArticles, setAllArticles] = useState<Article[]>([]);
-  const [articlePool, setArticlePool] = useState<Article[]>([]);
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [loading, setLoading]     = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [fetching, setFetching]   = useState(false);  // cleared on first batch or when fetch ends
-  const [error, setError]         = useState<string | null>(null);
-  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  // schedulePassRef bridges useAiTagging → useArticlePool without prop drilling.
+  // Starts as a noop; updated each render after useAiTagging runs below.
+  const schedulePassRef = useRef<(articles: Article[]) => void>(() => {});
 
-  // ── Stable refs (avoid stale closures in `refresh`) ──────────────────────────
-  const articlePoolRef   = useRef<Article[]>([]);
-  articlePoolRef.current = articlePool;
-
-  const allArticlesRef   = useRef<Article[]>([]);
-  allArticlesRef.current = allArticles;
+  const {
+    allArticles, articlePool, visibleCount, loading, refreshing, fetching, error, lastRefresh, feedEnterIds,
+    articlePoolRef, allArticlesRef, markedSeenRef, recInteractRef, fetchIdRef, fetchingRef,
+    getRankRecIds, refresh, loadMore, initPool,
+    setAllArticles, setVisibleCount,
+  } = useArticlePool({
+    prefsRef, schedulePassRef,
+    recInteract: options?.recInteract,
+    recArticleIds: options?.recArticleIds,
+    recStatus: options?.recStatus,
+    recBootstrapDone: options?.recBootstrapDone,
+    recBootstrapError: options?.recBootstrapError,
+    recCandidateMode: options?.recCandidateMode,
+    onArticlePoolIds: options?.onArticlePoolIds,
+  });
 
   const articleTagsMapRef = useRef<Map<string, string[]>>(new Map());
-
-  const markedSeenRef    = useRef(new Set<string>());
-
-  const recInteractRef = useRef<((input: RecInteractionInput) => void) | undefined>(undefined);
-  const recArticleIdsRef = useRef<string[]>([]);
-  const recStatusRef = useRef<'disabled' | 'active' | 'error'>('disabled');
-  const recBootstrapDoneRef = useRef(false);
-  const recBootstrapErrorRef = useRef<string | null>(null);
-  // Locked once: either server recommendations (ids) or local fallback (null).
-  const selectedRecRankIdsRef = useRef<string[] | null | undefined>(undefined);
-  // True after articles have been committed to the display for the first time.
-  // Background onBatch calls and rec bootstrap silently update the pool / stored
-  // IDs but do NOT re-rank the live feed until the user explicitly refreshes.
-  const feedShownRef = useRef(false);
-  useEffect(() => {
-    recInteractRef.current = options?.recInteract;
-    recArticleIdsRef.current = options?.recArticleIds ?? [];
-    recStatusRef.current = options?.recStatus ?? 'disabled';
-    recBootstrapDoneRef.current = options?.recBootstrapDone ?? false;
-    recBootstrapErrorRef.current = options?.recBootstrapError ?? null;
-  });
-
-  const getRankRecIds = useCallback((): string[] => {
-    if (selectedRecRankIdsRef.current === undefined) return recArticleIdsRef.current;
-    return selectedRecRankIdsRef.current ?? [];
-  }, []);
-
-  const recCandidateModeRef = useRef<'feed-pool' | 'global' | undefined>(undefined);
-  useEffect(() => {
-    recCandidateModeRef.current = options?.recCandidateMode;
-  });
-
-  // Lock recommendation policy on bootstrap. Subsequent feed-pool rec refreshes update
-  // the stored IDs for the next explicit refresh but do NOT re-rank the live feed.
-  useEffect(() => {
-    if (!recBootstrapDoneRef.current) return;
-    const pool = articlePoolRef.current;
-    if (pool.length === 0) return;
-
-    const ids = recArticleIdsRef.current;
-    const isFeedPool = recCandidateModeRef.current === 'feed-pool';
-    const firstLock = selectedRecRankIdsRef.current === undefined;
-
-    if (firstLock) {
-      if (ids.length > 0) {
-        selectedRecRankIdsRef.current = [...ids];
-        console.info(`[rec] Applied server recommendations for initial ordering (${ids.length} ids).`);
-      } else {
-        selectedRecRankIdsRef.current = null;
-        if (recStatusRef.current === 'error' || recBootstrapErrorRef.current) {
-          console.warn('[rec] Recommendation backend unavailable; using local ranking fallback.');
-        } else if (recStatusRef.current === 'disabled') {
-          console.warn('[rec] Recommendations disabled (missing VITE_PLATFORM_WORKER_URL); using local ranking fallback.');
-        } else {
-          console.info('[rec] Recommendation backend returned no ids; using local ranking fallback.');
-        }
-      }
-    } else if (isFeedPool && ids.length > 0) {
-      // Store updated rec IDs for the next explicit refresh; don't re-order the live feed.
-      selectedRecRankIdsRef.current = [...ids];
-      return;
-    } else {
-      return;
-    }
-
-    // Feed already committed — rec IDs captured above for the next refresh; don't re-rank live feed.
-    if (feedShownRef.current) return;
-
-    const ranked = rankFeed(pool, prefsRef.current, getRankRecIds());
-    allArticlesRef.current = ranked;
-    setAllArticles(ranked);
-  }, [
-    options?.recBootstrapDone,
-    options?.recBootstrapError,
-    options?.recStatus,
-    options?.recArticleIds,
-    options?.recCandidateMode,
-    getRankRecIds,
-  ]);
-
-  // Publish rec candidates only when the pool snapshot is stable (cache / fetch done),
-  // not on every progressive onBatch — avoids dozens of batched POST /recommendations calls.
-  const publishRecCandidateIds = useCallback((pool: Article[]) => {
-    if (pool.length === 0) {
-      options?.onArticlePoolIds?.([]);
-      return;
-    }
-    const ids = rankFeed(pool, prefsRef.current, []).map(a => a.id);
-    options?.onArticlePoolIds?.(ids);
-  }, [options?.onArticlePoolIds]);
-  const publishRecCandidateIdsRef = useRef(publishRecCandidateIds);
-  publishRecCandidateIdsRef.current = publishRecCandidateIds;
-
-  // Incremented on every refresh call; onBatch/finally checks this to discard
-  // results from a superseded (stale) fetch.
-  const fetchIdRef = useRef(0);
-  // Prevents concurrent fetches from firing simultaneously.
-  const fetchingRef = useRef(false);
-  /** Article ids that just appended — short CSS enter animation (explicit progressive fetch). */
-  const [feedEnterIds, setFeedEnterIds] = useState<string[]>([]);
-  const feedEnterClearTimerRef = useRef<number | null>(null);
 
   // Bookmark-imported saves — kept separate from the RSS pool so they only
   // appear in the Saved view and never pollute the main feed.
@@ -266,7 +167,6 @@ export function useFeed(options?: UseFeedOptions) {
     return payload;
   }, []);
 
-  const schedulePassRef = useRef(scheduleTaggingPass);
   schedulePassRef.current = scheduleTaggingPass;
 
   // ── Load prefs + cache from Fireproof on mount ────────────────────────────────
@@ -368,168 +268,17 @@ export function useFeed(options?: UseFeedOptions) {
       }
       setPrefsReady(true);
 
-      if (cached?.articles.length) {
-        articlePoolRef.current = cached.articles;
-        setArticlePool(cached.articles);
-        publishRecCandidateIdsRef.current(cached.articles);
-
-        const ranked = rankFeed(cached.articles, mergePrefs(cleanedPrefs, prefsRef.current), getRankRecIds());
-        allArticlesRef.current = ranked;
-        setAllArticles(ranked);
-        if (ranked.length) {
-          feedShownRef.current = true; // cache committed — background updates must not re-rank
-          setLoading(false);
-          // Mark cache as valid so we skip the auto-fetch on startup
-          setLastRefresh(new Date(cached.fetchedAt));
-        }
-        // ranked empty (all cached articles seen/deduped): leave lastRefresh
-        // unset so the prefsReady auto-fetch fires instead of wedging on the
-        // loading state.
-
-        // Without this, `refresh()` never runs on cold start when cache exists — AI tagging
-        // (and the status bar) only appeared after a manual refresh. Re-run the same pass as post-fetch.
-        queueMicrotask(() => {
-          schedulePassRef.current([...ranked]);
-        });
-      }
+      initPool(cached, mergePrefs(cleanedPrefs, prefsRef.current));
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => () => {
-    if (feedEnterClearTimerRef.current) clearTimeout(feedEnterClearTimerRef.current);
-  }, []);
-
-  // ── Network refresh ───────────────────────────────────────────────────────────
-  // Stable — only depends on `database`. All other values read via refs.
-  const refresh = useCallback(async (currentPrefs: UserPrefs, explicit = false) => {
-    if (fetchingRef.current) return;           // concurrent fetch guard
-    fetchingRef.current = true;
-
-    const myFetchId = ++fetchIdRef.current;    // mark this fetch generation
-
-    const hadArticles = allArticlesRef.current.length > 0;
-    // Explicit refresh: clear list so progressive batches don't re-rank the whole feed each time.
-    if (explicit) {
-      allArticlesRef.current = [];
-      setAllArticles([]);
-      setLoading(true);
-      setVisibleCount(PAGE_SIZE);   // reset pagination NOW so the sentinel is fresh
-      markedSeenRef.current.clear();
-      feedShownRef.current = false; // unlock: batches during this refresh may update the display
-    } else if (hadArticles) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    setFetching(true);
-    setError(null);
-
-    const activeSources       = DEFAULT_SOURCES.filter(s => isSourceEnabled(s.id, currentPrefs));
-    const activeCustomSources = (currentPrefs.customSources ?? []).filter(s => isSourceEnabled(s.id, currentPrefs));
-
-    /** Preserve existing card order; enrich from ranked; append only ids not yet shown (no full re-sort). */
-    const mergeIncrementalAppend = (ranked: Article[]) => {
-      const prev = allArticlesRef.current;
-      const prevIds = new Set(prev.map(a => a.id));
-      const rankedById = new Map(ranked.map(a => [a.id, a]));
-      const kept = prev.filter(a => rankedById.has(a.id)).map(a => rankedById.get(a.id)!);
-      const newOnes = ranked.filter(a => !prevIds.has(a.id));
-      allArticlesRef.current = [...kept, ...newOnes];
-      setAllArticles([...kept, ...newOnes]);
-      if (newOnes.length > 0 && prev.length > 0) {
-        if (feedEnterClearTimerRef.current) clearTimeout(feedEnterClearTimerRef.current);
-        setFeedEnterIds(newOnes.map(a => a.id));
-        feedEnterClearTimerRef.current = window.setTimeout(() => {
-          feedEnterClearTimerRef.current = null;
-          setFeedEnterIds([]);
-        }, 550);
-      }
-    };
-
-    const applyRankedBatch = (accumulated: Article[]) => {
-      const ranked = rankFeed(accumulated, currentPrefs, getRankRecIds());
-      // Same merge for explicit and background: preserve prior order for ids still present, append new
-      // (avoids background tier prepending and matches split-fetch anchor behavior).
-      mergeIncrementalAppend(ranked);
-    };
-
-    const onBatch = (accumulated: Article[]) => {
-      if (fetchIdRef.current !== myFetchId) return; // stale fetch — discard
-      const apply = () => {
-        if (fetchIdRef.current !== myFetchId) return;
-        articlePoolRef.current = accumulated;
-        setArticlePool(accumulated);
-        // Only update the displayed feed on explicit refresh or before articles are first shown.
-        // Background tier batches silently grow the pool without reordering visible cards.
-        if (explicit || !feedShownRef.current) {
-          applyRankedBatch(accumulated);
-          feedShownRef.current = true;
-        }
-        setLoading(false);
-        if (accumulated.length > 0) {
-          setRefreshing(false);
-          setFetching(false);
-        }
-      };
-      if (typeof requestAnimationFrame !== 'undefined') {
-        requestAnimationFrame(() => apply());
-      } else {
-        apply();
-      }
-    };
-
-    let feedSuccess = false;
-    try {
-      const all = await fetchAllSources(activeSources, activeCustomSources, onBatch);
-      if (fetchIdRef.current !== myFetchId) return; // superseded — bail out
-
-      if (all.length === 0) {
-        const hadPool = articlePoolRef.current.length > 0;
-        setError(
-          hadPool
-            ? 'Feed service returned no articles — showing cached list below.'
-            : 'No articles loaded. Check your connection and try again.',
-        );
-      } else {
-        feedSuccess = true;
-        setError(null);
-        articlePoolRef.current = all;
-        setArticlePool(all);
-        // Final rank: only for explicit refresh or first-ever show (non-explicit cold start).
-        // Background fetches have already staged the pool; skip the re-rank to keep cards stable.
-        if (explicit || !feedShownRef.current) {
-          applyRankedBatch(all);
-          feedShownRef.current = true;
-        }
-        kvSet(CACHE_ID, { articles: dehydrate(all), fetchedAt: Date.now() }).catch(console.error);
-        schedulePassRef.current([...allArticlesRef.current]);
-      }
-    } catch (e) {
-      if (fetchIdRef.current === myFetchId) {
-        const hadPool = articlePoolRef.current.length > 0;
-        const detail = e instanceof Error ? e.message : 'Failed to load feed';
-        setError(
-          hadPool
-            ? `Could not refresh — the list below is cached from an earlier load. ${detail}`
-            : detail,
-        );
-      }
-    } finally {
-      if (fetchIdRef.current === myFetchId) {
-        setLoading(false);
-        setRefreshing(false);
-        setFetching(false);
-        if (feedSuccess) {
-          setLastRefresh(new Date());
-          publishRecCandidateIdsRef.current(articlePoolRef.current);
-        }
-        fetchingRef.current = false;
-      }
-      // Superseded: the canceller bumped fetchId and handed the lock to a
-      // newer fetch — clearing it here would let a third refresh run
-      // concurrently with that one.
-    }
-  }, []); // stable — does not depend on volatile state
+  // ── Auto-fetch on startup (no cached feed) ────────────────────────────────────
+  useEffect(() => {
+    if (!prefsReady) return;
+    if (lastRefresh) return; // cache loaded — wait for user to refresh manually
+    refresh(prefsRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefsReady]); // one-shot: only runs once when prefs become ready
 
   // ── Mark a single article as seen after the user has dwelt on it ─────────────
   // Called by ArticleCard via IntersectionObserver + dwell timer (see ArticleCard.tsx).
@@ -540,15 +289,6 @@ export function useFeed(options?: UseFeedOptions) {
     const a = allArticlesRef.current.find(x => x.id === id);
     if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, tags: articleTagsMapRef.current.get(a.id), action: 'seen', ts: Date.now() });
   }, [updatePrefs]);
-
-  // ── Pagination ────────────────────────────────────────────────────────────────
-  const loadMore = useCallback(() => {
-    setVisibleCount(prev => {
-      const total = allArticlesRef.current.length;
-      if (prev >= total) return prev;
-      return Math.min(prev + PAGE_SIZE, total);
-    });
-  }, []); // stable — reads allArticles via ref
 
   // ── Article interactions ──────────────────────────────────────────────────────
   // Saved articles can live outside the RSS pool (imported bookmarks, aged-out
@@ -764,15 +504,6 @@ export function useFeed(options?: UseFeedOptions) {
       kvSet(ARTICLE_TAGS_ID, { hits: mergedTags }).catch(console.error);
     }
   }, [updatePrefs]);
-
-  // Auto-fetch on startup only when there is no cached feed to show.
-  // After that, all refreshes are explicit (refresh button or pull-to-refresh).
-  useEffect(() => {
-    if (!prefsReady) return;
-    if (lastRefresh) return; // cache loaded — wait for user to refresh manually
-    refresh(prefsRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefsReady]); // one-shot: only runs once when prefs become ready
 
   const savedArticles = useMemo(
     () => selectSavedArticles(prefs, articlePool, importedSaves),
