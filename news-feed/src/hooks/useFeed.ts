@@ -6,13 +6,13 @@ import { selectSavedArticles } from '../services/savedArticlesSelector';
 import { fetchAllSources, DEFAULT_SOURCES } from '../services/newsService';
 import { rankFeed } from '../services/algorithm';
 import {
-  DEFAULT_PREFS,
   markRead, markSeen, toggleSaved, clearQueue,
-  boostTopic, toggleSource, toggleTopic, isSourceEnabled,
-  upvote, downvote, applyDecay, resetLearnedWeights, clearViewedCache,
+  boostTopic, toggleSource, isSourceEnabled,
+  upvote, downvote, resetLearnedWeights, clearViewedCache,
   addCustomSource, removeCustomSource,
-  addUserLabel, deleteUserLabel, renameUserLabel,
+  deleteUserLabel,
 } from '../services/storage';
+import { usePrefs, PREFS_ID } from './usePrefs';
 import {
   dehydrate,
   hydrate,
@@ -24,13 +24,12 @@ import {
   type StoredArticle,
 } from '../services/syncShare';
 import { mergeSavedArticleSnapshots, SYNC_PLACEHOLDER_SOURCE_ID } from '../services/syncWorker';
-import type { Article, ArticleTag, CustomSource, LabelHit, Topic, UserLabel, UserPrefs } from '../types';
+import type { Article, ArticleTag, CustomSource, LabelHit, UserPrefs } from '../types';
 import type { RecInteractionInput } from '../services/recWorker';
 import { useAiTagging, ARTICLE_TAGS_ID } from './useAiTagging';
 import { useFeedPortability, IMPORTED_SAVES_ID } from './useFeedPortability';
 
 const PAGE_SIZE          = 5;
-const PREFS_ID           = 'user-prefs';
 const CACHE_ID           = 'feed-cache';
 const CLASSIFICATIONS_ID = 'ai-classifications';
 interface FeedCacheDoc        { articles: StoredArticle[]; fetchedAt: number }
@@ -108,8 +107,12 @@ export interface UseFeedOptions {
 export function useFeed(options?: UseFeedOptions) {
   const { metaCallbacks, metaTagsMap } = options ?? {};
 
-  const [prefs, setPrefsState]      = useState<UserPrefs>(DEFAULT_PREFS);
-  const [prefsReady, setPrefsReady] = useState(false);
+  const {
+    prefs, prefsReady, prefsRef, setPrefsState, setPrefsReady,
+    updatePrefs, loadPrefs,
+    onToggleTopic, onToggleAiBar, onToggleTheme, onAddLabel, onRenameLabel,
+  } = usePrefs();
+
   const [allArticles, setAllArticles] = useState<Article[]>([]);
   const [articlePool, setArticlePool] = useState<Article[]>([]);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -120,9 +123,6 @@ export function useFeed(options?: UseFeedOptions) {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   // ── Stable refs (avoid stale closures in `refresh`) ──────────────────────────
-  const prefsRef         = useRef(prefs);
-  prefsRef.current       = prefs;
-
   const articlePoolRef   = useRef<Article[]>([]);
   articlePoolRef.current = articlePool;
 
@@ -266,57 +266,11 @@ export function useFeed(options?: UseFeedOptions) {
     return payload;
   }, []);
 
-  // ── Persist prefs ────────────────────────────────────────────────────────────
-  const updatePrefs = useCallback((next: UserPrefs) => {
-    setPrefsState(next);
-    kvSet(PREFS_ID, next).catch(console.error);
-  }, []);
-
   const schedulePassRef = useRef(scheduleTaggingPass);
   schedulePassRef.current = scheduleTaggingPass;
 
   // ── Load prefs + cache from Fireproof on mount ────────────────────────────────
   useEffect(() => {
-    const prefsPromise = kvGet<UserPrefs>(PREFS_ID)
-      .then(doc => {
-        let merged: UserPrefs = { ...DEFAULT_PREFS, ...doc };
-        let shouldPersistPrefs = false;
-        // One-time migration: old whitelist `enabledSources` → blacklist `disabledSourceIds`
-        if ((merged.enabledSources?.length ?? 0) > 0 && (merged.disabledSourceIds?.length ?? 0) === 0) {
-          const enabledSet = new Set(merged.enabledSources);
-          merged = {
-            ...merged,
-            disabledSourceIds: DEFAULT_SOURCES.map(s => s.id).filter(id => !enabledSet.has(id)),
-            enabledSources: [],
-          };
-          shouldPersistPrefs = true;
-        }
-        // One-time migration: ensure all saved ids have a timestamp so cross-device ordering can converge.
-        if (merged.savedIds.length > 0) {
-          const nextSavedAtById = { ...(merged.savedAtById ?? {}) };
-          let addedAny = false;
-          const base = Date.now() - merged.savedIds.length * 60_000;
-          merged.savedIds.forEach((id, idx) => {
-            if (nextSavedAtById[id] === undefined) {
-              nextSavedAtById[id] = base + idx;
-              addedAny = true;
-            }
-          });
-          if (addedAny) {
-            merged = { ...merged, savedAtById: nextSavedAtById };
-            shouldPersistPrefs = true;
-          }
-        }
-        const decayed = applyDecay(merged);
-        if (decayed !== merged) shouldPersistPrefs = true;
-        setPrefsState(decayed);
-        if (shouldPersistPrefs) {
-          kvSet(PREFS_ID, decayed).catch(console.error);
-        }
-        return decayed;
-      })
-      .catch(() => DEFAULT_PREFS);
-
     const cachePromise = kvGet<FeedCacheDoc>(CACHE_ID)
       .then(cache => cache?.articles?.length
         ? { articles: hydrate(cache.articles), fetchedAt: cache.fetchedAt }
@@ -335,7 +289,7 @@ export function useFeed(options?: UseFeedOptions) {
       .then(doc => doc?.hits ?? [])
       .catch(() => [] as ArticleTag[]);
 
-    Promise.all([prefsPromise, cachePromise, importedSavesPromise, classificationsPromise, articleTagsPromise]).then(([loadedPrefs, cached, imported, hits, tags]) => {
+    Promise.all([loadPrefs(), cachePromise, importedSavesPromise, classificationsPromise, articleTagsPromise]).then(([loadedPrefs, cached, imported, hits, tags]) => {
       const syncPayload = consumeSyncHash();
       console.info(SYNC_LOG, 'startup local docs loaded', {
         hasSyncPayload: Boolean(syncPayload),
@@ -671,25 +625,12 @@ export function useFeed(options?: UseFeedOptions) {
     refresh(next, true);
   }, [updatePrefs, refresh]);
 
-  const handleToggleTopic = useCallback((topic: Topic) => {
-    updatePrefs(toggleTopic(topic, prefsRef.current));
-  }, [updatePrefs]);
-
-  const handleAddLabel = useCallback((label: UserLabel) => {
-    const next = addUserLabel(label, prefsRef.current);
-    updatePrefs(next);
-  }, [updatePrefs]);
-
   const handleDeleteLabel = useCallback((labelId: string) => {
     updatePrefs(deleteUserLabel(labelId, prefsRef.current));
     const filtered = labelHitsRef.current.filter(h => h.labelId !== labelId);
     labelHitsRef.current = filtered;
     setLabelHits(filtered);
     kvSet(CLASSIFICATIONS_ID, { hits: filtered }).catch(console.error);
-  }, [updatePrefs]);
-
-  const handleRenameLabel = useCallback((labelId: string, name: string) => {
-    updatePrefs(renameUserLabel(labelId, name, prefsRef.current));
   }, [updatePrefs]);
 
   const commitArticleTags = useCallback((updated: ArticleTag[]) => {
@@ -721,15 +662,6 @@ export function useFeed(options?: UseFeedOptions) {
       : prev.filter(t => t.articleId !== articleId);
     commitArticleTags(updated);
   }, [commitArticleTags]);
-
-  const handleToggleAiBar = useCallback(() => {
-    updatePrefs({ ...prefsRef.current, hideAiBar: !prefsRef.current.hideAiBar });
-  }, [updatePrefs]);
-
-  const handleToggleTheme = useCallback(() => {
-    const next = prefsRef.current.theme === 'light' ? 'dark' : 'light';
-    updatePrefs({ ...prefsRef.current, theme: next });
-  }, [updatePrefs]);
 
   const handleResetPrefs = useCallback(() => {
     const next = resetLearnedWeights(prefsRef.current);
@@ -885,9 +817,9 @@ export function useFeed(options?: UseFeedOptions) {
     onSeen:         handleSeen,
     onLoadMore:     loadMore,
     onToggleSource:      handleToggleSource,
-    onToggleTopic:       handleToggleTopic,
-    onToggleAiBar:       handleToggleAiBar,
-    onToggleTheme:       handleToggleTheme,
+    onToggleTopic,
+    onToggleAiBar,
+    onToggleTheme,
     onResetPrefs:        handleResetPrefs,
     onClearViewed:       handleClearViewed,
     onRefresh:           handleRefresh,
@@ -905,9 +837,9 @@ export function useFeed(options?: UseFeedOptions) {
     aiAllTagged,
     taggingArticleId,
     onStartAiTagging: handleStartAiTagging,
-    onAddLabel:    handleAddLabel,
+    onAddLabel,
     onDeleteLabel: handleDeleteLabel,
-    onRenameLabel: handleRenameLabel,
+    onRenameLabel,
     onAddManualTag:    handleAddManualTag,
     onRemoveManualTag: handleRemoveManualTag,
     feedEnterIds,
