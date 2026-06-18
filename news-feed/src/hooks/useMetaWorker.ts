@@ -41,6 +41,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
   const circuitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const syncInFlightRef = useRef(false);
+  const cooldownUntilRef = useRef(0);
   const rateLimitBackoffStepRef = useRef(0);
   const consecutiveErrorsRef = useRef(0);
   const blockedUntilRef = useRef(0);
@@ -89,6 +90,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
 
   const startMetaSyncCooldown = useCallback((durationMs = MANUAL_META_SYNC_COOLDOWN_MS) => {
     const cooldownUntil = Date.now() + durationMs;
+    cooldownUntilRef.current = cooldownUntil;
     syncDebugLog('meta', 'cooldown:start', { durationMs });
     setMetaSyncCooldownMs(durationMs);
     if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
@@ -120,7 +122,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
 
   const syncNow = useCallback(async () => {
     if (!PLATFORM_WORKER_URL || syncInFlightRef.current) return;
-    if (metaSyncCooldownMs > 0) return;
+    if (Date.now() < cooldownUntilRef.current) return;
     if (blockedUntilRef.current && Date.now() < blockedUntilRef.current) return;
     syncInFlightRef.current = true;
     let rateLimited = false;
@@ -153,7 +155,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
       syncInFlightRef.current = false;
       if (!rateLimited) startMetaSyncCooldown();
     }
-  }, [applyRateLimitBackoff, formatMetaSyncError, metaSyncCooldownMs, registerFailure, resetFailures, startMetaSyncCooldown]);
+  }, [applyRateLimitBackoff, formatMetaSyncError, registerFailure, resetFailures, startMetaSyncCooldown]);
 
   const flush = useCallback(() => {
     if (pendingBufferRef.current.length === 0) return;

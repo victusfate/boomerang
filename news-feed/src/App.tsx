@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from 'react';
+import { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
 import { useFeed } from './hooks/useFeed';
 import { useSyncWorker, type SyncStatus } from './hooks/useSyncWorker';
 import { useMetaWorker } from './hooks/useMetaWorker';
@@ -209,13 +209,10 @@ export default function App() {
   }, [visibleArticles]);
 
   // Pull shared metadata for visible cards even when sync-worker is not enabled.
-  // forceMetaSync is kept in a ref to avoid dep churn from the 500ms cooldown ticker.
-  const forceMetaSyncRef = useRef(forceMetaSync);
-  forceMetaSyncRef.current = forceMetaSync;
   useEffect(() => {
     if (articleIds.length === 0) return;
-    void forceMetaSyncRef.current();
-  }, [articleIds]);
+    void forceMetaSync();
+  }, [articleIds, forceMetaSync]);
 
   useVisibilitySync(forceMetaSync, forceSync, syncActive, syncReady);
 
