@@ -148,6 +148,8 @@ export function isTopicEnabled(topic: Topic, prefs: UserPrefs): boolean {
 
 // ── Vote actions ──────────────────────────────────────────────────────────────
 
+type VoteWeightUpdate = Pick<UserPrefs, 'topicWeights' | 'sourceWeights' | 'keywordWeights'>;
+
 interface VoteDeltas {
   topicDelta: number;   topicBound: (v: number) => number;
   sourceDelta: number;  sourceBound: (v: number) => number;
@@ -166,7 +168,7 @@ const DOWN_DELTAS: VoteDeltas = {
   keywordDelta: -DOWNVOTE_KEYWORD_DELTA, keywordBound: v => Math.max(v, KEYWORD_WEIGHT_MIN),
 };
 
-function applyVoteWeights(article: Article, prefs: UserPrefs, d: VoteDeltas): Pick<UserPrefs, 'topicWeights' | 'sourceWeights' | 'keywordWeights'> {
+function applyVoteWeights(article: Article, prefs: UserPrefs, d: VoteDeltas): VoteWeightUpdate {
   const topicWeights = { ...prefs.topicWeights };
   for (const t of article.topics) {
     topicWeights[t] = d.topicBound((topicWeights[t] ?? 1.0) + d.topicDelta);
@@ -379,18 +381,19 @@ export function importOPML(xml: string, defaultSources: NewsSource[]): ImportedO
 
 // ── Browser bookmarks export / import ─────────────────────────────────────────
 
-/** Stable custom-source id from the feed URL — repeat imports stay idempotent. */
-export function customSourceIdFromUrl(url: string): string {
+function hashUrl(url: string): string {
   let h = 0;
   for (let i = 0; i < url.length; i++) { h = Math.imul(31, h) + url.charCodeAt(i) | 0; }
-  return `custom-${(h >>> 0).toString(36)}`;
+  return (h >>> 0).toString(36);
+}
+
+/** Stable custom-source id from the feed URL — repeat imports stay idempotent. */
+export function customSourceIdFromUrl(url: string): string {
+  return `custom-${hashUrl(url)}`;
 }
 
 function bmId(url: string): string {
-  // Stable ID derived from URL so re-imports don't duplicate
-  let h = 0;
-  for (let i = 0; i < url.length; i++) { h = Math.imul(31, h) + url.charCodeAt(i) | 0; }
-  return `bm-${(h >>> 0).toString(36)}`;
+  return `bm-${hashUrl(url)}`;
 }
 
 /** Export saved articles as a Netscape HTML bookmarks file. */

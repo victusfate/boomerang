@@ -1,10 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { DEFAULT_SOURCES } from '../../services/newsService';
-
-const IMPORT_STATUS_RESET_MS = 3_000;
 import { isSourceEnabled } from '../../services/storage';
 import type { CustomSource, UserPrefs } from '../../types';
 import { TOPIC_META } from '../topicFilterUtils';
+
+const IMPORT_STATUS_RESET_MS = 3_000;
+
+function makeImportHandler(
+  importFn: (text: string) => boolean,
+  setStatus: React.Dispatch<React.SetStateAction<'idle' | 'ok' | 'error'>>,
+  scheduleReset: (fn: () => void, ms: number) => void,
+): (e: React.ChangeEvent<HTMLInputElement>) => void {
+  return (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const ok = importFn(text);
+      setStatus(ok ? 'ok' : 'error');
+      if (ok) scheduleReset(() => setStatus('idle'), IMPORT_STATUS_RESET_MS);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+}
 
 interface Props {
   prefs: UserPrefs;
@@ -48,33 +68,8 @@ export function SourcesSection({
     setNewUrl('');
   };
 
-  const handleOPMLFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const xml = ev.target?.result as string;
-      const ok = onImportOPML(xml);
-      setImportStatus(ok ? 'ok' : 'error');
-      if (ok) scheduleStatusReset(() => setImportStatus('idle'), IMPORT_STATUS_RESET_MS);
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  };
-
-  const handleBMFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const html = ev.target?.result as string;
-      const ok = onImportBookmarks(html);
-      setBmImportStatus(ok ? 'ok' : 'error');
-      if (ok) scheduleStatusReset(() => setBmImportStatus('idle'), IMPORT_STATUS_RESET_MS);
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  };
+  const handleOPMLFile = makeImportHandler(onImportOPML, setImportStatus, scheduleStatusReset);
+  const handleBMFile = makeImportHandler(onImportBookmarks, setBmImportStatus, scheduleStatusReset);
 
   return (
     <>

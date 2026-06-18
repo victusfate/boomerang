@@ -16,10 +16,14 @@ const MANUAL_SYNC_COOLDOWN_MS = 15_000;
 const DIRTY_SYNC_DEBOUNCE_MS = 1_000;
 const RATE_LIMIT_BACKOFF_BASE_MS = 2_000;
 const RATE_LIMIT_BACKOFF_MAX_MS = 5 * 60_000;
+const COOLDOWN_TICK_MS = 500;
 const RELINK_REQUIRED_MESSAGE =
   'Sync link expired or is invalid. Local sync was disabled to stop retries. Generate a new sync link.';
 
 export type SyncStatus = 'idle' | 'active' | 'syncing' | 'error';
+
+type MergedState = { prefs: UserPrefs; articleTags: ArticleTag[]; labelHits: LabelHit[]; savedArticles: Article[] };
+type PollResult = { status: 'ok'; merged: MergedState | null } | { status: 'blocked' | 'rate_limited' };
 
 export interface SyncErrorDetails {
   phase: string;
@@ -134,7 +138,7 @@ export function useSyncWorker(
         clearInterval(cooldownTimerRef.current);
         cooldownTimerRef.current = null;
       }
-    }, 500);
+    }, COOLDOWN_TICK_MS);
   }, []);
 
   const applyRateLimitBackoff = useCallback((retryAfterMs?: number) => {
@@ -164,9 +168,6 @@ export function useSyncWorker(
       cooldownTimerRef.current = null;
     }
   }, [clearRoom]);
-
-  type MergedState = { prefs: UserPrefs; articleTags: ArticleTag[]; labelHits: LabelHit[]; savedArticles: Article[] };
-  type PollResult = { status: 'ok'; merged: MergedState | null } | { status: 'blocked' | 'rate_limited' };
 
   const doPoll = useCallback(async (): Promise<PollResult> => {
     const r = roomRef.current;

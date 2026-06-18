@@ -28,6 +28,8 @@ import type { ActiveFilter, FeedView } from './types';
 import { PLATFORM_WORKER_URL } from './config/workerEnv';
 import { timeAgo } from './services/timeAgo';
 
+const SKELETON_CARD_COUNT = 5;
+
 /** Word-boundary label↔tag match — bare substring made "AI" match "rain". */
 function labelMatchesTag(label: string, tag: string): boolean {
   if (label === tag) return true;
@@ -256,7 +258,8 @@ export default function App() {
   const { ogMap, sentinelRef: ogSentinelRef, fetchedUpTo: ogFetchedUpTo } =
     useOGImageBatch(filteredArticles, 10);
 
-  const formatLastRefresh = () => (lastRefresh ? timeAgo(lastRefresh, 'ago') : '');
+  const syncBusy = combinedSyncCooldownMs > 0 || syncIndicator.state === 'syncing';
+  const ogSentinelIndex = Math.min(ogFetchedUpTo, filteredArticles.length) - 1;
 
   return (
     <>
@@ -265,7 +268,7 @@ export default function App() {
           <h1 className="app-title">News</h1>
           {lastRefresh && (
             <span className="last-refresh">
-              {refreshing ? 'Refreshing…' : formatLastRefresh()}
+              {refreshing ? 'Refreshing…' : timeAgo(lastRefresh, 'ago')}
             </span>
           )}
         </div>
@@ -274,7 +277,7 @@ export default function App() {
             type="button"
             className={`sync-indicator ${syncIndicator.state}`}
             onClick={onMainSyncClick}
-            disabled={combinedSyncCooldownMs > 0 || syncIndicator.state === 'syncing'}
+            disabled={syncBusy}
             title={syncIndicator.title}
             aria-label="Sync now"
           >
@@ -436,7 +439,7 @@ export default function App() {
 
             {loading && visibleArticles.length === 0 && (
               <div className="feed-loading">
-                {[...Array(5)].map((_, i) => (
+                {[...Array(SKELETON_CARD_COUNT)].map((_, i) => (
                   <div key={i} className="skeleton-card" style={{ animationDelay: `${i * 0.1}s` }} />
                 ))}
               </div>
@@ -462,7 +465,7 @@ export default function App() {
                   feedScoresLoading={feedScoresLoading}
                   feedScoreInsight={feedScoreInsightById?.get(article.id)}
                 />
-                {index === Math.min(ogFetchedUpTo, filteredArticles.length) - 1 && (
+                {index === ogSentinelIndex && (
                   <div ref={ogSentinelRef} aria-hidden="true" />
                 )}
               </Fragment>

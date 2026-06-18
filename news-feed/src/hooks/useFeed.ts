@@ -301,7 +301,7 @@ export function useFeed(options?: UseFeedOptions) {
     const prev = articleTagsRef.current;
     const existing = prev.find(t => t.articleId === articleId);
     const newTags = addManualTag(existing?.tags ?? [], raw);
-    if (newTags === (existing?.tags ?? []) || newTags.length === (existing?.tags.length ?? 0)) return;
+    if (newTags.length === (existing?.tags.length ?? 0)) return;
     const updated = existing
       ? prev.map(t =>
         t.articleId === articleId ? { ...t, tags: newTags, taggedAt: Date.now() } : t

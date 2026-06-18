@@ -85,14 +85,12 @@ export function useArticlePool(params: UseArticlePoolParams): UseArticlePoolResu
   // Locked once: either server recommendations (ids) or local fallback (null).
   const selectedRecRankIdsRef  = useRef<string[] | null | undefined>(undefined);
 
-  useEffect(() => {
-    recInteractRef.current = recInteract;
-    recArticleIdsRef.current = recArticleIds ?? [];
-    recStatusRef.current = recStatus ?? 'disabled';
-    recBootstrapDoneRef.current = recBootstrapDone ?? false;
-    recBootstrapErrorRef.current = recBootstrapError ?? null;
-    recCandidateModeRef.current = recCandidateMode;
-  });
+  recInteractRef.current = recInteract;
+  recArticleIdsRef.current = recArticleIds ?? [];
+  recStatusRef.current = recStatus ?? 'disabled';
+  recBootstrapDoneRef.current = recBootstrapDone ?? false;
+  recBootstrapErrorRef.current = recBootstrapError ?? null;
+  recCandidateModeRef.current = recCandidateMode;
 
   const getRankRecIds = useCallback((): string[] => {
     if (selectedRecRankIdsRef.current === undefined) return recArticleIdsRef.current;
@@ -203,7 +201,7 @@ export function useArticlePool(params: UseArticlePoolParams): UseArticlePoolResu
 
     const onBatch = (accumulated: Article[]) => {
       if (fetchIdRef.current !== myFetchId) return;
-      const apply = () => {
+      const applyBatchToState = () => {
         if (fetchIdRef.current !== myFetchId) return;
         articlePoolRef.current = accumulated;
         setArticlePool(accumulated);
@@ -218,9 +216,9 @@ export function useArticlePool(params: UseArticlePoolParams): UseArticlePoolResu
         }
       };
       if (typeof requestAnimationFrame !== 'undefined') {
-        requestAnimationFrame(() => apply());
+        requestAnimationFrame(() => applyBatchToState());
       } else {
-        apply();
+        applyBatchToState();
       }
     };
 

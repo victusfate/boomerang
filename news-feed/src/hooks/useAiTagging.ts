@@ -80,10 +80,10 @@ export function useAiTagging({
       console.info(`${AI_TAGS_LOG_PREFIX} schedule skipped — a pass is already running`);
       return;
     }
-    const schedule: (cb: () => void) => void =
+    const schedule =
       typeof requestIdleCallback !== 'undefined'
-        ? (cb) => requestIdleCallback(() => cb(), { timeout: IDLE_CALLBACK_TIMEOUT_MS })
-        : (cb) => setTimeout(cb, 0);
+        ? (cb: () => void) => requestIdleCallback(() => cb(), { timeout: IDLE_CALLBACK_TIMEOUT_MS })
+        : (cb: () => void) => setTimeout(cb, 0);
 
     passInFlightRef.current = true;
     schedule(() => {
@@ -199,6 +199,8 @@ export function useAiTagging({
     schedulePassRef.current([...allArticlesRef.current]);
   }, [allArticlesRef]);
 
+  // Unmount-only cleanup — stopAiModelPolling is a stable useCallback([]); no deps needed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => () => stopAiModelPolling(), []);
 
   return {

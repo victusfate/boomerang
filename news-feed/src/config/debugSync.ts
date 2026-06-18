@@ -1,5 +1,6 @@
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
-const ENV_DEBUG_SYNC = String(import.meta.env.VITE_DEBUG_SYNC ?? '').trim().toLowerCase();
+// import.meta.env is Vite-only; undefined in Node test environments
+const ENV_DEBUG_SYNC = String((import.meta.env?.VITE_DEBUG_SYNC) ?? '').trim().toLowerCase();
 
 function readRuntimeSyncDebugFlag(): boolean | null {
   if (typeof window === 'undefined') return null;

@@ -1,6 +1,4 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-
-const COPY_FEEDBACK_MS = 2_000;
 import { loadRecStats } from '../services/recStats';
 import {
   fetchRecArticles,
@@ -14,6 +12,8 @@ import type { RecStatus } from '../hooks/useRecWorker';
 import { RecModelInfo }  from './rec/RecModelInfo';
 import { RecTraceView, buildSourceEntries, buildTopicEntries, buildTagEntries } from './rec/RecTraceView';
 import { RecScoreTable } from './rec/RecScoreTable';
+
+const COPY_FEEDBACK_MS = 2_000;
 
 const TOP_N = 25;
 
@@ -218,16 +218,16 @@ export function RecDiagnostics({
     };
   }, [data, getSourceName]);
 
-  const previewIds = topRated.map(e => e.id);
-  const resolvedTitleCount = previewIds.filter(
+  const topRatedIds = topRated.map(e => e.id);
+  const resolvedTitleCount = topRatedIds.filter(
     id => Boolean(getArticleTitle(id) || lookupTitleById[id]),
   ).length;
   const titleLookupHint = lookupCoverage
-    ? `Resolved ${resolvedTitleCount}/${previewIds.length} titles`
+    ? `Resolved ${resolvedTitleCount}/${topRatedIds.length} titles`
       + (lookupCoverage.missing.length > 0 ? ` (${lookupCoverage.missing.length} missing)` : '')
       + (lookupCoverage.timingMs ? ` · ${Math.round(lookupCoverage.timingMs.total)}ms` : '')
-    : previewIds.length > 0
-      ? `Resolved ${resolvedTitleCount}/${previewIds.length} titles`
+    : topRatedIds.length > 0
+      ? `Resolved ${resolvedTitleCount}/${topRatedIds.length} titles`
       : null;
 
   const statusDot  = recStatus === 'active' ? 'active' : recStatus === 'error' ? 'error' : 'idle';

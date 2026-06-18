@@ -6,8 +6,6 @@ import rssSourcesJson from '../../../shared/rss-sources.json';
 // Built-in sources: single source of truth in `shared/rss-sources.json` (priority 1 = first batch; 2 = background).
 export const DEFAULT_SOURCES: NewsSource[] = rssSourcesJson as NewsSource[];
 
-export { partitionSourcesForSplitFetch };
-
 function mapBundleArticles(
   data: Array<Omit<Article, 'publishedAt' | 'score'> & { publishedAt: string }>,
 ): Article[] {
