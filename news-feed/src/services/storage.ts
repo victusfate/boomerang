@@ -148,36 +148,48 @@ export function isTopicEnabled(topic: Topic, prefs: UserPrefs): boolean {
 
 // ── Vote actions ──────────────────────────────────────────────────────────────
 
+interface VoteDeltas {
+  topicDelta: number;   topicBound: (v: number) => number;
+  sourceDelta: number;  sourceBound: (v: number) => number;
+  keywordDelta: number; keywordBound: (v: number) => number;
+}
+
+const UP_DELTAS: VoteDeltas = {
+  topicDelta:   UPVOTE_TOPIC_DELTA,   topicBound:   v => Math.min(v, TOPIC_WEIGHT_MAX),
+  sourceDelta:  UPVOTE_SOURCE_DELTA,  sourceBound:  v => Math.min(v, SOURCE_WEIGHT_MAX),
+  keywordDelta: UPVOTE_KEYWORD_DELTA, keywordBound: v => Math.min(v, KEYWORD_WEIGHT_MAX),
+};
+
+const DOWN_DELTAS: VoteDeltas = {
+  topicDelta:   -DOWNVOTE_TOPIC_DELTA,   topicBound:   v => Math.max(v, TOPIC_WEIGHT_MIN),
+  sourceDelta:  -DOWNVOTE_SOURCE_DELTA,  sourceBound:  v => Math.max(v, SOURCE_WEIGHT_MIN),
+  keywordDelta: -DOWNVOTE_KEYWORD_DELTA, keywordBound: v => Math.max(v, KEYWORD_WEIGHT_MIN),
+};
+
+function applyVoteWeights(article: Article, prefs: UserPrefs, d: VoteDeltas): Pick<UserPrefs, 'topicWeights' | 'sourceWeights' | 'keywordWeights'> {
+  const topicWeights = { ...prefs.topicWeights };
+  for (const t of article.topics) {
+    topicWeights[t] = d.topicBound((topicWeights[t] ?? 1.0) + d.topicDelta);
+  }
+  const sourceWeights = {
+    ...prefs.sourceWeights,
+    [article.sourceId]: d.sourceBound((prefs.sourceWeights[article.sourceId] ?? 1.0) + d.sourceDelta),
+  };
+  const keywordWeights = { ...prefs.keywordWeights };
+  for (const kw of extractKeywords(article.title + ' ' + article.description)) {
+    keywordWeights[kw] = d.keywordBound((keywordWeights[kw] ?? 0) + d.keywordDelta);
+  }
+  return { topicWeights, sourceWeights, keywordWeights: trimKeywords(keywordWeights) };
+}
+
 export function upvote(article: Article, prefs: UserPrefs): UserPrefs {
   // Toggle: clicking again removes the upvote (no weight reversal — weights are soft signals)
   if (prefs.upvotedIds.includes(article.id)) {
-    return {
-      ...prefs,
-      upvotedIds: prefs.upvotedIds.filter(id => id !== article.id),
-    };
+    return { ...prefs, upvotedIds: prefs.upvotedIds.filter(id => id !== article.id) };
   }
-
-  const topicWeights = { ...prefs.topicWeights };
-  for (const t of article.topics) {
-    topicWeights[t] = Math.min((topicWeights[t] ?? 1.0) + UPVOTE_TOPIC_DELTA, TOPIC_WEIGHT_MAX);
-  }
-
-  const srcId = article.sourceId;
-  const sourceWeights = {
-    ...prefs.sourceWeights,
-    [srcId]: Math.min((prefs.sourceWeights[srcId] ?? 1.0) + UPVOTE_SOURCE_DELTA, SOURCE_WEIGHT_MAX),
-  };
-
-  const keywordWeights = { ...prefs.keywordWeights };
-  for (const kw of extractKeywords(article.title + ' ' + article.description)) {
-    keywordWeights[kw] = Math.min((keywordWeights[kw] ?? 0) + UPVOTE_KEYWORD_DELTA, KEYWORD_WEIGHT_MAX);
-  }
-
   return {
     ...prefs,
-    topicWeights,
-    sourceWeights,
-    keywordWeights: trimKeywords(keywordWeights),
+    ...applyVoteWeights(article, prefs, UP_DELTAS),
     upvotedIds:   [...prefs.upvotedIds, article.id],
     downvotedIds: prefs.downvotedIds.filter(id => id !== article.id),
   };
@@ -186,33 +198,11 @@ export function upvote(article: Article, prefs: UserPrefs): UserPrefs {
 export function downvote(article: Article, prefs: UserPrefs): UserPrefs {
   // Toggle: clicking again removes the downvote
   if (prefs.downvotedIds.includes(article.id)) {
-    return {
-      ...prefs,
-      downvotedIds: prefs.downvotedIds.filter(id => id !== article.id),
-    };
+    return { ...prefs, downvotedIds: prefs.downvotedIds.filter(id => id !== article.id) };
   }
-
-  const topicWeights = { ...prefs.topicWeights };
-  for (const t of article.topics) {
-    topicWeights[t] = Math.max((topicWeights[t] ?? 1.0) - DOWNVOTE_TOPIC_DELTA, TOPIC_WEIGHT_MIN);
-  }
-
-  const srcId = article.sourceId;
-  const sourceWeights = {
-    ...prefs.sourceWeights,
-    [srcId]: Math.max((prefs.sourceWeights[srcId] ?? 1.0) - DOWNVOTE_SOURCE_DELTA, SOURCE_WEIGHT_MIN),
-  };
-
-  const keywordWeights = { ...prefs.keywordWeights };
-  for (const kw of extractKeywords(article.title + ' ' + article.description)) {
-    keywordWeights[kw] = Math.max((keywordWeights[kw] ?? 0) - DOWNVOTE_KEYWORD_DELTA, KEYWORD_WEIGHT_MIN);
-  }
-
   return {
     ...prefs,
-    topicWeights,
-    sourceWeights,
-    keywordWeights: trimKeywords(keywordWeights),
+    ...applyVoteWeights(article, prefs, DOWN_DELTAS),
     downvotedIds: [...prefs.downvotedIds, article.id],
     upvotedIds:   prefs.upvotedIds.filter(id => id !== article.id),
   };
