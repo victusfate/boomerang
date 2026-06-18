@@ -1,18 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { kvGet, kvSet } from '../services/kvStore';
-import { writeHistoryEntry, writeHistoryEntries, type HistoryEntry } from '../services/articleHistory';
 import { addManualTag, removeManualTag } from '../services/tagEditorUtils';
 import { selectSavedArticles } from '../services/savedArticlesSelector';
 import { rankFeed } from '../services/algorithm';
 import {
-  markRead, markSeen, toggleSaved, clearQueue,
-  boostTopic, toggleSource,
-  upvote, downvote, resetLearnedWeights, clearViewedCache,
+  toggleSource, resetLearnedWeights, clearViewedCache,
   addCustomSource, removeCustomSource,
   deleteUserLabel,
 } from '../services/storage';
 import { usePrefs, PREFS_ID } from './usePrefs';
 import { useArticlePool, PAGE_SIZE, CACHE_ID } from './useArticlePool';
+import { useInteractionHandlers } from './useInteractionHandlers';
 import {
   dehydrate,
   hydrate,
@@ -34,18 +32,6 @@ interface FeedCacheDoc        { articles: StoredArticle[]; fetchedAt: number }
 interface ImportedSavesDoc    { articles: StoredArticle[] }
 interface ClassificationsDoc  { hits: LabelHit[] }
 interface ArticleTagsDoc      { hits: ArticleTag[] }
-
-function toHistoryEntry(article: Article, interactedAt: number): HistoryEntry {
-  return {
-    id: article.id,
-    title: article.title,
-    url: article.url,
-    source: article.source,
-    sourceId: article.sourceId,
-    publishedAt: article.publishedAt.toISOString(),
-    interactedAt,
-  };
-}
 
 function scrubPlaceholderSaves(
   prefs: UserPrefs,
@@ -155,6 +141,14 @@ export function useFeed(options?: UseFeedOptions) {
     scheduleTaggingPass,
     handleStartAiTagging,
   } = useAiTagging({ allArticlesRef, articleTagsRef, setArticleTags, metaCallbacks });
+
+  const {
+    onOpen, onSave, onSaveExternal, onClearQueue, onUpvote, onDownvote, onSeen,
+  } = useInteractionHandlers({
+    prefsRef, updatePrefs,
+    allArticlesRef, articleTagsMapRef, markedSeenRef, recInteractRef,
+    importedSavesRef, setImportedSaves,
+  });
 
   // ── URL hash sync import ──────────────────────────────────────────────────────
   // Runs once on mount — reads #sync=<base64> and merges into Fireproof docs silently.
@@ -279,82 +273,6 @@ export function useFeed(options?: UseFeedOptions) {
     refresh(prefsRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefsReady]); // one-shot: only runs once when prefs become ready
-
-  // ── Mark a single article as seen after the user has dwelt on it ─────────────
-  // Called by ArticleCard via IntersectionObserver + dwell timer (see ArticleCard.tsx).
-  const handleSeen = useCallback((id: string) => {
-    if (markedSeenRef.current.has(id)) return; // already counted this session
-    markedSeenRef.current.add(id);
-    updatePrefs(markSeen([id], prefsRef.current));
-    const a = allArticlesRef.current.find(x => x.id === id);
-    if (a) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, tags: articleTagsMapRef.current.get(a.id), action: 'seen', ts: Date.now() });
-  }, [updatePrefs]);
-
-  // ── Article interactions ──────────────────────────────────────────────────────
-  // Saved articles can live outside the RSS pool (imported bookmarks, aged-out
-  // saves) — history writes on dequeue must find those too.
-  const findKnownArticle = useCallback((id: string): Article | undefined =>
-    allArticlesRef.current.find(a => a.id === id)
-    ?? importedSavesRef.current.find(a => a.id === id), []);
-
-  const handleOpen = useCallback((article: Article) => {
-    const afterRead = markRead(article.id, prefsRef.current);
-    const afterBoost = article.topics.reduce((p, t) => boostTopic(t, p), afterRead);
-    const afterDequeue = afterBoost.savedIds.includes(article.id)
-      ? toggleSaved(article.id, afterBoost)
-      : afterBoost;
-    updatePrefs(afterDequeue);
-    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, tags: articleTagsMapRef.current.get(article.id), action: 'read', ts: Date.now() });
-    void writeHistoryEntry(toHistoryEntry(article, Date.now()));
-  }, [updatePrefs]);
-
-  const handleClearQueue = useCallback(() => {
-    const currentSaved = prefsRef.current.savedIds;
-    const now = Date.now();
-    updatePrefs(clearQueue(prefsRef.current));
-    const entries = currentSaved
-      .map(id => {
-        const article = findKnownArticle(id);
-        return article ? toHistoryEntry(article, now) : null;
-      })
-      .filter((e): e is NonNullable<typeof e> => e !== null);
-    if (entries.length > 0) void writeHistoryEntries(entries);
-  }, [updatePrefs, findKnownArticle]);
-
-  const handleSave = useCallback((id: string) => {
-    const isSaving = !prefsRef.current.savedIds.includes(id); // true = star, false = unstar
-    updatePrefs(toggleSaved(id, prefsRef.current));
-    // Only signal the rec backend on the initial save — unstar is a UI bookmark action,
-    // not a preference reversal (topic weights from reading are already permanent).
-    const a = findKnownArticle(id);
-    if (a && isSaving) recInteractRef.current?.({ articleId: a.id, sourceId: a.sourceId, topics: a.topics, tags: articleTagsMapRef.current.get(a.id), action: 'save', ts: Date.now() });
-    if (a && !isSaving) void writeHistoryEntry(toHistoryEntry(a, Date.now()));
-  }, [updatePrefs, findKnownArticle]);
-
-  // Save an article that may live outside the pool (e.g. a history-only search
-  // result). Registers it in importedSaves first — same home as imported
-  // bookmarks — so selectSavedArticles can render it in the Queue.
-  const handleSaveExternal = useCallback((article: Article) => {
-    if (!findKnownArticle(article.id) && !prefsRef.current.savedIds.includes(article.id)) {
-      const merged = [...importedSavesRef.current.filter(a => a.id !== article.id), article];
-      importedSavesRef.current = merged;
-      setImportedSaves(merged);
-      kvSet(IMPORTED_SAVES_ID, { articles: dehydrate(merged) }).catch(console.error);
-    }
-    handleSave(article.id);
-  }, [handleSave, findKnownArticle]);
-
-  const handleUpvote = useCallback((article: Article) => {
-    updatePrefs(upvote(article, prefsRef.current));
-    // No re-rank: card stays visible; ▲ highlight comes from prefs.upvotedIds.
-    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, tags: articleTagsMapRef.current.get(article.id), action: 'upvote', ts: Date.now() });
-  }, [updatePrefs]);
-
-  const handleDownvote = useCallback((article: Article) => {
-    // Toggle downvote — card stays in the feed and renders collapsed via prefs.downvotedIds
-    updatePrefs(downvote(article, prefsRef.current));
-    recInteractRef.current?.({ articleId: article.id, sourceId: article.sourceId, topics: article.topics, tags: articleTagsMapRef.current.get(article.id), action: 'downvote', ts: Date.now() });
-  }, [updatePrefs]);
 
   const handleToggleSource = useCallback((sourceId: string) => {
     const next = toggleSource(sourceId, prefsRef.current);
@@ -539,13 +457,7 @@ export function useFeed(options?: UseFeedOptions) {
     error,
     prefs,
     lastRefresh,
-    onOpen:         handleOpen,
-    onSave:         handleSave,
-    onSaveExternal: handleSaveExternal,
-    onClearQueue:   handleClearQueue,
-    onUpvote:       handleUpvote,
-    onDownvote:     handleDownvote,
-    onSeen:         handleSeen,
+    onOpen, onSave, onSaveExternal, onClearQueue, onUpvote, onDownvote, onSeen,
     onLoadMore:     loadMore,
     onToggleSource:      handleToggleSource,
     onToggleTopic,
