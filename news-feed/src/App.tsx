@@ -6,6 +6,11 @@ import { useRecWorker } from './hooks/useRecWorker';
 import { useRecHistoryReplay } from './hooks/useRecHistoryReplay';
 import { useOGImageBatch } from './hooks/useOGImageBatch';
 import { useHistoryBackfill } from './hooks/useHistoryBackfill';
+import { usePullToRefresh } from './hooks/usePullToRefresh';
+import { useInfiniteScrollSentinel } from './hooks/useInfiniteScrollSentinel';
+import { useVisibilitySync } from './hooks/useVisibilitySync';
+import { useTitleCache } from './hooks/useTitleCache';
+import { useSourceNameLookup } from './hooks/useSourceNameLookup';
 import { SearchOverlay } from './components/SearchOverlay';
 import { ArticleCard } from './components/ArticleCard';
 import { TopicFilter } from './components/TopicFilter';
@@ -14,7 +19,6 @@ import { RecDiagnostics } from './components/RecDiagnostics';
 import { suggestLabels } from './services/labelSuggester';
 import { isPromptApiAvailable } from './services/labelClassifier';
 import { sameIdsInOrder } from './services/metaSyncTrigger';
-import { saveTitles, loadTitleCache } from './services/titleCache';
 import {
   buildRecRankMap,
   computeFeedScoreInsight,
@@ -23,8 +27,6 @@ import {
 import type { ActiveFilter, FeedView } from './types';
 import { PLATFORM_WORKER_URL } from './config/workerEnv';
 import { timeAgo } from './services/timeAgo';
-
-const PULL_THRESHOLD = 80; // px of downward drag to trigger refresh
 
 /** Word-boundary label↔tag match — bare substring made "AI" match "rain". */
 function labelMatchesTag(label: string, tag: string): boolean {
@@ -142,8 +144,6 @@ export default function App() {
   const { syncActive, syncStatus, syncedAt, syncError, syncErrorDetails, syncUrl, syncEnvError, syncCooldownMs, forceSync, generateLink, revoke } =
     useSyncWorker(prefs, articleTags, labelHits, savedArticles, onRemoteSync, syncReady);
 
-  const [persistedTitles, setPersistedTitles] = useState<Record<string, string>>({});
-
   useEffect(() => {
     document.documentElement.dataset.theme = prefs.theme ?? 'dark';
   }, [prefs.theme]);
@@ -152,41 +152,8 @@ export default function App() {
     setTopicWeights(prefs.topicWeights);
   }, [prefs.topicWeights, setTopicWeights]);
 
-  useEffect(() => {
-    void loadTitleCache().then(setPersistedTitles);
-  }, []);
-
-  useEffect(() => {
-    const articles = [...allArticles, ...savedArticles];
-    if (articles.length > 0) void saveTitles(articles);
-  }, [allArticles, savedArticles]);
-
-  const articleTitleById = useMemo(() => {
-    const map = new Map<string, string>(Object.entries(persistedTitles));
-    for (const article of allArticles) map.set(article.id, article.title);
-    for (const article of savedArticles) map.set(article.id, article.title);
-    return map;
-  }, [allArticles, savedArticles, persistedTitles]);
-  const getArticleTitle = useCallback(
-    (id: string) => articleTitleById.get(id) ?? null,
-    [articleTitleById],
-  );
-
-  const sourceDisplayBySourceId = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const a of allArticles) {
-      if (!m.has(a.sourceId)) m.set(a.sourceId, a.source);
-    }
-    for (const a of savedArticles) {
-      if (!m.has(a.sourceId)) m.set(a.sourceId, a.source);
-    }
-    return m;
-  }, [allArticles, savedArticles]);
-
-  const getSourceName = useCallback(
-    (sourceId: string) => sourceDisplayBySourceId.get(sourceId) ?? sourceId,
-    [sourceDisplayBySourceId],
-  );
+  const { getArticleTitle } = useTitleCache(allArticles, savedArticles);
+  const { getSourceName } = useSourceNameLookup(allArticles, savedArticles);
 
   const [view, setView] = useState<FeedView>('feed');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>(null);
@@ -194,19 +161,6 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const { backfilled } = useHistoryBackfill(prefs, PLATFORM_WORKER_URL, syncReady);
-  // Pull-to-refresh visuals are driven by direct DOM writes — setState per
-  // touchmove frame re-renders the whole app (every card) during the drag.
-  const pullIndicatorRef = useRef<HTMLDivElement>(null);
-  const setPullVisual = useCallback((progress: number) => {
-    const el = pullIndicatorRef.current;
-    if (!el) return;
-    el.style.display = progress > 0 ? 'flex' : 'none';
-    const inner = el.firstElementChild as HTMLElement | null;
-    if (!inner) return;
-    inner.style.opacity = String(progress);
-    inner.style.transform = `scale(${0.5 + progress * 0.5})`;
-    inner.classList.toggle('spin-ready', progress >= 1);
-  }, []);
   const canUseBrowserAi = isPromptApiAvailable();
   const combinedSyncCooldownMs = Math.max(syncCooldownMs, metaSyncCooldownMs);
   const syncIndicator = syncIndicatorState(
@@ -231,7 +185,7 @@ export default function App() {
       void forceSync();
     }
   }, [onRefresh, forceMetaSync, forceSync, syncReady]);
-  const initialSyncDoneRef = useRef(false);
+  const { pullIndicatorRef } = usePullToRefresh(onManualRefresh, showSettings || showSearch);
 
   useEffect(() => {
     if (view === 'saved') setInitialQueueCount(savedArticles.length);
@@ -254,122 +208,18 @@ export default function App() {
     setArticleIds(prev => (sameIdsInOrder(prev, nextIds) ? prev : nextIds));
   }, [visibleArticles]);
 
+  // Pull shared metadata for visible cards even when sync-worker is not enabled.
+  // forceMetaSync is kept in a ref to avoid dep churn from the 500ms cooldown ticker.
   const forceMetaSyncRef = useRef(forceMetaSync);
   forceMetaSyncRef.current = forceMetaSync;
-
-  // Pull shared metadata for visible cards even when sync-worker is not enabled.
   useEffect(() => {
     if (articleIds.length === 0) return;
     void forceMetaSyncRef.current();
   }, [articleIds]);
 
-  // On initial load, trigger sync-worker pull+push for sync users.
-  // Meta tags for all users are already pulled by the articleIds effect above.
-  useEffect(() => {
-    if (initialSyncDoneRef.current) return;
-    if (!syncActive) return;
-    if (!syncReady) return;
-    initialSyncDoneRef.current = true;
-    void forceSync();
-  }, [syncActive, syncReady, forceSync]);
+  useVisibilitySync(forceMetaSync, forceSync, syncActive, syncReady);
 
-  // Re-fetch shared metadata for all users (and full sync for sync users) whenever the
-  // tab becomes active again. Uses forceMetaSyncRef to avoid dep churn from the 500ms
-  // cooldown ticker that recreates forceMetaSync on every tick.
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible') return;
-      void forceMetaSyncRef.current();
-      if (syncActive && syncReady) void forceSync();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [forceSync, syncActive, syncReady]);
-
-  // Keep a stable ref so the touch handlers always call the latest refresh handler
-  const onRefreshRef = useRef(onManualRefresh);
-  onRefreshRef.current = onManualRefresh;
-
-  // Gesture state stored in a ref to avoid re-renders during drag
-  const pullGestureRef = useRef({ active: false, startY: 0, progress: 0 });
-
-  useEffect(() => {
-    if (showSettings || showSearch) return; // don't capture gestures when a modal layer is open
-    let triggered = false;
-
-    const onTouchStart = (e: TouchEvent) => {
-      if (window.scrollY > 5) return; // only activate at top of page
-      pullGestureRef.current = { active: true, startY: e.touches[0].clientY, progress: 0 };
-      triggered = false;
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      const g = pullGestureRef.current;
-      if (!g.active) return;
-      const delta = e.touches[0].clientY - g.startY;
-      if (delta <= 0) { g.active = false; setPullVisual(0); return; }
-      const progress = Math.min(delta / PULL_THRESHOLD, 1);
-      g.progress = progress;
-      setPullVisual(progress);
-      // Prevent native scroll-bounce while we're handling the pull
-      if (window.scrollY <= 5) e.preventDefault();
-    };
-
-    const onTouchEnd = () => {
-      const g = pullGestureRef.current;
-      if (!g.active) return;
-      const willRefresh = g.progress >= 1 && !triggered;
-      g.active = false;
-      g.progress = 0;
-      setPullVisual(0);
-      if (willRefresh) { triggered = true; onRefreshRef.current(); }
-    };
-
-    document.addEventListener('touchstart', onTouchStart, { passive: true });
-    document.addEventListener('touchmove', onTouchMove, { passive: false });
-    document.addEventListener('touchend', onTouchEnd, { passive: true });
-    return () => {
-      document.removeEventListener('touchstart', onTouchStart);
-      document.removeEventListener('touchmove', onTouchMove);
-      document.removeEventListener('touchend', onTouchEnd);
-    };
-  }, [showSettings, showSearch]); // pullGestureRef is stable; onRefreshRef is kept current above
-
-  // Sentinel element watched by IntersectionObserver to trigger load-more.
-  // The callback is kept in a ref so the observer itself is only created once
-  // per view-change — avoids continuous disconnect/reconnect as state updates.
-  const sentinelRef = useRef<HTMLDivElement>(null);
-  const onLoadMoreRef = useRef(onLoadMore);
-  onLoadMoreRef.current = onLoadMore;
-
-  useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!sentinel || view !== 'feed') return;
-
-    const observer = new IntersectionObserver(
-      entries => { if (entries[0].isIntersecting) onLoadMoreRef.current(); },
-      { rootMargin: '600px' } // start loading well before the bottom edge
-    );
-
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [view]); // only recreate when switching views
-
-  // When new articles arrive (totalLoaded grows), the sentinel may already be
-  // inside the IntersectionObserver's rootMargin zone, so no new IO event fires.
-  // Manually call loadMore whenever the pool grows and the sentinel is still visible.
-  const prevTotalRef = useRef(0);
-  useEffect(() => {
-    if (totalLoaded <= prevTotalRef.current) return;
-    prevTotalRef.current = totalLoaded;
-    if (!hasMore || view !== 'feed') return;
-    const sentinel = sentinelRef.current;
-    if (!sentinel) return;
-    const rect = sentinel.getBoundingClientRect();
-    if (rect.top <= window.innerHeight + 600) {
-      onLoadMore();
-    }
-  }, [totalLoaded, hasMore, view, onLoadMore]);
+  const { sentinelRef } = useInfiniteScrollSentinel(onLoadMore, view, totalLoaded, hasMore);
 
 
   const filteredArticles = useMemo(() => {
