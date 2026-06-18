@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { DEFAULT_SOURCES } from '../../services/newsService';
+
+const IMPORT_STATUS_RESET_MS = 3_000;
 import { isSourceEnabled } from '../../services/storage';
 import type { CustomSource, UserPrefs } from '../../types';
 import { TOPIC_META } from '../topicFilterUtils';
@@ -54,7 +56,7 @@ export function SourcesSection({
       const xml = ev.target?.result as string;
       const ok = onImportOPML(xml);
       setImportStatus(ok ? 'ok' : 'error');
-      if (ok) scheduleStatusReset(() => setImportStatus('idle'), 3000);
+      if (ok) scheduleStatusReset(() => setImportStatus('idle'), IMPORT_STATUS_RESET_MS);
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -68,7 +70,7 @@ export function SourcesSection({
       const html = ev.target?.result as string;
       const ok = onImportBookmarks(html);
       setBmImportStatus(ok ? 'ok' : 'error');
-      if (ok) scheduleStatusReset(() => setBmImportStatus('idle'), 3000);
+      if (ok) scheduleStatusReset(() => setBmImportStatus('idle'), IMPORT_STATUS_RESET_MS);
     };
     reader.readAsText(file);
     e.target.value = '';

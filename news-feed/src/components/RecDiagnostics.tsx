@@ -1,4 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+
+const COPY_FEEDBACK_MS = 2_000;
 import { loadRecStats } from '../services/recStats';
 import {
   fetchRecArticles,
@@ -54,7 +56,7 @@ function RecUserIdBar({ userId }: { userId: string | null | undefined }) {
     try {
       await navigator.clipboard.writeText(userId);
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      window.setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
     } catch {
       /* clipboard unavailable */
     }

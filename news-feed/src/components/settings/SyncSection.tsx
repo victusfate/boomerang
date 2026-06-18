@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
+
+const COPY_FEEDBACK_MS = 2_000;
 import type { MetaStatus } from '../../hooks/useMetaWorker';
 import type { SyncErrorDetails } from '../../hooks/useSyncWorker';
 import { timeAgo } from '../../services/timeAgo';
@@ -61,7 +63,7 @@ export function SyncSection({
     try {
       await navigator.clipboard.writeText(syncUrl);
       setCopied(true);
-      statusTimersRef.current.push(window.setTimeout(() => setCopied(false), 2000));
+      statusTimersRef.current.push(window.setTimeout(() => setCopied(false), COPY_FEEDBACK_MS));
     } catch {
       // fallback: select the text
     }
