@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { Article, UserPrefs } from '../types';
 import { TOPIC_META } from './topicFilterUtils';
 import { CardScoreBadge } from './CardScoreBadge';
+import { TagEditor }      from './TagEditor';
+import { DownvotedCard }  from './DownvotedCard';
+import { useArticleDwell } from '../hooks/useArticleDwell';
 import type { FeedScoreInsight } from '../services/feedScoreBreakdown';
 import { timeAgo } from '../services/timeAgo';
 import { normalizeArticleNavUrl } from '../services/articleNavUrl';
-
-/** ms the card must be ≥50% visible before it counts as "seen" */
-const DWELL_MS = 3_000;
 
 interface Props {
   article: Article;
@@ -72,41 +72,12 @@ export function ArticleCard({
   // Prefer RSS image; if it fails fall back to og:image from batch hook
   const imageUrl = imgFailed ? (ogImageUrl ?? undefined) : (article.imageUrl ?? ogImageUrl ?? undefined);
 
-  const [addingTag, setAddingTag] = useState(false);
-  const [newTagText, setNewTagText] = useState('');
   const uniqueLabelNames = useMemo(
     () => Array.from(new Set(articleLabelNames)),
     [articleLabelNames],
   );
 
-  const commitNewTag = useCallback(() => {
-    const v = newTagText.trim();
-    if (v && onAddManualTag) onAddManualTag(article.id, v);
-    setNewTagText('');
-    setAddingTag(false);
-  }, [newTagText, onAddManualTag, article.id]);
-
-  const handleTagInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') { e.preventDefault(); commitNewTag(); }
-    if (e.key === 'Escape') { setNewTagText(''); setAddingTag(false); }
-  };
-
-  // Mark as seen after DWELL_MS of ≥50% visibility
-  useEffect(() => {
-    if (!onSeen) return;
-    const el = cardRef.current;
-    if (!el) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) {
-        if (!timer) timer = setTimeout(() => { onSeen(article.id); timer = null; }, DWELL_MS);
-      } else {
-        if (timer) { clearTimeout(timer); timer = null; }
-      }
-    }, { threshold: 0.5 });
-    observer.observe(el);
-    return () => { observer.disconnect(); if (timer) clearTimeout(timer); };
-  }, [article.id, onSeen]); // cardRef is stable — excluded intentionally
+  useArticleDwell(article.id, cardRef, onSeen);
 
   /** Defer prefs so re-rank does not cancel navigation. */
   const deferMarkOpen = () => { window.setTimeout(() => onOpen(article), 0); };
@@ -120,40 +91,19 @@ export function ArticleCard({
     deferMarkOpen();
   };
 
-  // ── Collapsed view for downvoted articles ─────────────────────────────────────
   if (votedDown) {
     return (
-      <article
-        className={`card card-downvoted${animateEnter ? ' card-enter' : ''}`}
-        ref={cardRef as React.RefObject<HTMLElement>}
-      >
-        <div className="card-body card-body-collapsed">
-          <div className="card-collapsed-row">
-            <span className="card-source card-source-muted">{article.source}</span>
-            <a
-              href={navUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="card-collapsed-title"
-              onClick={handleArticleNavClick}
-            >
-              {article.title}
-            </a>
-            <button
-              className="btn-vote btn-downvote active"
-              onClick={() => onDownvote(article)}
-              aria-label="Remove downvote"
-              title="Show again"
-            >
-              ▼
-            </button>
-          </div>
-        </div>
-      </article>
+      <DownvotedCard
+        article={article}
+        animateEnter={animateEnter}
+        navUrl={navUrl}
+        cardRef={cardRef}
+        onDownvote={onDownvote}
+        onArticleNavClick={handleArticleNavClick}
+      />
     );
   }
 
-  // ── Normal card ───────────────────────────────────────────────────────────────
   return (
     <article className={`card${animateEnter ? ' card-enter' : ''}`} ref={cardRef as React.RefObject<HTMLElement>}>
       {imageUrl && (
@@ -197,41 +147,12 @@ export function ArticleCard({
         </div>
 
         {(uniqueLabelNames.length > 0 || onAddManualTag) && (
-          <div className="label-badges">
-            {uniqueLabelNames.map(name => (
-              <span key={name} className="label-badge">
-                {name}
-                {onRemoveManualTag && (
-                  <button
-                    className="label-badge-remove"
-                    onClick={(e) => { e.stopPropagation(); onRemoveManualTag(article.id, name); }}
-                    aria-label={`Remove tag ${name}`}
-                  >×</button>
-                )}
-              </span>
-            ))}
-            {onAddManualTag && (
-              addingTag ? (
-                <input
-                  className="label-badge-input"
-                  value={newTagText}
-                  onChange={e => setNewTagText(e.target.value)}
-                  onBlur={commitNewTag}
-                  onKeyDown={handleTagInputKeyDown}
-                  placeholder="tag…"
-                  autoFocus
-                  maxLength={30}
-                />
-              ) : (
-                <button
-                  className="label-badge-add"
-                  onClick={() => setAddingTag(true)}
-                  aria-label="Add tag"
-                  title="Add tag"
-                >+</button>
-              )
-            )}
-          </div>
+          <TagEditor
+            articleId={article.id}
+            uniqueLabelNames={uniqueLabelNames}
+            onAddManualTag={onAddManualTag}
+            onRemoveManualTag={onRemoveManualTag}
+          />
         )}
 
         <a
