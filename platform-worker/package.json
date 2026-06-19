@@ -13,7 +13,7 @@
     "test:integration": "node scripts/integration-test.mjs"
   },
   "dependencies": {
-    "@victusfate/ricochet": "github:victusfate/ricochet#cea561ba8595bd049d14fa4700588864b74675eb",
+    "@victusfate/ricochet": "github:victusfate/ricochet",
     "fast-xml-parser": "^5.7.2",
     "html-entities": "^2.6.0"
   },
@@ -28,6 +28,6 @@
     "fsevents@2.3.3": true,
     "sharp@0.34.5": true,
     "workerd@1.20260526.1": true,
-    "github:victusfate/ricochet#cea561ba8595bd049d14fa4700588864b74675eb": true
+    "github:victusfate/ricochet#9b5f23a2f6f3051608001a0b66b3f7a983fbbc31": true
   }
 }
