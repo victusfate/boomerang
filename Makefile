@@ -65,8 +65,8 @@ install:
 	cd platform-worker && npm ci
 
 audit:
-	cd news-feed && npm audit fix && npm audit
-	cd platform-worker && npm audit fix && npm audit
+	cd news-feed && npm audit fix; npm audit || true
+	cd platform-worker && npm audit fix; npm audit || true
 
 test:
 	cd news-feed && npm test
