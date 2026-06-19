@@ -13,6 +13,8 @@ const LS_SRC_CACHE  = 'rec:article-source-cache:v1';
 const MAX_SRC_CACHE = 500;
 
 type SourceEntry = { sourceId: string; topics: string[] };
+type PendingEvent = { articleId: string; action: 'save' | 'upvote' | 'downvote' | 'read'; ts: number };
+type ResolvedEvent = { articleId: string; sourceId: string; topics: string[]; action: string; ts: number };
 
 const SOURCE_TOPIC_MAP = new Map<string, string[]>(
   DEFAULT_SOURCES.map(s => [s.id, [s.category]]),
@@ -88,14 +90,15 @@ export function useRecHistoryReplay(
       return;
     }
 
-    void (async () => {
+    const userId = recUserId; // narrowed to string by the guard above
+
+    async function runReplay() {
       const p = prefsRef.current;
       const articleById = new Map<string, Article>();
       for (const a of allArticlesRef.current)   articleById.set(a.id, a);
       for (const a of savedArticlesRef.current)  articleById.set(a.id, a);
 
       const now = Date.now();
-      type PendingEvent = { articleId: string; action: 'save' | 'upvote' | 'downvote' | 'read'; ts: number };
       const pending: PendingEvent[] = [];
       const seen = new Set<string>();
 
@@ -118,7 +121,6 @@ export function useRecHistoryReplay(
 
       const capped = pending.slice(0, MAX_REPLAY_IDS);
       const sourceCache = loadSourceCache(); // synchronous localStorage read
-      type ResolvedEvent = { articleId: string; sourceId: string; topics: string[]; action: string; ts: number };
       const resolved: ResolvedEvent[] = [];
       const needsKvFetch: string[] = [];
 
@@ -177,9 +179,11 @@ export function useRecHistoryReplay(
         ...summary,
       });
 
-      await postInteractions(PLATFORM_WORKER_URL, recUserId, resolved as Parameters<typeof postInteractions>[2]);
+      await postInteractions(PLATFORM_WORKER_URL, userId, resolved as Parameters<typeof postInteractions>[2]);
       lsSet(LS_REPLAY_AT, String(Date.now()));
       console.info('[rec] history replay: done');
-    })().catch((e) => { console.warn('[rec] history replay failed', e); });
+    }
+
+    void runReplay().catch((e) => { console.warn('[rec] history replay failed', e); });
   }, [recBootstrapDone, recUserId, articlesReady]);
 }

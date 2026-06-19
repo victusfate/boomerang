@@ -7,6 +7,10 @@ import type { UseFeedMetaCallbacks } from './useFeed';
 
 export const ARTICLE_TAGS_ID = 'ai-article-tags';
 
+const AI_MODEL_POLL_INTERVAL_MS = 5_000;
+const IDLE_CALLBACK_TIMEOUT_MS  = 5_000;
+const AI_TAGS_LOG_PREFIX        = '[AI Tags]';
+
 interface UseAiTaggingParams {
   allArticlesRef: MutableRefObject<Article[]>;
   articleTagsRef: MutableRefObject<ArticleTag[]>;
@@ -60,7 +64,7 @@ export function useAiTagging({
       }
     };
     void poll();
-    aiModelPollTimerRef.current = window.setInterval(() => { void poll(); }, 5000);
+    aiModelPollTimerRef.current = window.setInterval(() => { void poll(); }, AI_MODEL_POLL_INTERVAL_MS);
   }, [stopAiModelPolling, allArticlesRef]);
 
   // Cache-load, post-fetch, the model-ready poll, and the manual button can
@@ -69,17 +73,17 @@ export function useAiTagging({
 
   const scheduleTaggingPass = useCallback((articles: Article[]) => {
     if (!isPromptApiAvailable()) {
-      console.info('[AI Tags] schedule skipped — LanguageModel not available');
+      console.info(`${AI_TAGS_LOG_PREFIX} schedule skipped — LanguageModel not available`);
       return;
     }
     if (passInFlightRef.current) {
-      console.info('[AI Tags] schedule skipped — a pass is already running');
+      console.info(`${AI_TAGS_LOG_PREFIX} schedule skipped — a pass is already running`);
       return;
     }
-    const schedule: (cb: () => void) => void =
+    const schedule =
       typeof requestIdleCallback !== 'undefined'
-        ? (cb) => requestIdleCallback(() => cb(), { timeout: 5000 })
-        : (cb) => setTimeout(cb, 0);
+        ? (cb: () => void) => requestIdleCallback(() => cb(), { timeout: IDLE_CALLBACK_TIMEOUT_MS })
+        : (cb: () => void) => setTimeout(cb, 0);
 
     passInFlightRef.current = true;
     schedule(() => {
@@ -93,12 +97,12 @@ export function useAiTagging({
           return ra - rb;
         });
 
-        console.info('[AI Tags] idle run start', { inputArticles: sortedArticles.length });
+        console.info(AI_TAGS_LOG_PREFIX + ' idle run start', { inputArticles: sortedArticles.length });
 
         const existing = articleTagsRef.current;
         const toTag = sortedArticles.filter(a => !existing.some(t => t.articleId === a.id));
         if (toTag.length === 0) {
-          console.info('[AI Tags] skip — nothing new to tag', {
+          console.info(AI_TAGS_LOG_PREFIX + ' skip — nothing new to tag', {
             inputArticles: sortedArticles.length,
             storedTagRows: existing.length,
           });
@@ -155,14 +159,14 @@ export function useAiTagging({
             },
           });
         } catch (e) {
-          console.error('[AI Tags] pass threw', e);
+          console.error(AI_TAGS_LOG_PREFIX + ' pass threw', e);
           const msg = e instanceof Error ? e.message : String(e);
           if (
             msg.includes('service is not running')
             || (typeof DOMException !== 'undefined' && e instanceof DOMException && e.name === 'NotAllowedError')
           ) {
             console.info(
-              '[AI Tags] On-device AI may be stopped or still downloading. Check chrome://on-device-internals, flags in https://developer.chrome.com/docs/ai/get-started — first create() may need a recent user gesture.',
+              AI_TAGS_LOG_PREFIX + ' On-device AI may be stopped or still downloading. Check chrome://on-device-internals, flags in https://developer.chrome.com/docs/ai/get-started — first create() may need a recent user gesture.',
             );
           }
           setTaggingArticleId(null);
@@ -172,7 +176,7 @@ export function useAiTagging({
         setTaggingArticleId(null);
         metaCallbacks?.endTaggingPass();
         const idleMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - idleT0);
-        console.info('[AI Tags] idle run finished', {
+        console.info(AI_TAGS_LOG_PREFIX + ' idle run finished', {
           tagged: done,
           expected: toTag.length,
           wallMsFromIdleStart: idleMs,
@@ -195,6 +199,8 @@ export function useAiTagging({
     schedulePassRef.current([...allArticlesRef.current]);
   }, [allArticlesRef]);
 
+  // Unmount-only cleanup — stopAiModelPolling is a stable useCallback([]); no deps needed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => () => stopAiModelPolling(), []);
 
   return {

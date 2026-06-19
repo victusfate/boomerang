@@ -28,6 +28,6 @@
     "fsevents@2.3.3": true,
     "sharp@0.34.5": true,
     "workerd@1.20260526.1": true,
-    "github:victusfate/ricochet#cd06ce915543d7944940730d5e7610e32f741bfe": true
+    "github:victusfate/ricochet#9b5f23a2f6f3051608001a0b66b3f7a983fbbc31": true
   }
 }

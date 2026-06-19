@@ -1,12 +1,18 @@
 import { isPromptApiAvailable } from './labelClassifier.ts';
 import type { Article, UserPrefs } from '../types';
 
+const MAX_LABEL_LENGTH    = 60;
+const MAX_LABELS_RETURNED = 5;
+const TOPIC_BOOST_THRESHOLD = 1.2; // minimum learned weight to surface a topic as a suggestion
+const MAX_TOP_KEYWORDS    = 15;
+const MAX_UPVOTED_TITLES  = 10;
+
 export function parseLabels(text: string): string[] {
   return text
     .split('\n')
     .map(l => l.trim().replace(/^[-*•\d.]+\s*/, ''))
-    .filter(l => l.length > 0 && l.length <= 60)
-    .slice(0, 5);
+    .filter(l => l.length > 0 && l.length <= MAX_LABEL_LENGTH)
+    .slice(0, MAX_LABELS_RETURNED);
 }
 
 export async function suggestLabels(
@@ -16,20 +22,20 @@ export async function suggestLabels(
   if (!isPromptApiAvailable()) return [];
 
   const topTopics = Object.entries(prefs.topicWeights)
-    .filter(([, w]) => w > 1.2)
+    .filter(([, w]) => w > TOPIC_BOOST_THRESHOLD)
     .map(([t]) => t)
     .join(', ') || 'general';
 
   const topKeywords = Object.entries(prefs.keywordWeights)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 15)
+    .slice(0, MAX_TOP_KEYWORDS)
     .map(([k]) => k)
     .join(', ');
 
   const upvotedSet = new Set(prefs.upvotedIds);
   const upvotedTitles = articles
     .filter(a => upvotedSet.has(a.id))
-    .slice(0, 10)
+    .slice(0, MAX_UPVOTED_TITLES)
     .map(a => a.title)
     .join('\n');
 

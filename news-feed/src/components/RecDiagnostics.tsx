@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { loadRecStats, engagementScore, ACTION_WEIGHT, type ActionCounts } from '../services/recStats';
+import { loadRecStats } from '../services/recStats';
 import {
   fetchRecArticles,
   fetchRecDiagnostics,
@@ -8,31 +8,14 @@ import {
   type RecResponseWithScores,
 } from '../services/recWorker';
 import { PLATFORM_WORKER_URL } from '../config/workerEnv';
-import { articleCatalogMissingTitleLabel } from '../../../shared/articleRecordCatalog.ts';
-import { TOPIC_META } from './topicFilterUtils';
 import type { RecStatus } from '../hooks/useRecWorker';
-import type { Topic } from '../types';
+import { RecModelInfo }  from './rec/RecModelInfo';
+import { RecTraceView, buildSourceEntries, buildTopicEntries, buildTagEntries } from './rec/RecTraceView';
+import { RecScoreTable } from './rec/RecScoreTable';
+
+const COPY_FEEDBACK_MS = 2_000;
 
 const TOP_N = 25;
-
-const ACTION_ORDER = ['save', 'upvote', 'read', 'seen', 'downvote'] as const;
-type Action = typeof ACTION_ORDER[number];
-
-const ACTION_COLOR: Record<Action, string> = {
-  save:     '#6c63ff',
-  upvote:   '#4caf50',
-  read:     '#4a9eff',
-  seen:     '#555',
-  downvote: '#f44336',
-};
-
-const ACTION_LABEL: Record<Action, string> = {
-  save:     'saved',
-  upvote:   '↑',
-  read:     'read',
-  seen:     'seen',
-  downvote: '↓',
-};
 
 interface Props {
   recUserId?: string | null;
@@ -54,10 +37,6 @@ interface DiagData {
   debug: RecDebugInfo | null;
 }
 
-function counts(c: ActionCounts, action: Action): number {
-  return (c as Record<string, number>)[action] ?? 0;
-}
-
 function formatModelAge(generatedAt: number | null): string {
   if (!generatedAt) return 'unknown';
   const deltaMs = Date.now() - generatedAt;
@@ -77,7 +56,7 @@ function RecUserIdBar({ userId }: { userId: string | null | undefined }) {
     try {
       await navigator.clipboard.writeText(userId);
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      window.setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
     } catch {
       /* clipboard unavailable */
     }
@@ -117,84 +96,6 @@ function RecUserIdBar({ userId }: { userId: string | null | undefined }) {
   );
 }
 
-function SourceRow({ name, c, score, maxScore }: {
-  name: string;
-  c: ActionCounts;
-  score: number;
-  maxScore: number;
-}) {
-  const barPct = maxScore > 0 ? Math.abs(score) / maxScore * 100 : 0;
-  const isNeg  = score < 0;
-
-  const chips = ACTION_ORDER.filter(a => counts(c, a) > 0);
-
-  return (
-    <div className="rec-source-row">
-      <div className="rec-source-header">
-        <span className="rec-source-name" title={name}>{name}</span>
-        <span className={`rec-source-score${isNeg ? ' rec-source-score--neg' : ''}`}>
-          {score > 0 ? '+' : ''}{score.toFixed(1)}
-        </span>
-      </div>
-      <div className="rec-source-track">
-        {isNeg ? (
-          <div className="rec-source-fill-neg" style={{ width: `${barPct}%` }} />
-        ) : (
-          <div className="rec-source-fill-stack" style={{ width: `${barPct}%` }}>
-            {(() => {
-              // Divide by the positive-contribution sum, not the net score —
-              // with downvotes (negative weight) segments summed past 100%.
-              const positiveTotal = ACTION_ORDER.reduce((sum, action) => {
-                const contribution = counts(c, action) * (ACTION_WEIGHT[action] ?? 0);
-                return contribution > 0 ? sum + contribution : sum;
-              }, 0);
-              return ACTION_ORDER.map(action => {
-              const n = counts(c, action);
-              const weight = ACTION_WEIGHT[action] ?? 0;
-              const contribution = n * weight;
-              if (contribution <= 0) return null;
-              const segPct = positiveTotal > 0 ? contribution / positiveTotal * 100 : 0;
-              return (
-                <div
-                  key={action}
-                  className="rec-source-segment"
-                  style={{ width: `${segPct}%`, background: ACTION_COLOR[action] }}
-                  title={`${action} ×${n} → +${contribution.toFixed(1)} pts`}
-                />
-              );
-              });
-            })()}
-          </div>
-        )}
-      </div>
-      {chips.length > 0 && (
-        <div className="rec-source-chips">
-          {chips.map(action => (
-            <span key={action} className="rec-source-chip" style={{ color: ACTION_COLOR[action] }}>
-              {counts(c, action)} {ACTION_LABEL[action]}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TopicBar({ label, color, score, maxScore }: {
-  label: string; color?: string; score: number; maxScore: number;
-}) {
-  const pct = maxScore > 0 ? Math.max(0, score / maxScore) * 100 : 0;
-  return (
-    <div className="rec-topic-row">
-      <span className="rec-topic-name">{label}</span>
-      <div className="rec-topic-track">
-        <div className="rec-topic-fill" style={{ width: `${pct}%`, background: color ?? 'var(--accent)' }} />
-      </div>
-      <span className="rec-topic-score">{score.toFixed(1)}</span>
-    </div>
-  );
-}
-
 export function RecDiagnostics({
   recUserId,
   recArticleIds,
@@ -214,7 +115,7 @@ export function RecDiagnostics({
   const [error, setError]     = useState<string | null>(null);
   const [lookupTitleById, setLookupTitleById] = useState<Record<string, string>>({});
   const [lookupCoverage, setLookupCoverage] = useState<Pick<RecArticlesResponse, 'found' | 'requested' | 'missing' | 'timingMs'> | null>(null);
-  const settledLookupIdsRef = useRef(new Set<string>());
+  const settledLookupIdsRef  = useRef(new Set<string>());
   const inFlightLookupKeyRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
@@ -235,20 +136,14 @@ export function RecDiagnostics({
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const topRated = useMemo(() => {
     if (recScoredArticles.length > 0) {
       return [...recScoredArticles]
         .sort((a, b) => b.score - a.score || a.articleId.localeCompare(b.articleId))
         .slice(0, TOP_N)
-        .map((row, idx) => ({
-          id: row.articleId,
-          rank: idx + 1,
-          score: row.score,
-        }));
+        .map((row, idx) => ({ id: row.articleId, rank: idx + 1, score: row.score }));
     }
     return recArticleIds
       .map(id => ({ id, score: recScoreById[id] }))
@@ -259,10 +154,7 @@ export function RecDiagnostics({
       .map((row, idx) => ({ ...row, rank: idx + 1 }));
   }, [recScoredArticles, recArticleIds, recScoreById]);
 
-  const titleLookupKey = useMemo(
-    () => topRated.map(r => r.id).join(','),
-    [topRated],
-  );
+  const titleLookupKey = useMemo(() => topRated.map(r => r.id).join(','), [topRated]);
 
   useEffect(() => {
     if (!titleLookupKey || !PLATFORM_WORKER_URL) return;
@@ -302,54 +194,44 @@ export function RecDiagnostics({
   }, [titleLookupKey, getArticleTitle, lookupTitleById]);
 
   const scoreValues = topRated.map(e => e.score);
-  const minScore = scoreValues.length > 0 ? Math.min(...scoreValues) : 0;
-  const maxScore = scoreValues.length > 0 ? Math.max(...scoreValues) : 1;
-  const scoreSpan = maxScore - minScore;
-
-  const statusDot = recStatus === 'active' ? 'active' : recStatus === 'error' ? 'error' : 'idle';
-  const coldLabel = recModelDiagnostics?.coldStart ? ' · cold start' : '';
-
-  const previewIds = topRated.map(entry => entry.id);
-  const resolvedTitleCount = previewIds.filter(
-    id => Boolean(getArticleTitle(id) || lookupTitleById[id]),
-  ).length;
-  const titleLookupHint = lookupCoverage
-    ? `Resolved ${resolvedTitleCount}/${previewIds.length} titles`
-      + (lookupCoverage.missing.length > 0 ? ` (${lookupCoverage.missing.length} missing)` : '')
-      + (lookupCoverage.timingMs ? ` · ${Math.round(lookupCoverage.timingMs.total)}ms` : '')
-    : previewIds.length > 0
-      ? `Resolved ${resolvedTitleCount}/${previewIds.length} titles`
-      : null;
+  const minScore    = scoreValues.length > 0 ? Math.min(...scoreValues) : 0;
+  const maxScore    = scoreValues.length > 0 ? Math.max(...scoreValues) : 1;
+  const scoreSpan   = maxScore - minScore;
 
   const { sourceEntries, topicEntries, tagEntries, maxSource, maxTopic, maxTag } = useMemo(() => {
     if (!data) {
       return {
-        sourceEntries: [] as { id: string; name: string; c: ActionCounts; score: number }[],
-        topicEntries: [] as { topic: string; score: number }[],
-        tagEntries: [] as { tag: string; score: number }[],
+        sourceEntries: [] as ReturnType<typeof buildSourceEntries>,
+        topicEntries:  [] as { topic: string; score: number }[],
+        tagEntries:    [] as { tag: string; score: number }[],
         maxSource: 1, maxTopic: 1, maxTag: 1,
       };
     }
-    const sourceEntries = Object.entries(data.stats.sources)
-      .map(([id, c]) => ({ id, name: getSourceName(id), c, score: engagementScore(c) }))
-      .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
-      .slice(0, 12);
-    const topicEntries = Object.entries(data.stats.topics)
-      .map(([topic, c]) => ({ topic, score: engagementScore(c) }))
-      .filter(e => e.score > 0)
-      .sort((a, b) => b.score - a.score);
-    const tagEntries = Object.entries(data.stats.tags ?? {})
-      .map(([tag, c]) => ({ tag, score: engagementScore(c) }))
-      .filter(e => e.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 12);
+    const se = buildSourceEntries(data.stats.sources, getSourceName);
+    const te = buildTopicEntries(data.stats.topics);
+    const ue = buildTagEntries(data.stats.tags);
     return {
-      sourceEntries, topicEntries, tagEntries,
-      maxSource: sourceEntries[0] ? Math.abs(sourceEntries[0].score) : 1,
-      maxTopic: topicEntries[0]?.score || 1,
-      maxTag: tagEntries[0]?.score || 1,
+      sourceEntries: se, topicEntries: te, tagEntries: ue,
+      maxSource: se[0] ? Math.abs(se[0].score) : 1,
+      maxTopic:  te[0]?.score || 1,
+      maxTag:    ue[0]?.score || 1,
     };
   }, [data, getSourceName]);
+
+  const topRatedIds = topRated.map(e => e.id);
+  const resolvedTitleCount = topRatedIds.filter(
+    id => Boolean(getArticleTitle(id) || lookupTitleById[id]),
+  ).length;
+  const titleLookupHint = lookupCoverage
+    ? `Resolved ${resolvedTitleCount}/${topRatedIds.length} titles`
+      + (lookupCoverage.missing.length > 0 ? ` (${lookupCoverage.missing.length} missing)` : '')
+      + (lookupCoverage.timingMs ? ` · ${Math.round(lookupCoverage.timingMs.total)}ms` : '')
+    : topRatedIds.length > 0
+      ? `Resolved ${resolvedTitleCount}/${topRatedIds.length} titles`
+      : null;
+
+  const statusDot  = recStatus === 'active' ? 'active' : recStatus === 'error' ? 'error' : 'idle';
+  const coldLabel  = recModelDiagnostics?.coldStart ? ' · cold start' : '';
 
   if (loading && !data) {
     return (
@@ -401,211 +283,45 @@ export function RecDiagnostics({
           <span className="settings-hint" style={{ margin: 0 }}>
             Model {formatModelAge(recGeneratedAt)}
           </span>
-          <button type="button" className="rec-diag-reload" onClick={() => { void load(); }} title="Refresh local stats &amp; model info" disabled={loading}>
+          <button
+            type="button"
+            className="rec-diag-reload"
+            onClick={() => { void load(); }}
+            title="Refresh local stats &amp; model info"
+            disabled={loading}
+          >
             ↺
           </button>
         </div>
 
-        {(recModelDiagnostics || recCacheInfo || recTimingMs || recTrace) && (
-          <>
-            <p className="rec-chart-title" style={{ marginTop: 16 }}>CF request</p>
-            <div className="rec-observability-grid">
-              {recModelDiagnostics && (
-                <>
-                  <div className="rec-observability-item">
-                    <span className="rec-observability-label">model</span>
-                    <span className="rec-observability-value">{recModelDiagnostics.modelVersion}</span>
-                  </div>
-                  <div className="rec-observability-item">
-                    <span className="rec-observability-label">candidates</span>
-                    <span className="rec-observability-value">{recModelDiagnostics.candidateCount}</span>
-                  </div>
-                  <div className="rec-observability-item">
-                    <span className="rec-observability-label">ranked</span>
-                    <span className="rec-observability-value">{recModelDiagnostics.rankedCount}</span>
-                  </div>
-                  <div className="rec-observability-item">
-                    <span className="rec-observability-label">excluded downvotes</span>
-                    <span className="rec-observability-value">{recModelDiagnostics.excludedDownvotes}</span>
-                  </div>
-                  <div className="rec-observability-item">
-                    <span className="rec-observability-label">cold start</span>
-                    <span className="rec-observability-value">{recModelDiagnostics.coldStart ? 'yes' : 'no'}</span>
-                  </div>
-                </>
-              )}
-              {recCacheInfo && (
-                <>
-                  <div className="rec-observability-item">
-                    <span className="rec-observability-label">cache</span>
-                    <span className="rec-observability-value">{recCacheInfo.status}</span>
-                  </div>
-                  <div className="rec-observability-item">
-                    <span className="rec-observability-label">cache age</span>
-                    <span className="rec-observability-value">{recCacheInfo.ageSec}s</span>
-                  </div>
-                </>
-              )}
-              {recTimingMs && (
-                <>
-                  <div className="rec-observability-item">
-                    <span className="rec-observability-label">total</span>
-                    <span className="rec-observability-value">{recTimingMs.total.toFixed(1)}ms</span>
-                  </div>
-                  <div className="rec-observability-item">
-                    <span className="rec-observability-label">do fetch</span>
-                    <span className="rec-observability-value">{recTimingMs.doFetch.toFixed(1)}ms</span>
-                  </div>
-                </>
-              )}
-              {recTrace && (
-                <div className="rec-observability-item rec-observability-item--wide">
-                  <span className="rec-observability-label">request id</span>
-                  <span className="rec-observability-value rec-observability-mono">{recTrace.requestId}</span>
-                </div>
-              )}
-            </div>
-          </>
-        )}
+        <RecModelInfo
+          recModelDiagnostics={recModelDiagnostics}
+          recCacheInfo={recCacheInfo}
+          recTimingMs={recTimingMs}
+          recTrace={recTrace}
+        />
 
-        {sourceEntries.length > 0 ? (
-          <>
-            <p className="rec-chart-title" style={{ marginTop: 16 }}>Source engagement</p>
-            <div className="rec-source-legend">
-              {ACTION_ORDER.filter(a => a !== 'seen').map(a => (
-                <span key={a} className="rec-legend-item">
-                  <span className="rec-legend-dot" style={{ background: ACTION_COLOR[a] }} />
-                  {a}
-                </span>
-              ))}
-            </div>
-            <div className="rec-source-list">
-              {sourceEntries.map(({ id, name, c, score }) => (
-                <SourceRow key={id} name={name} c={c} score={score} maxScore={maxSource} />
-              ))}
-            </div>
-          </>
-        ) : data && (
-          <p className="settings-hint" style={{ marginTop: 12 }}>
-            No interaction data yet — read, save, or vote on articles to build your source profile.
-          </p>
-        )}
+        <RecTraceView
+          sourceEntries={sourceEntries}
+          topicEntries={topicEntries}
+          tagEntries={tagEntries}
+          maxSource={maxSource}
+          maxTopic={maxTopic}
+          maxTag={maxTag}
+          debug={data?.debug ?? null}
+          hasData={Boolean(data)}
+        />
 
-        {topicEntries.length > 0 && (
-          <>
-            <p className="rec-chart-title" style={{ marginTop: 16 }}>Topic affinity</p>
-            <div className="rec-topic-list">
-              {topicEntries.map(({ topic, score }) => (
-                <TopicBar
-                  key={topic}
-                  label={TOPIC_META[topic as Topic]?.label ?? topic}
-                  color={TOPIC_META[topic as Topic]?.color}
-                  score={score}
-                  maxScore={maxTopic}
-                />
-              ))}
-            </div>
-          </>
-        )}
-
-        {tagEntries.length > 0 && (
-          <>
-            <p className="rec-chart-title" style={{ marginTop: 16 }}>Tag affinity</p>
-            <div className="rec-topic-list">
-              {tagEntries.map(({ tag, score }) => (
-                <TopicBar
-                  key={tag}
-                  label={tag}
-                  score={score}
-                  maxScore={maxTag}
-                />
-              ))}
-            </div>
-          </>
-        )}
-
-        {data?.debug && (
-          <>
-            <p className="rec-chart-title" style={{ marginTop: 16 }}>Model stats (worker)</p>
-            <div className="rec-stat-grid">
-              <div className="rec-stat-card">
-                <div className="rec-stat-value">{data.debug.interactionsCount.count.toLocaleString()}</div>
-                <div className="rec-stat-label">interactions</div>
-              </div>
-              <div className="rec-stat-card">
-                <div className="rec-stat-value">{data.debug.userFactorsCount.count.toLocaleString()}</div>
-                <div className="rec-stat-label">users</div>
-              </div>
-              <div className="rec-stat-card">
-                <div className="rec-stat-value">{data.debug.itemFactorsCount.count.toLocaleString()}</div>
-                <div className="rec-stat-label">items</div>
-              </div>
-              <div className="rec-stat-card">
-                <div className="rec-stat-value">{data.debug.globalState.mean.toFixed(3)}</div>
-                <div className="rec-stat-label">global mean</div>
-              </div>
-            </div>
-            {data.debug.kvCounters && (
-              <>
-                <p className="rec-chart-title" style={{ marginTop: 12 }}>KV quota (isolate)</p>
-                <div className="rec-stat-grid">
-                  <div className="rec-stat-card">
-                    <div className="rec-stat-value">{data.debug.kvCounters.reads.toLocaleString()}</div>
-                    <div className="rec-stat-label">KV reads</div>
-                  </div>
-                  <div className="rec-stat-card">
-                    <div className="rec-stat-value">{data.debug.kvCounters.writes.toLocaleString()}</div>
-                    <div className="rec-stat-label">KV writes</div>
-                  </div>
-                  <div className="rec-stat-card">
-                    <div className="rec-stat-value">{data.debug.kvCounters.memHits.toLocaleString()}</div>
-                    <div className="rec-stat-label">mem hits</div>
-                  </div>
-                </div>
-              </>
-            )}
-          </>
-        )}
-
-        {topRated.length > 0 ? (
-          <>
-            <p className="rec-chart-title" style={{ marginTop: 16 }}>Top collaborative scores</p>
-            <p className="settings-hint" style={{ marginBottom: 4 }}>
-              MF scores from your current feed pool. Feed tab shows per-card <strong>feed score</strong> (recency × diversity × boost).
-              {titleLookupHint ? ` ${titleLookupHint}.` : ''}
-            </p>
-            <div className="rec-cf-list">
-              {topRated.map(entry => {
-                const pct = scoreSpan <= 1e-9
-                  ? 100
-                  : ((entry.score - minScore) / scoreSpan) * 100;
-                const title = getArticleTitle(entry.id)
-                  ?? lookupTitleById[entry.id]
-                  ?? articleCatalogMissingTitleLabel();
-                return (
-                  <div key={entry.id} className="rec-cf-row">
-                    <div className="rec-cf-header">
-                      <span className="rec-cf-rank">#{entry.rank}</span>
-                      <span className="rec-cf-score">score({entry.score.toFixed(2)})</span>
-                    </div>
-                    <div className="rec-cf-title" title={title}>{title}</div>
-                    <div className="rec-cf-track">
-                      <div className="rec-cf-fill" style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        ) : (
-          <p className="settings-hint" style={{ marginTop: 16 }}>
-            {recStatus === 'error'
-              ? 'Could not load rankings — check the worker and try refreshing the feed.'
-              : recStatus === 'disabled'
-                ? 'Recommendations are disabled (missing worker URL).'
-                : 'No scores yet. Load the feed and interact with articles to train the model.'}
-          </p>
-        )}
+        <RecScoreTable
+          topRated={topRated}
+          minScore={minScore}
+          maxScore={maxScore}
+          scoreSpan={scoreSpan}
+          getArticleTitle={getArticleTitle}
+          lookupTitleById={lookupTitleById}
+          titleLookupHint={titleLookupHint}
+          recStatus={recStatus}
+        />
       </div>
 
       <RecUserIdBar userId={recUserId} />

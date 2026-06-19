@@ -40,6 +40,22 @@ const MAX_KEYWORDS = 500; // cap stored entries — evict lowest-magnitude on ov
 export const MAX_SEEN_IDS = 2_000; // keep only most-recent seen IDs
 export const MAX_READ_IDS = 1_000; // keep only most-recent read IDs
 
+const TOPIC_WEIGHT_MIN        = 0.1;
+const TOPIC_WEIGHT_MAX        = 3.0;
+const SOURCE_WEIGHT_MAX       = 3.0;
+const SOURCE_WEIGHT_MIN       = 0.1;
+const KEYWORD_WEIGHT_MAX      = 5.0;
+const KEYWORD_WEIGHT_MIN      = -5.0;
+const UPVOTE_TOPIC_DELTA      = 0.3;
+const UPVOTE_SOURCE_DELTA     = 0.2;
+const UPVOTE_KEYWORD_DELTA    = 0.4;
+const DOWNVOTE_TOPIC_DELTA    = 0.2;
+const DOWNVOTE_SOURCE_DELTA   = 0.15;
+const DOWNVOTE_KEYWORD_DELTA  = 0.3;
+const BOOST_TOPIC_DELTA       = 0.2;
+const DECAY_DRIFT_RATE        = 0.1;  // drift 10% toward neutral per decay cycle
+const KEYWORD_DECAY_FACTOR    = 0.85; // reduce keyword magnitude 15% per cycle
+
 export function extractKeywords(text: string): string[] {
   return [...new Set(
     text.toLowerCase()
@@ -103,7 +119,7 @@ export function boostTopic(topic: Topic, prefs: UserPrefs): UserPrefs {
   const current = prefs.topicWeights[topic] ?? 1.0;
   return {
     ...prefs,
-    topicWeights: { ...prefs.topicWeights, [topic]: Math.min(current + 0.2, 3.0) },
+    topicWeights: { ...prefs.topicWeights, [topic]: Math.min(current + BOOST_TOPIC_DELTA, TOPIC_WEIGHT_MAX) },
   };
 }
 
@@ -132,36 +148,50 @@ export function isTopicEnabled(topic: Topic, prefs: UserPrefs): boolean {
 
 // ── Vote actions ──────────────────────────────────────────────────────────────
 
+type VoteWeightUpdate = Pick<UserPrefs, 'topicWeights' | 'sourceWeights' | 'keywordWeights'>;
+
+interface VoteDeltas {
+  topicDelta: number;   topicBound: (v: number) => number;
+  sourceDelta: number;  sourceBound: (v: number) => number;
+  keywordDelta: number; keywordBound: (v: number) => number;
+}
+
+const UP_DELTAS: VoteDeltas = {
+  topicDelta:   UPVOTE_TOPIC_DELTA,   topicBound:   v => Math.min(v, TOPIC_WEIGHT_MAX),
+  sourceDelta:  UPVOTE_SOURCE_DELTA,  sourceBound:  v => Math.min(v, SOURCE_WEIGHT_MAX),
+  keywordDelta: UPVOTE_KEYWORD_DELTA, keywordBound: v => Math.min(v, KEYWORD_WEIGHT_MAX),
+};
+
+const DOWN_DELTAS: VoteDeltas = {
+  topicDelta:   -DOWNVOTE_TOPIC_DELTA,   topicBound:   v => Math.max(v, TOPIC_WEIGHT_MIN),
+  sourceDelta:  -DOWNVOTE_SOURCE_DELTA,  sourceBound:  v => Math.max(v, SOURCE_WEIGHT_MIN),
+  keywordDelta: -DOWNVOTE_KEYWORD_DELTA, keywordBound: v => Math.max(v, KEYWORD_WEIGHT_MIN),
+};
+
+function applyVoteWeights(article: Article, prefs: UserPrefs, d: VoteDeltas): VoteWeightUpdate {
+  const topicWeights = { ...prefs.topicWeights };
+  for (const t of article.topics) {
+    topicWeights[t] = d.topicBound((topicWeights[t] ?? 1.0) + d.topicDelta);
+  }
+  const sourceWeights = {
+    ...prefs.sourceWeights,
+    [article.sourceId]: d.sourceBound((prefs.sourceWeights[article.sourceId] ?? 1.0) + d.sourceDelta),
+  };
+  const keywordWeights = { ...prefs.keywordWeights };
+  for (const kw of extractKeywords(article.title + ' ' + article.description)) {
+    keywordWeights[kw] = d.keywordBound((keywordWeights[kw] ?? 0) + d.keywordDelta);
+  }
+  return { topicWeights, sourceWeights, keywordWeights: trimKeywords(keywordWeights) };
+}
+
 export function upvote(article: Article, prefs: UserPrefs): UserPrefs {
   // Toggle: clicking again removes the upvote (no weight reversal — weights are soft signals)
   if (prefs.upvotedIds.includes(article.id)) {
-    return {
-      ...prefs,
-      upvotedIds: prefs.upvotedIds.filter(id => id !== article.id),
-    };
+    return { ...prefs, upvotedIds: prefs.upvotedIds.filter(id => id !== article.id) };
   }
-
-  const topicWeights = { ...prefs.topicWeights };
-  for (const t of article.topics) {
-    topicWeights[t] = Math.min((topicWeights[t] ?? 1.0) + 0.3, 3.0);
-  }
-
-  const srcId = article.sourceId;
-  const sourceWeights = {
-    ...prefs.sourceWeights,
-    [srcId]: Math.min((prefs.sourceWeights[srcId] ?? 1.0) + 0.2, 3.0),
-  };
-
-  const keywordWeights = { ...prefs.keywordWeights };
-  for (const kw of extractKeywords(article.title + ' ' + article.description)) {
-    keywordWeights[kw] = Math.min((keywordWeights[kw] ?? 0) + 0.4, 5.0);
-  }
-
   return {
     ...prefs,
-    topicWeights,
-    sourceWeights,
-    keywordWeights: trimKeywords(keywordWeights),
+    ...applyVoteWeights(article, prefs, UP_DELTAS),
     upvotedIds:   [...prefs.upvotedIds, article.id],
     downvotedIds: prefs.downvotedIds.filter(id => id !== article.id),
   };
@@ -170,33 +200,11 @@ export function upvote(article: Article, prefs: UserPrefs): UserPrefs {
 export function downvote(article: Article, prefs: UserPrefs): UserPrefs {
   // Toggle: clicking again removes the downvote
   if (prefs.downvotedIds.includes(article.id)) {
-    return {
-      ...prefs,
-      downvotedIds: prefs.downvotedIds.filter(id => id !== article.id),
-    };
+    return { ...prefs, downvotedIds: prefs.downvotedIds.filter(id => id !== article.id) };
   }
-
-  const topicWeights = { ...prefs.topicWeights };
-  for (const t of article.topics) {
-    topicWeights[t] = Math.max((topicWeights[t] ?? 1.0) - 0.2, 0.1);
-  }
-
-  const srcId = article.sourceId;
-  const sourceWeights = {
-    ...prefs.sourceWeights,
-    [srcId]: Math.max((prefs.sourceWeights[srcId] ?? 1.0) - 0.15, 0.1),
-  };
-
-  const keywordWeights = { ...prefs.keywordWeights };
-  for (const kw of extractKeywords(article.title + ' ' + article.description)) {
-    keywordWeights[kw] = Math.max((keywordWeights[kw] ?? 0) - 0.3, -5.0);
-  }
-
   return {
     ...prefs,
-    topicWeights,
-    sourceWeights,
-    keywordWeights: trimKeywords(keywordWeights),
+    ...applyVoteWeights(article, prefs, DOWN_DELTAS),
     downvotedIds: [...prefs.downvotedIds, article.id],
     upvotedIds:   prefs.upvotedIds.filter(id => id !== article.id),
   };
@@ -213,17 +221,17 @@ export function applyDecay(prefs: UserPrefs): UserPrefs {
 
   const topicWeights: Partial<Record<Topic, number>> = {};
   for (const [t, w] of Object.entries(prefs.topicWeights) as [Topic, number][]) {
-    topicWeights[t] = w + (1.0 - w) * 0.1; // drift 10% back toward 1.0
+    topicWeights[t] = w + (1.0 - w) * DECAY_DRIFT_RATE;
   }
 
   const sourceWeights: Record<string, number> = {};
   for (const [src, w] of Object.entries(prefs.sourceWeights)) {
-    sourceWeights[src] = w + (1.0 - w) * 0.1; // drift 10% back toward 1.0
+    sourceWeights[src] = w + (1.0 - w) * DECAY_DRIFT_RATE;
   }
 
   const keywordWeights: Record<string, number> = {};
   for (const [kw, w] of Object.entries(prefs.keywordWeights)) {
-    keywordWeights[kw] = w * 0.85; // decay magnitude by 15%
+    keywordWeights[kw] = w * KEYWORD_DECAY_FACTOR;
   }
 
   return { ...prefs, topicWeights, sourceWeights, keywordWeights, lastDecayAt: Date.now() };
@@ -373,18 +381,19 @@ export function importOPML(xml: string, defaultSources: NewsSource[]): ImportedO
 
 // ── Browser bookmarks export / import ─────────────────────────────────────────
 
-/** Stable custom-source id from the feed URL — repeat imports stay idempotent. */
-export function customSourceIdFromUrl(url: string): string {
+function hashUrl(url: string): string {
   let h = 0;
   for (let i = 0; i < url.length; i++) { h = Math.imul(31, h) + url.charCodeAt(i) | 0; }
-  return `custom-${(h >>> 0).toString(36)}`;
+  return (h >>> 0).toString(36);
+}
+
+/** Stable custom-source id from the feed URL — repeat imports stay idempotent. */
+export function customSourceIdFromUrl(url: string): string {
+  return `custom-${hashUrl(url)}`;
 }
 
 function bmId(url: string): string {
-  // Stable ID derived from URL so re-imports don't duplicate
-  let h = 0;
-  for (let i = 0; i < url.length; i++) { h = Math.imul(31, h) + url.charCodeAt(i) | 0; }
-  return `bm-${(h >>> 0).toString(36)}`;
+  return `bm-${hashUrl(url)}`;
 }
 
 /** Export saved articles as a Netscape HTML bookmarks file. */

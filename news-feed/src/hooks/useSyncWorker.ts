@@ -1,26 +1,29 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Article, ArticleTag, LabelHit, UserPrefs } from '../types';
 import {
-  loadSyncRoom, saveSyncRoom, clearSyncRoom, parseSyncFragment,
   createSyncRoom, fetchMeta, pushMeta, deleteRoom,
-  buildSyncUrl, buildSyncFragment, buildPayload, mergePayload,
+  buildPayload, mergePayload,
   autoSyncCompareKey,
   autoSyncCompareKeyFromPushedJson,
-  migrateLegacySyncRoom,
   type SyncRoom,
 } from '../services/syncWorker';
 import { PLATFORM_WORKER_URL, MISSING_PLATFORM_WORKER_MSG } from '../config/workerEnv';
 import { syncDebugLog, isSyncDebugEnabled } from '../config/debugSync';
+import { useSyncRoom } from './useSyncRoom';
 
 
 const MANUAL_SYNC_COOLDOWN_MS = 15_000;
 const DIRTY_SYNC_DEBOUNCE_MS = 1_000;
 const RATE_LIMIT_BACKOFF_BASE_MS = 2_000;
 const RATE_LIMIT_BACKOFF_MAX_MS = 5 * 60_000;
+const COOLDOWN_TICK_MS = 500;
 const RELINK_REQUIRED_MESSAGE =
   'Sync link expired or is invalid. Local sync was disabled to stop retries. Generate a new sync link.';
 
 export type SyncStatus = 'idle' | 'active' | 'syncing' | 'error';
+
+type MergedState = { prefs: UserPrefs; articleTags: ArticleTag[]; labelHits: LabelHit[]; savedArticles: Article[] };
+type PollResult = { status: 'ok'; merged: MergedState | null } | { status: 'blocked' | 'rate_limited' };
 
 export interface SyncErrorDetails {
   phase: string;
@@ -57,12 +60,10 @@ export function useSyncWorker(
   }) => void,
   syncReady = true,
 ): UseSyncWorkerResult {
-  const [room, setRoom]         = useState<SyncRoom | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [syncedAt, setSyncedAt] = useState<Date | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncErrorDetails, setSyncErrorDetails] = useState<SyncErrorDetails | null>(null);
-  const [syncUrl, setSyncUrl]   = useState<string | null>(null);
   const [syncCooldownMs, setSyncCooldownMs] = useState(0);
   const [hasDirtyData, setHasDirtyData] = useState(false);
 
@@ -75,11 +76,13 @@ export function useSyncWorker(
   const conflictDepthRef = useRef(0);
   const dirtyDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rateLimitBackoffStepRef = useRef(0);
-  const roomRef = useRef<SyncRoom | null>(null);
-  const consumedSyncHashRef = useRef(false);
-  // Keep in sync with `room` on every render; `activate` also sets the ref immediately so
-  // `doPoll()` can run in the same tick as `activate` (before React commits `setRoom`).
-  roomRef.current = room;
+
+  // forward ref for doPoll — updated after doPoll is defined below; return type is unknown so any doPoll signature fits
+  const doPollRef = useRef<() => unknown>(async () => {});
+
+  const { room, roomRef, syncUrl, consumedSyncHashRef, activate, clearRoom } = useSyncRoom(
+    useCallback(() => { void doPollRef.current(); }, []),
+  );
 
   // Keep latest state in refs so poll/push callbacks don't go stale
   const prefsRef        = useRef(prefs);
@@ -135,7 +138,7 @@ export function useSyncWorker(
         clearInterval(cooldownTimerRef.current);
         cooldownTimerRef.current = null;
       }
-    }, 500);
+    }, COOLDOWN_TICK_MS);
   }, []);
 
   const applyRateLimitBackoff = useCallback((retryAfterMs?: number) => {
@@ -150,23 +153,7 @@ export function useSyncWorker(
   }, [startSyncCooldown]);
 
   const disableLocalSyncRoom = useCallback((message: string, roomForDisplay?: SyncRoom) => {
-    if (roomForDisplay) {
-      saveSyncRoom(roomForDisplay);
-    } else {
-      clearSyncRoom();
-    }
-    roomRef.current = null;
-    setRoom(null);
-    if (roomForDisplay) {
-      setSyncUrl(buildSyncUrl(roomForDisplay.roomId, roomForDisplay.token));
-      history.replaceState(
-        null,
-        '',
-        `${location.pathname}${location.search}${buildSyncFragment(roomForDisplay.roomId, roomForDisplay.token)}`,
-      );
-    } else {
-      setSyncUrl(null);
-    }
+    clearRoom(roomForDisplay);
     setSyncStatus('error');
     setSyncedAt(null);
     setSyncError(message);
@@ -180,10 +167,7 @@ export function useSyncWorker(
       clearInterval(cooldownTimerRef.current);
       cooldownTimerRef.current = null;
     }
-  }, []);
-
-  type MergedState = { prefs: UserPrefs; articleTags: ArticleTag[]; labelHits: LabelHit[]; savedArticles: Article[] };
-  type PollResult = { status: 'ok'; merged: MergedState | null } | { status: 'blocked' | 'rate_limited' };
+  }, [clearRoom]);
 
   const doPoll = useCallback(async (): Promise<PollResult> => {
     const r = roomRef.current;
@@ -369,38 +353,16 @@ export function useSyncWorker(
     }
   }, [doPoll, doPush, startSyncCooldown]);
 
-  // Activate sync with a room
-  const activate = useCallback((r: SyncRoom) => {
-    roomRef.current = r;
-    setRoom(r);
-    saveSyncRoom(r);
+  // Wire doPoll into the forward ref so useSyncRoom's on-activate callback can call it.
+  doPollRef.current = doPoll;
+
+  // Reset sync status/error when a room is activated (activate is called by useSyncRoom).
+  useEffect(() => {
+    if (!room) return;
     setSyncStatus('active');
     setSyncError(null);
     setSyncErrorDetails(null);
-    if (PLATFORM_WORKER_URL || r.workerUrl) {
-      setSyncUrl(buildSyncUrl(r.roomId, r.token));
-    }
-  }, []);
-
-  // On mount: check URL fragment first, then localStorage
-  useEffect(() => {
-    const fromFragment = parseSyncFragment(undefined, PLATFORM_WORKER_URL);
-    if (fromFragment) {
-      const migrated = migrateLegacySyncRoom(fromFragment, PLATFORM_WORKER_URL);
-      activate(migrated);
-      consumedSyncHashRef.current = true;
-      return;
-    }
-    const stored = loadSyncRoom();
-    if (stored) activate(migrateLegacySyncRoom(stored, PLATFORM_WORKER_URL));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Pull once when a room is activated.
-  useEffect(() => {
-    if (!room) return;
-    void doPoll();
-    return undefined;
-  }, [room, doPoll]);
+  }, [room]);
 
   // Track local data mutations and mark sync as dirty with a short debounce.
   useEffect(() => {
@@ -505,10 +467,7 @@ export function useSyncWorker(
     if (r) {
       try { await deleteRoom(r); } catch { /* best effort */ }
     }
-    clearSyncRoom();
-    roomRef.current = null;
-    setRoom(null);
-    setSyncUrl(null);
+    clearRoom();
     setSyncStatus('idle');
     setSyncedAt(null);
     setSyncError(null);
@@ -526,7 +485,7 @@ export function useSyncWorker(
       clearInterval(cooldownTimerRef.current);
       cooldownTimerRef.current = null;
     }
-  }, []);
+  }, [clearRoom]);
 
   useEffect(() => () => {
     if (cooldownTimerRef.current) {

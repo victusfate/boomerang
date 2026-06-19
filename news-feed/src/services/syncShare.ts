@@ -5,6 +5,7 @@
  */
 
 import { MAX_READ_IDS, MAX_SEEN_IDS } from './storage.ts';
+import { isSyncDebugEnabled } from '../config/debugSync.ts';
 import type { Article, ArticleTag, LabelHit, Topic, UserPrefs } from '../types.ts';
 
 export const SYNC_LOG = '[Sync]';
@@ -133,11 +134,13 @@ export function mergeLabelHits(left: LabelHit[], right: LabelHit[]): LabelHit[] 
 export function parseSyncHash(): Partial<SyncPayloadV1> | null {
   if (typeof location === 'undefined') return null;
   const hash = location.hash;
-  console.info(SYNC_LOG, 'checking location hash', {
-    hasHash: hash.length > 0,
-    isSyncHash: hash.startsWith('#sync='),
-    hashLength: hash.length,
-  });
+  if (isSyncDebugEnabled()) {
+    console.info(SYNC_LOG, 'checking location hash', {
+      hasHash: hash.length > 0,
+      isSyncHash: hash.startsWith('#sync='),
+      hashLength: hash.length,
+    });
+  }
   try {
     if (hash.startsWith('#sync=')) {
       const parsed = JSON.parse(fromBase64Url(hash.slice('#sync='.length))) as Partial<SyncPayloadV1>;

@@ -5,11 +5,15 @@ import { syncDebugLog } from '../config/debugSync';
 
 
 const MANUAL_META_SYNC_COOLDOWN_MS = 15_000;
-const BACKOFF_BASE_MS = 30_000;
-const BACKOFF_MAX_MS = 10 * 60_000;
-const RATE_LIMIT_BACKOFF_BASE_MS = 2_000;
-const RATE_LIMIT_BACKOFF_MAX_MS = 5 * 60_000;
-const MAX_CONSECUTIVE_ERRORS = 5;
+const BACKOFF_BASE_MS               = 30_000;
+const BACKOFF_MAX_MS                = 10 * 60_000;
+const RATE_LIMIT_BACKOFF_BASE_MS    = 2_000;
+const RATE_LIMIT_BACKOFF_MAX_MS     = 5 * 60_000;
+const MAX_CONSECUTIVE_ERRORS        = 5;
+const MAX_BACKOFF_STEP              = 20;
+const COOLDOWN_TICK_MS              = 500;
+const FLUSH_INTERVAL_MS             = 20_000;
+const MAX_BATCH                     = 200;
 
 export type MetaTagsMap = Map<string, string[]>;
 export type MetaStatus = 'disabled' | 'active' | 'syncing' | 'error';
@@ -37,14 +41,13 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
   const circuitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const syncInFlightRef = useRef(false);
+  const cooldownUntilRef = useRef(0);
   const rateLimitBackoffStepRef = useRef(0);
   const consecutiveErrorsRef = useRef(0);
   const blockedUntilRef = useRef(0);
   const articleIdsRef = useRef<string[]>(articleIds);
   const pendingBufferRef = useRef<Array<{ articleId: string; tags: string[] }>>([]);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const FLUSH_INTERVAL_MS = 20_000;
-  const MAX_BATCH = 200;
 
   // Keep visible article ids current for manual metadata pulls.
   useEffect(() => {
@@ -87,6 +90,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
 
   const startMetaSyncCooldown = useCallback((durationMs = MANUAL_META_SYNC_COOLDOWN_MS) => {
     const cooldownUntil = Date.now() + durationMs;
+    cooldownUntilRef.current = cooldownUntil;
     syncDebugLog('meta', 'cooldown:start', { durationMs });
     setMetaSyncCooldownMs(durationMs);
     if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
@@ -97,7 +101,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
         clearInterval(cooldownTimerRef.current);
         cooldownTimerRef.current = null;
       }
-    }, 500);
+    }, COOLDOWN_TICK_MS);
   }, []);
 
   const applyRateLimitBackoff = useCallback((retryAfterMs?: number) => {
@@ -105,7 +109,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
     const expBackoffMs = Math.min(RATE_LIMIT_BACKOFF_BASE_MS * 2 ** step, RATE_LIMIT_BACKOFF_MAX_MS);
     const backoffMs = Math.max(retryAfterMs ?? 0, expBackoffMs);
     syncDebugLog('meta', 'rate-limit:backoff', { retryAfterMs, backoffMs, step });
-    rateLimitBackoffStepRef.current = Math.min(step + 1, 20);
+    rateLimitBackoffStepRef.current = Math.min(step + 1, MAX_BACKOFF_STEP);
     blockedUntilRef.current = Date.now() + backoffMs;
     if (circuitTimerRef.current) clearTimeout(circuitTimerRef.current);
     circuitTimerRef.current = setTimeout(() => {
@@ -118,7 +122,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
 
   const syncNow = useCallback(async () => {
     if (!PLATFORM_WORKER_URL || syncInFlightRef.current) return;
-    if (metaSyncCooldownMs > 0) return;
+    if (Date.now() < cooldownUntilRef.current) return;
     if (blockedUntilRef.current && Date.now() < blockedUntilRef.current) return;
     syncInFlightRef.current = true;
     let rateLimited = false;
@@ -151,7 +155,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
       syncInFlightRef.current = false;
       if (!rateLimited) startMetaSyncCooldown();
     }
-  }, [applyRateLimitBackoff, formatMetaSyncError, metaSyncCooldownMs, registerFailure, resetFailures, startMetaSyncCooldown]);
+  }, [applyRateLimitBackoff, formatMetaSyncError, registerFailure, resetFailures, startMetaSyncCooldown]);
 
   const flush = useCallback(() => {
     if (pendingBufferRef.current.length === 0) return;

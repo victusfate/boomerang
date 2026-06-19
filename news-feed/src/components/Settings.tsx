@@ -1,30 +1,14 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import QRCode from 'qrcode';
-import { DEFAULT_SOURCES } from '../services/newsService';
-import { isSourceEnabled, isTopicEnabled } from '../services/storage';
-import { isPromptApiAvailable } from '../services/labelClassifier';
+import { useEffect, useRef } from 'react';
 import type { Article, CustomSource, Topic, UserLabel, UserPrefs } from '../types';
 import type { MetaStatus } from '../hooks/useMetaWorker';
 import type { SyncErrorDetails } from '../hooks/useSyncWorker';
-import { TOPIC_META, SHOWN_TOPICS } from './topicFilterUtils';
-import { timeAgo } from '../services/timeAgo';
+import { TopicsSection }      from './settings/TopicsSection';
+import { SourcesSection }     from './settings/SourcesSection';
+import { LabelsSection }      from './settings/LabelsSection';
+import { SyncSection }        from './settings/SyncSection';
+import { PreferencesSection } from './settings/PreferencesSection';
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-
-function SyncErrorDetailsBlock({ details, marginTop }: { details: SyncErrorDetails | null; marginTop: string }) {
-  if (!details) return null;
-  return (
-    <details className="settings-hint" style={{ marginTop }}>
-      <summary>Show technical sync details</summary>
-      <code>
-        phase={details.phase}
-        {' | '}roomId={details.roomId ?? 'n/a'}
-        {' | '}worker={details.workerUrl ?? 'n/a'}
-        {details.endpoint ? ` | endpoint=${details.endpoint}` : ''}
-      </code>
-    </details>
-  );
-}
 
 interface Props {
   prefs: UserPrefs;
@@ -66,33 +50,13 @@ export function Settings({
   prefs, onToggleSource, onToggleTopic, onResetPrefs, onClearViewed, onClose,
   onAddCustomSource, onRemoveCustomSource, onExportOPML, onImportOPML,
   onExportBookmarks, onImportBookmarks,
-  onAddLabel, onDeleteLabel,   onSuggestLabels,
+  onAddLabel, onDeleteLabel, onSuggestLabels,
   syncActive, syncStatus, syncedAt, syncError, syncErrorDetails, syncUrl, syncEnvError,
   metaStatus, metaError, metaEnvError,
   onForceMetaSync, onForceSync, onGenerateLink, onRevoke, onToggleAiBar, onToggleTheme,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const bmFileInputRef = useRef<HTMLInputElement>(null);
-
-  // Custom source form
-  const [newName, setNewName] = useState('');
-  const [newUrl, setNewUrl]   = useState('');
-
-  // Import status: separate for OPML and bookmarks
-  const [importStatus, setImportStatus]   = useState<'idle' | 'ok' | 'error'>('idle');
-  const [bmImportStatus, setBmImportStatus] = useState<'idle' | 'ok' | 'error'>('idle');
-
-  // AI Labels
-  const [newLabelName, setNewLabelName]   = useState('');
-  const [newLabelColor, setNewLabelColor] = useState('#6c63ff');
-  const [suggestions, setSuggestions]     = useState<string[]>([]);
-  const [suggesting, setSuggesting]       = useState(false);
-
-  // Sync QR code (for live sync URL)
-  const [qrDataUrl, setQrDataUrl] = useState('');
-  const [copied, setCopied]       = useState(false);
 
   // onClose is usually an inline arrow from App — keep it in a ref so this
   // effect never re-runs mid-session (a re-run steals focus from whatever
@@ -126,106 +90,6 @@ export function Settings({
     };
   }, []); // mount-only: focus trap must not re-run while the modal is open
 
-  const handleAddSource = (e: React.FormEvent) => {
-    e.preventDefault();
-    const name    = newName.trim();
-    const feedUrl = newUrl.trim();
-    if (!name || !feedUrl) return;
-    const id = `custom-${Date.now().toString(36)}`;
-    onAddCustomSource({ id, name, feedUrl });
-    setNewName('');
-    setNewUrl('');
-  };
-
-  useEffect(() => {
-    if (!syncUrl) { setQrDataUrl(''); return; }
-    QRCode.toDataURL(syncUrl, { width: 200, margin: 2 })
-      .then(setQrDataUrl)
-      .catch(() => setQrDataUrl(''));
-  }, [syncUrl]);
-
-  // Status-reset timers must not fire after unmount.
-  const statusTimersRef = useRef<number[]>([]);
-  const scheduleStatusReset = useCallback((fn: () => void, ms: number) => {
-    statusTimersRef.current.push(window.setTimeout(fn, ms));
-  }, []);
-  useEffect(() => () => {
-    for (const id of statusTimersRef.current) clearTimeout(id);
-  }, []);
-
-  const handleCopyShareUrl = useCallback(async () => {
-    if (!syncUrl) return;
-    try {
-      await navigator.clipboard.writeText(syncUrl);
-      setCopied(true);
-      scheduleStatusReset(() => setCopied(false), 2000);
-    } catch {
-      // fallback: select the text
-    }
-  }, [syncUrl, scheduleStatusReset]);
-
-  const handleAddLabel = (e: React.FormEvent) => {
-    e.preventDefault();
-    const name = newLabelName.trim();
-    if (!name) return;
-    const id = `lbl-${Date.now().toString(36)}`;
-    onAddLabel({ id, name, color: newLabelColor });
-    setNewLabelName('');
-    setNewLabelColor('#6c63ff');
-  };
-
-  const handleSuggest = async () => {
-    setSuggesting(true);
-    try {
-      const results = await onSuggestLabels([]);
-      setSuggestions(results);
-    } catch (e) {
-      console.error('[labels] suggest failed', e);
-      setSuggestions([]);
-    } finally {
-      setSuggesting(false);
-    }
-  };
-
-  const handleAcceptSuggestion = (name: string) => {
-    const id = `lbl-${Date.now().toString(36)}`;
-    onAddLabel({ id, name, color: '#6c63ff' });
-    setSuggestions(prev => prev.filter(s => s !== name));
-  };
-
-  const handleDismissSuggestion = (name: string) => {
-    setSuggestions(prev => prev.filter(s => s !== name));
-  };
-
-  const handleOPMLFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const xml = ev.target?.result as string;
-      const ok = onImportOPML(xml);
-      setImportStatus(ok ? 'ok' : 'error');
-      if (ok) scheduleStatusReset(() => setImportStatus('idle'), 3000);
-    };
-    reader.readAsText(file);
-    // Reset so the same file can be re-imported
-    e.target.value = '';
-  };
-
-  const handleBMFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const html = ev.target?.result as string;
-      const ok = onImportBookmarks(html);
-      setBmImportStatus(ok ? 'ok' : 'error');
-      if (ok) scheduleStatusReset(() => setBmImportStatus('idle'), 3000);
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  };
-
   return (
     <div className="settings-overlay" role="dialog" aria-modal="true" aria-label="Settings">
       <div className="settings-panel" ref={panelRef}>
@@ -234,410 +98,51 @@ export function Settings({
           <button className="btn-close" onClick={onClose} aria-label="Close settings">✕</button>
         </div>
 
-        {/* ── Topics ─────────────────────────────────────────────────── */}
-        <section className="settings-section">
-          <h3>Topics</h3>
-          <p className="settings-hint">Articles you read boost topic weight automatically.</p>
-          <div className="settings-grid">
-            {SHOWN_TOPICS.map(topic => {
-              const meta    = TOPIC_META[topic];
-              const enabled = isTopicEnabled(topic, prefs);
-              const weight  = prefs.topicWeights[topic] ?? 1.0;
-              return (
-                <button
-                  key={topic}
-                  className={`setting-toggle ${enabled ? 'on' : 'off'}`}
-                  onClick={() => onToggleTopic(topic)}
-                  style={{ '--toggle-color': meta.color } as React.CSSProperties}
-                >
-                  <span className="toggle-label">{meta.label}</span>
-                  {weight > 1.2 && (
-                    <span className="toggle-boost" title={`Boost: ${weight.toFixed(1)}×`}>
-                      {weight > 2 ? '↑↑' : '↑'}
-                    </span>
-                  )}
-                  <span className={`toggle-indicator ${enabled ? 'on' : ''}`} />
-                </button>
-              );
-            })}
-          </div>
-        </section>
+        <TopicsSection prefs={prefs} onToggleTopic={onToggleTopic} />
 
-        {/* ── Sources (built-in + custom unified) ────────────────────── */}
-        <section className="settings-section">
-          <h3>Sources</h3>
-          <p className="settings-hint">Toggle sources on or off. Custom sources can also be removed entirely.</p>
-          <div className="source-list">
-            {DEFAULT_SOURCES.map(source => {
-              const enabled = isSourceEnabled(source.id, prefs);
-              const meta    = TOPIC_META[source.category];
-              return (
-                <button
-                  key={source.id}
-                  className={`source-item ${enabled ? 'on' : 'off'}`}
-                  onClick={() => onToggleSource(source.id)}
-                >
-                  <span className="source-dot" style={{ background: meta?.color ?? '#888' }} />
-                  <span className="source-name">{source.name}</span>
-                  <span className="source-cat">{meta?.label ?? source.category}</span>
-                  <span className={`toggle-indicator ${enabled ? 'on' : ''}`} />
-                </button>
-              );
-            })}
+        <SourcesSection
+          prefs={prefs}
+          onToggleSource={onToggleSource}
+          onAddCustomSource={onAddCustomSource}
+          onRemoveCustomSource={onRemoveCustomSource}
+          onExportOPML={onExportOPML}
+          onImportOPML={onImportOPML}
+          onExportBookmarks={onExportBookmarks}
+          onImportBookmarks={onImportBookmarks}
+        />
 
-            {prefs.customSources.map(src => {
-              const enabled = isSourceEnabled(src.id, prefs);
-              return (
-                <div key={src.id} className="source-row-custom">
-                  <button
-                    className={`source-item source-item-flex ${enabled ? 'on' : 'off'}`}
-                    onClick={() => onToggleSource(src.id)}
-                    title={src.feedUrl}
-                  >
-                    <span className="source-dot" style={{ background: '#888' }} />
-                    <span className="source-name">{src.name}</span>
-                    <span className="source-cat">Custom</span>
-                    <span className={`toggle-indicator ${enabled ? 'on' : ''}`} />
-                  </button>
-                  <button
-                    className="btn-remove-source"
-                    onClick={() => onRemoveCustomSource(src.id)}
-                    aria-label={`Remove ${src.name}`}
-                  >
-                    ✕
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+        <LabelsSection
+          prefs={prefs}
+          onAddLabel={onAddLabel}
+          onDeleteLabel={onDeleteLabel}
+          onSuggestLabels={onSuggestLabels}
+        />
 
-          <p className="settings-hint" style={{ marginTop: '14px' }}>Add a custom RSS or Atom feed URL.</p>
-          <form className="custom-source-form" onSubmit={handleAddSource}>
-            <input
-              type="text"
-              className="custom-source-input"
-              placeholder="Source name"
-              value={newName}
-              onChange={e => setNewName(e.target.value)}
-              required
-            />
-            <input
-              type="url"
-              className="custom-source-input"
-              placeholder="https://example.com/feed.rss"
-              value={newUrl}
-              onChange={e => setNewUrl(e.target.value)}
-              required
-            />
-            <button type="submit" className="btn-add-source">Add source</button>
-          </form>
-        </section>
+        <SyncSection
+          syncActive={syncActive}
+          syncStatus={syncStatus}
+          syncedAt={syncedAt}
+          syncError={syncError}
+          syncErrorDetails={syncErrorDetails}
+          syncUrl={syncUrl}
+          syncEnvError={syncEnvError}
+          metaStatus={metaStatus}
+          metaError={metaError}
+          metaEnvError={metaEnvError}
+          onForceMetaSync={onForceMetaSync}
+          onForceSync={onForceSync}
+          onGenerateLink={onGenerateLink}
+          onRevoke={onRevoke}
+        />
 
-        {/* ── OPML Export / Import ───────────────────────────────────── */}
-        <section className="settings-section">
-          <h3>Export / Import</h3>
-          <p className="settings-hint">
-            Download your subscriptions as an <strong>OPML</strong> file — compatible with any feed reader.
-            Import an OPML file to restore or replace your source list (enabled/disabled state and custom feeds).
-          </p>
-
-          <div className="opml-actions">
-            <button type="button" className="btn-bookmark" onClick={onExportOPML}>
-              Download OPML
-            </button>
-
-            <div className="opml-import-row">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".opml,.xml"
-                className="opml-file-input"
-                aria-label="Import OPML file"
-                onChange={handleOPMLFile}
-              />
-              <button
-                type="button"
-                className="btn-add-source"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                Import OPML file
-              </button>
-            </div>
-          </div>
-
-          {importStatus === 'ok'    && <p className="import-status ok">Imported — sources updated and feed refreshing.</p>}
-          {importStatus === 'error' && <p className="import-status error">Could not read that file — make sure it is a valid OPML or XML file.</p>}
-
-          <div className="opml-divider" />
-
-          <p className="settings-hint">
-            <strong>Saved articles</strong> — export your starred articles as a browser bookmarks file,
-            or import a bookmarks folder to add those URLs to your Saved list.
-          </p>
-          <div className="opml-actions">
-            <button type="button" className="btn-add-source" onClick={onExportBookmarks}>
-              Download saves as bookmarks
-            </button>
-            <div className="opml-import-row">
-              <input
-                ref={bmFileInputRef}
-                type="file"
-                accept=".html,.htm"
-                className="opml-file-input"
-                aria-label="Import bookmarks HTML file"
-                onChange={handleBMFile}
-              />
-              <button
-                type="button"
-                className="btn-add-source"
-                onClick={() => bmFileInputRef.current?.click()}
-              >
-                Import bookmarks file
-              </button>
-            </div>
-          </div>
-          {bmImportStatus === 'ok'    && <p className="import-status ok">Imported — bookmarks added to your Saved list.</p>}
-          {bmImportStatus === 'error' && <p className="import-status error">Could not read that file — make sure it is a browser bookmarks HTML export.</p>}
-        </section>
-
-        {/* ── AI Labels ──────────────────────────────────────────────── */}
-        <section className="settings-section">
-          <h3>AI Labels</h3>
-          <p className="settings-hint">
-            Create topic labels to tag your feed. On Chrome 138+, on-device AI classifies articles automatically.
-          </p>
-
-          {(prefs.userLabels ?? []).length > 0 && (
-            <div className="label-list">
-              {(prefs.userLabels ?? []).map(lbl => (
-                <div key={lbl.id} className="label-list-item">
-                  <span className="label-list-dot" style={{ background: lbl.color }} />
-                  <span className="label-list-name">{lbl.name}</span>
-                  <button
-                    className="btn-remove-label"
-                    onClick={() => onDeleteLabel(lbl.id)}
-                    aria-label={`Delete label ${lbl.name}`}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <form className="add-label-form" onSubmit={handleAddLabel}>
-            <input
-              type="text"
-              className="custom-source-input add-label-input"
-              placeholder="New label name"
-              value={newLabelName}
-              onChange={e => setNewLabelName(e.target.value)}
-              required
-            />
-            <input
-              type="color"
-              className="add-label-color"
-              value={newLabelColor}
-              onChange={e => setNewLabelColor(e.target.value)}
-              title="Label colour"
-            />
-            <button type="submit" className="btn-add-source">Add</button>
-          </form>
-
-          {isPromptApiAvailable() && (
-            <>
-              <button
-                type="button"
-                className="btn-add-source"
-                style={{ marginTop: '10px' }}
-                onClick={handleSuggest}
-                disabled={suggesting}
-              >
-                {suggesting ? 'Thinking…' : 'Suggest labels with AI'}
-              </button>
-
-              {suggestions.length > 0 && (
-                <div className="suggestion-chips">
-                  {suggestions.map(name => (
-                    <div key={name} className="suggestion-chip">
-                      <span className="suggestion-chip-name">{name}</span>
-                      <button
-                        className="btn-accept-suggestion"
-                        onClick={() => handleAcceptSuggestion(name)}
-                      >
-                        + Add
-                      </button>
-                      <button
-                        className="btn-dismiss-suggestion"
-                        onClick={() => handleDismissSuggestion(name)}
-                        aria-label={`Dismiss ${name}`}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </section>
-
-        {/* ── Shared metadata ──────────────────────────────────────────── */}
-        <section className="settings-section">
-          <h3>Shared metadata</h3>
-          <p className="settings-hint">
-            Shared tags sync manually. Tap <strong>Sync shared tags now</strong> or use the main refresh action.
-          </p>
-          {metaEnvError ? (
-            <p className="sync-error" role="alert">{metaEnvError}</p>
-          ) : (
-            <>
-              <div className="sync-status-row">
-                <span className={`sync-dot sync-dot--${metaStatus === 'disabled' ? 'idle' : metaStatus}`} />
-                <span className="sync-status-label">
-                  {metaStatus === 'syncing' && 'Updating shared tags…'}
-                  {metaStatus === 'active' && 'Shared tags active'}
-                  {metaStatus === 'error' && 'Shared tags offline'}
-                  {metaStatus === 'disabled' && 'Shared tags disabled'}
-                </span>
-              </div>
-              <button
-                type="button"
-                className="btn-add-source"
-                onClick={() => void onForceMetaSync()}
-                disabled={metaStatus === 'syncing'}
-              >
-                {metaStatus === 'syncing' ? 'Syncing tags…' : 'Sync shared tags now'}
-              </button>
-              {metaError && <p className="sync-error">{metaError}</p>}
-            </>
-          )}
-        </section>
-
-        {/* ── Sync across devices ──────────────────────────────────────── */}
-        <section className="settings-section">
-          <h3>Sync across devices</h3>
-          {!syncActive && syncEnvError && (
-            <p className="sync-error" role="alert">{syncEnvError}</p>
-          )}
-          {!syncActive ? (
-            <>
-              <p className="settings-hint">
-                Generate a link and open it on another device. Both devices will stay in sync — no account needed.
-              </p>
-              <button
-                type="button"
-                className="btn-add-source"
-                onClick={() => void onGenerateLink()}
-                disabled={syncStatus === 'syncing'}
-              >
-                {syncStatus === 'syncing' ? 'Generating…' : 'Generate sync link'}
-              </button>
-              {syncError && (
-                <>
-                  <p className="sync-error">{syncError}</p>
-                  <SyncErrorDetailsBlock details={syncErrorDetails} marginTop="6px" />
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              <p className="settings-hint">
-                Sync is manual. Tap <strong>Sync now</strong> or use the main refresh action to pull and push updates.
-              </p>
-              <div className="sync-status-row">
-                <span className={`sync-dot sync-dot--${syncStatus}`} />
-                <span className="sync-status-label">
-                  {syncStatus === 'syncing' && 'Syncing…'}
-                  {syncStatus === 'active' && syncedAt && `Synced ${timeAgo(syncedAt, 'ago')}`}
-                  {syncStatus === 'active' && !syncedAt && 'Active'}
-                  {syncStatus === 'error' && `Error: ${syncError}`}
-                </span>
-              </div>
-              {qrDataUrl && (
-                <div className="sync-qr-wrap">
-                  <img src={qrDataUrl} alt="QR code for device sync" className="sync-qr" />
-                </div>
-              )}
-              <button
-                type="button"
-                className="btn-add-source"
-                onClick={() => void onForceSync()}
-                disabled={syncStatus === 'syncing'}
-              >
-                {syncStatus === 'syncing' ? 'Syncing…' : 'Sync now'}
-              </button>
-              {syncUrl && (
-                <div className="sync-url-row">
-                  <input
-                    type="text"
-                    className="custom-source-input sync-url-input"
-                    readOnly
-                    value={syncUrl}
-                    onFocus={e => (e.target as HTMLInputElement).select()}
-                  />
-                  <button type="button" className="btn-add-source" onClick={handleCopyShareUrl}>
-                    {copied ? 'Copied!' : 'Copy'}
-                  </button>
-                </div>
-              )}
-              <button
-                type="button"
-                className="btn-reset-prefs"
-                style={{ marginTop: '8px' }}
-                onClick={() => void onRevoke()}
-              >
-                Revoke sync
-              </button>
-              <SyncErrorDetailsBlock details={syncErrorDetails} marginTop="8px" />
-            </>
-          )}
-        </section>
-
-        {/* ── Preferences ────────────────────────────────────────────── */}
-        <section className="settings-section">
-          <h3>Preferences</h3>
-          <p className="settings-hint">Clear viewed history to see previously read articles again.</p>
-          <label className="settings-toggle-row">
-            <input
-              type="checkbox"
-              checked={prefs.theme === 'dark'}
-              onChange={onToggleTheme}
-            />
-            Dark mode
-          </label>
-          <label className="settings-toggle-row">
-            <input
-              type="checkbox"
-              checked={!prefs.hideAiBar}
-              onChange={onToggleAiBar}
-            />
-            Show Chrome AI bar
-          </label>
-          <button className="btn-reset-prefs" onClick={() => { onClearViewed(); onClose(); }}>
-            Clear viewed history
-          </button>
-          <p className="settings-hint" style={{ marginTop: '12px' }}>
-            Reset all learned weights from votes and reading history. Source and topic toggles are preserved.
-          </p>
-          <button className="btn-reset-prefs" onClick={() => { onResetPrefs(); onClose(); }}>
-            Reset learned preferences
-          </button>
-        </section>
-
-        {/* ── About ──────────────────────────────────────────────────── */}
-        <section className="settings-section">
-          <h3>About</h3>
-          <p className="settings-about">
-            Boomerang News is an ad-free algorithmic news aggregator.
-            Articles open in your default browser or native apps.
-            All preferences are stored locally on your device — no account needed.
-          </p>
-          <p className="settings-about">
-            <strong>Android setup:</strong> Install this as a PWA from your browser menu
-            ("Add to Home Screen"), then configure your launcher to open it when swiping left.
-          </p>
-        </section>
+        <PreferencesSection
+          prefs={prefs}
+          onToggleAiBar={onToggleAiBar}
+          onToggleTheme={onToggleTheme}
+          onClearViewed={onClearViewed}
+          onResetPrefs={onResetPrefs}
+          onClose={onClose}
+        />
       </div>
     </div>
   );

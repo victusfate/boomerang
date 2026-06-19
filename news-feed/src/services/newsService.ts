@@ -6,8 +6,6 @@ import rssSourcesJson from '../../../shared/rss-sources.json';
 // Built-in sources: single source of truth in `shared/rss-sources.json` (priority 1 = first batch; 2 = background).
 export const DEFAULT_SOURCES: NewsSource[] = rssSourcesJson as NewsSource[];
 
-export { partitionSourcesForSplitFetch };
-
 function mapBundleArticles(
   data: Array<Omit<Article, 'publishedAt' | 'score'> & { publishedAt: string }>,
 ): Article[] {
@@ -28,7 +26,7 @@ export function getRssWorkerBaseUrl(): string {
   return PLATFORM_WORKER_URL;
 }
 
-function isYoutubeSourceId(id: string): boolean {
+export function isYoutubeSourceId(id: string): boolean {
   return id.startsWith('yt-');
 }
 
@@ -53,6 +51,14 @@ function bundleFetchTimeoutMs(ids: string[], customSources: CustomSource[]): num
   const n = ids.length + customSources.length;
   const raw = BUNDLE_FETCH_TIMEOUT_BASE_MS + n * BUNDLE_FETCH_TIMEOUT_PER_FEED_MS;
   return Math.min(BUNDLE_FETCH_TIMEOUT_MAX_MS, Math.max(BUNDLE_FETCH_TIMEOUT_MIN_MS, raw));
+}
+
+function encodeCustomFeeds(sources: CustomSource[]): string {
+  const payload = sources.map(s => ({ id: s.id, name: s.name, feedUrl: s.feedUrl }));
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  let binary = '';
+  bytes.forEach(b => { binary += String.fromCharCode(b); });
+  return encodeURIComponent(btoa(binary));
 }
 
 function compareFeedUrlLocale(a: string, b: string): number {
@@ -164,11 +170,7 @@ async function fetchBundleJson(
   const qs = idsOrdered.length > 0 ? idsOrdered.join(',') : INCLUDE_NONE_SENTINEL;
   let url = `${PLATFORM_WORKER_URL}/bundle?include=${encodeURIComponent(qs)}`;
   if (customOrdered.length > 0) {
-    const payload = customOrdered.map(s => ({ id: s.id, name: s.name, feedUrl: s.feedUrl }));
-    const bytes = new TextEncoder().encode(JSON.stringify(payload));
-    let binary = '';
-    bytes.forEach(b => { binary += String.fromCharCode(b); });
-    url += `&customFeeds=${encodeURIComponent(btoa(binary))}`;
+    url += `&customFeeds=${encodeCustomFeeds(customOrdered)}`;
   }
   const res = await fetch(url, { signal: AbortSignal.timeout(bundleFetchTimeoutMs(idsOrdered, customOrdered)) });
   if (!res.ok) {
