@@ -47,6 +47,6 @@
   "allowScripts": {
     "fsevents@2.3.3": true,
     "sharp@0.33.5": true,
-    "github:victusfate/ricochet#e5aea1f8fafcfb995e9522e7e477d4c50d36ab0a": true
+    "github:victusfate/ricochet#6846ccc5f0abfe9eea5df1c845f0feb7cc99ae37": true
   }
 }
