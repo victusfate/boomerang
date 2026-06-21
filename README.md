@@ -207,7 +207,7 @@ bin/
     hoist-skill.md          # Hoist scaffold capabilities into a consumer repo in the target harness format
 scripts/
   check-resolvable.mjs           # RESOLVER linter (reachability/ambiguity/DRY/MECE/cursor/antigravity/sync)
-  update-readme-skills.mjs       # regenerate README.md skill sections from RESOLVER.md
+  update-skills-doc.ts            # regenerate README.md skill sections from RESOLVER.md
 .githooks/
   pre-commit                     # runs the linter and README freshness check — enable via core.hooksPath
 .github/
