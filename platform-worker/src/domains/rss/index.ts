@@ -8,8 +8,11 @@ import { persistArticleMeta, wireArticleFromFeed } from '../rec/articleMeta';
 
 const BUNDLE_CACHE_TTL_SEC = 300;
 const IMAGE_PROXY_CACHE_TTL_SEC = 86_400;
-const MAX_HTML_BYTES = 1 * 1024 * 1024;
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const BYTES_PER_MB = 1024 * 1024;
+const MAX_HTML_MB = 1;
+const MAX_IMAGE_MB = 10;
+const MAX_HTML_BYTES = MAX_HTML_MB * BYTES_PER_MB;
+const MAX_IMAGE_BYTES = MAX_IMAGE_MB * BYTES_PER_MB;
 /** Custom feeds are attacker-controllable URLs — cap the fan-out per request. */
 const MAX_CUSTOM_FEEDS = 20;
 const RATE_LIMIT_BUNDLE_MAX = 30; // per IP per minute

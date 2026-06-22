@@ -1,6 +1,7 @@
 import type { Env } from '../../env';
 import { corsHeaders } from '../../cors';
 import { json, tooManyRequests, getClientIp, checkRateLimit } from '../_shared/http';
+import { HTTP_NOT_MODIFIED } from '../../lib/http-status.js';
 import { rankScore01 } from '../_shared/rank';
 import type { RecCoreResponse, RecRankRequest, RecResponse } from '@victusfate/ricochet';
 import { isValidEvent, REC_MAX_CANDIDATES, parseTopicWeights } from '@victusfate/ricochet';
@@ -20,18 +21,19 @@ const RATE_LIMIT_INTERACTIONS_MAX = 60;
 const RATE_LIMIT_RECS_MAX = 30;
 const RATE_LIMIT_ARTICLES_MAX = 30;
 
-const MAX_BATCH_SIZE = 200;
-const MAX_LIMIT = 500;
-const DEFAULT_LIMIT = 50;
+const MAX_BATCH_INTERACTIONS = 200;
+const MAX_REC_LIMIT = 500;
+const DEFAULT_REC_LIMIT = 50;
+const MIN_REC_LIMIT = 1;
 function parseLimit(rawLimit: unknown): number {
   if (typeof rawLimit === 'number' && Number.isFinite(rawLimit)) {
-    return Math.max(1, Math.min(MAX_LIMIT, Math.trunc(rawLimit)));
+    return Math.max(MIN_REC_LIMIT, Math.min(MAX_REC_LIMIT, Math.trunc(rawLimit)));
   }
   if (typeof rawLimit === 'string') {
     const parsed = parseInt(rawLimit, 10);
-    if (!Number.isNaN(parsed)) return Math.max(1, Math.min(MAX_LIMIT, parsed));
+    if (!Number.isNaN(parsed)) return Math.max(MIN_REC_LIMIT, Math.min(MAX_REC_LIMIT, parsed));
   }
-  return DEFAULT_LIMIT;
+  return DEFAULT_REC_LIMIT;
 }
 
 function parseCandidateArticleIds(value: unknown): { ids?: string[]; message?: string } {
@@ -193,9 +195,9 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
         request, env, { status: 400 },
       );
     }
-    if (events.length > MAX_BATCH_SIZE) {
+    if (events.length > MAX_BATCH_INTERACTIONS) {
       return json(
-        { ok: false, message: `Batch too large; max ${MAX_BATCH_SIZE} events` },
+        { ok: false, message: `Batch too large; max ${MAX_BATCH_INTERACTIONS} events` },
         request, env, { status: 400 },
       );
     }

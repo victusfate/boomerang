@@ -1,5 +1,8 @@
 import { storeTokenHash } from './auth';
 
+const ROOM_ID_HEX_BYTES = 32;
+const TOKEN_BASE64_BYTES = 32;
+
 function randomHex(bytes: number): string {
   const arr = new Uint8Array(bytes);
   crypto.getRandomValues(arr);
@@ -15,8 +18,8 @@ function randomBase64Url(bytes: number): string {
 }
 
 export async function createRoom(r2: R2Bucket): Promise<{ roomId: string; token: string }> {
-  const roomId = randomHex(32);
-  const token = randomBase64Url(32);
+  const roomId = randomHex(ROOM_ID_HEX_BYTES);
+  const token = randomBase64Url(TOKEN_BASE64_BYTES);
   await storeTokenHash(r2, roomId, token);
   return { roomId, token };
 }

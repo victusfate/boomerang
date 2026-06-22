@@ -9,8 +9,10 @@ import {
 const MAX_BATCH_SIZE = 200;
 const MAX_MSG_PER_MIN = 20;
 const MAX_TAGS_PER_ARTICLE = 6;
-const SQLITE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+const SQLITE_RETENTION_DAYS = 14;
+const SQLITE_RETENTION_MS = SQLITE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 const CATCHUP_PAGE_SIZE = 200;
+const MSG_WINDOW_MS = 60_000;
 
 export type ArticleMetaEntry = ArticleRecord;
 
@@ -112,7 +114,7 @@ export class MetaDO implements DurableObject {
     const session = this.getSession(ws);
 
     const now = Date.now();
-    if (now - session.msgWindowStart >= 60_000) {
+    if (now - session.msgWindowStart >= MSG_WINDOW_MS) {
       session.msgCount = 0;
       session.msgWindowStart = now;
     }

@@ -4,7 +4,19 @@ const OG_REGEX =
 const TWITTER_IMAGE_REGEX =
   /name=["']twitter:image(?::src)?["'][^>]*content=["']([^"'>"]+)["']|content=["']([^"'>"]+)["'][^>]*name=["']twitter:image(?::src)?["']/i;
 
-const HTML_SCAN_MAX = 512_000;
+const HTML_SCAN_MAX_BYTES = 512_000;
+const LOOPBACK_OCTET = 127;
+const RFC1918_CLASS_A_OCTET = 10;
+const RFC1918_CLASS_B_OCTET = 172;
+const RFC1918_CLASS_B_SECOND_OCTET_MIN = 16;
+const RFC1918_CLASS_B_SECOND_OCTET_MAX = 31;
+const RFC1918_CLASS_C_OCTET = 192;
+const RFC1918_CLASS_C_SECOND_OCTET = 168;
+const LINK_LOCAL_OCTET = 169;
+const LINK_LOCAL_SECOND_OCTET = 254;
+const RFC6598_CGN_OCTET = 100;
+const RFC6598_CGN_SECOND_OCTET_MIN = 64;
+const RFC6598_CGN_SECOND_OCTET_MAX = 127;
 
 export function resolveArticleImageUrl(raw: string, articlePageUrl: string): string | undefined {
   const t = raw.trim();
@@ -20,7 +32,7 @@ export function resolveArticleImageUrl(raw: string, articlePageUrl: string): str
 }
 
 export function extractOgImageFromHtml(html: string, pageUrl: string): string | undefined {
-  const slice = html.length > HTML_SCAN_MAX ? html.slice(0, HTML_SCAN_MAX) : html;
+  const slice = html.length > HTML_SCAN_MAX_BYTES ? html.slice(0, HTML_SCAN_MAX_BYTES) : html;
 
   const tryMeta = (re: RegExp): string | undefined => {
     const m = slice.match(re);
@@ -63,13 +75,13 @@ export function isAllowedOgFetchUrl(urlStr: string): boolean {
   const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
   if (ipv4) {
     const [a, b] = [parseInt(ipv4[1], 10), parseInt(ipv4[2], 10)];
-    if (a === 127) return false;                              // 127.x.x.x  loopback
-    if (a === 10) return false;                               // 10.x.x.x   RFC-1918
-    if (a === 172 && b >= 16 && b <= 31) return false;        // 172.16-31  RFC-1918
-    if (a === 192 && b === 168) return false;                 // 192.168.x  RFC-1918
-    if (a === 169 && b === 254) return false;                 // 169.254.x  link-local
-    if (a === 100 && b >= 64 && b <= 127) return false;       // 100.64-127 shared (RFC-6598)
-    if (a === 0) return false;                                // 0.x.x.x    "this network"
+    if (a === LOOPBACK_OCTET) return false;                                                              // 127.x.x.x  loopback
+    if (a === RFC1918_CLASS_A_OCTET) return false;                                                       // 10.x.x.x   RFC-1918
+    if (a === RFC1918_CLASS_B_OCTET && b >= RFC1918_CLASS_B_SECOND_OCTET_MIN && b <= RFC1918_CLASS_B_SECOND_OCTET_MAX) return false;  // 172.16-31  RFC-1918
+    if (a === RFC1918_CLASS_C_OCTET && b === RFC1918_CLASS_C_SECOND_OCTET) return false;                 // 192.168.x  RFC-1918
+    if (a === LINK_LOCAL_OCTET && b === LINK_LOCAL_SECOND_OCTET) return false;                           // 169.254.x  link-local
+    if (a === RFC6598_CGN_OCTET && b >= RFC6598_CGN_SECOND_OCTET_MIN && b <= RFC6598_CGN_SECOND_OCTET_MAX) return false;  // 100.64-127 shared (RFC-6598)
+    if (a === 0) return false;                                                                           // 0.x.x.x    "this network"
     return true; // public IPv4 — allowed
   }
 
