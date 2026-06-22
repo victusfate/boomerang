@@ -8,6 +8,7 @@ const base = process.env.GITHUB_PAGES === 'true' ? '/boomerang' : '/';
 export default defineConfig({
   base,
   server: {
+    // quality-ok: magic-number — Vite default dev server port
     port: 5173,
     strictPort: true,
   },

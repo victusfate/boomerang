@@ -1,6 +1,7 @@
 import type { Env } from '../../env';
 import { corsHeaders } from '../../cors';
 import { json, tooManyRequests, checkRateLimit } from '../_shared/http';
+import { HTTP_BAD_REQUEST } from '../../lib/http-status.js';
 import { normaliseTags } from './tags';
 
 export { MetaDO } from './MetaDO';
@@ -59,7 +60,7 @@ export async function handleMeta(request: Request, env: Env, _ctx: ExecutionCont
     if (articles.length > MAX_META_TAGS_BATCH) {
       return json(
         { ok: false, message: `articles must contain at most ${MAX_META_TAGS_BATCH} entries` },
-        request, env, { status: 400 },
+        request, env, { status: HTTP_BAD_REQUEST },
       );
     }
     const valid: Array<{ articleId: string; tags: string[] }> = [];

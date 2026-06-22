@@ -14,6 +14,7 @@ import { RecTraceView, buildSourceEntries, buildTopicEntries, buildTagEntries } 
 import { RecScoreTable } from './rec/RecScoreTable';
 
 const COPY_FEEDBACK_MS = 2_000;
+const MINS_PER_HOUR = 60;
 
 const TOP_N = 25;
 
@@ -43,8 +44,8 @@ function formatModelAge(generatedAt: number | null): string {
   if (deltaMs < 0) return 'just now';
   const mins = Math.floor(deltaMs / 60_000);
   if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
+  if (mins < MINS_PER_HOUR) return `${mins}m ago`;
+  const hours = Math.floor(mins / MINS_PER_HOUR);
   return `${hours}h ago`;
 }
 

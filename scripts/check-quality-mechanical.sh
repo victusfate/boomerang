@@ -12,6 +12,8 @@ emit() { echo "$1"; VIOLATIONS=$((VIOLATIONS + 1)); }
 check_file() {
   local file="$1"
   [ -f "$file" ] || return 0
+  # Skip generated TypeDoc assets regardless of how files are resolved.
+  [[ "$file" == docs/api/* ]] && return 0
   local ext="${file##*.}"
 
   # File length

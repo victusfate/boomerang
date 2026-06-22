@@ -1,5 +1,6 @@
 import type { Env } from '../../env';
 import { corsHeaders } from '../../cors';
+import { HTTP_TOO_MANY_REQUESTS } from '../../lib/http-status.js';
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
@@ -17,7 +18,7 @@ export function tooManyRequests(request: Request, env: Env, retryAfterSeconds: n
   headers.set('Content-Type', 'application/json; charset=utf-8');
   return new Response(
     JSON.stringify({ ok: false, message: 'Too Many Requests' }),
-    { status: 429, headers },
+    { status: HTTP_TOO_MANY_REQUESTS, headers },
   );
 }
 

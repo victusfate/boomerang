@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 
 const COPY_FEEDBACK_MS = 2_000;
+const QR_CODE_WIDTH    = 200;
 import type { MetaStatus } from '../../hooks/useMetaWorker';
 import type { SyncErrorDetails } from '../../hooks/useSyncWorker';
 import { timeAgo } from '../../services/timeAgo';
@@ -53,7 +54,7 @@ export function SyncSection({
 
   useEffect(() => {
     if (!syncUrl) { setQrDataUrl(''); return; }
-    QRCode.toDataURL(syncUrl, { width: 200, margin: 2 })
+    QRCode.toDataURL(syncUrl, { width: QR_CODE_WIDTH, margin: 2 })
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(''));
   }, [syncUrl]);

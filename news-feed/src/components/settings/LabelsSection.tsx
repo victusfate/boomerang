@@ -52,6 +52,7 @@ export function LabelsSection({ prefs, onAddLabel, onDeleteLabel, onSuggestLabel
     <section className="settings-section">
       <h3>AI Labels</h3>
       <p className="settings-hint">
+        {/* quality-ok: magic-number — Chrome minimum version with on-device Prompt API */}
         Create topic labels to tag your feed. On Chrome 138+, on-device AI classifies articles automatically.
       </p>
 
