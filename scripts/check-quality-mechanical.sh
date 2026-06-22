@@ -64,7 +64,8 @@ check_file() {
     [[ "$line" =~ ^[[:space:]]*(//|#|\*|/\*) ]] && continue
     [[ -z "${line// }" ]] && continue
     # Skip JS/TS const/let/var/readonly NAME = NUMBER (named constant definition)
-    [[ "$line" =~ ^[[:space:]]*(const|let|var|readonly)[[:space:]]+[A-Z_]+ ]] && continue
+    # Also exempts export const/let/var — exported constants are definitions, not hidden thresholds.
+    [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?(const|let|var|readonly)[[:space:]]+[A-Z_]+ ]] && continue
     # Skip shell/Python UPPER_CASE = <literal> — constant definitions in both languages.
     # Leading underscores (Python private constants like _PT_PER_INCH) are included.
     # Tuple form (A, B = 1, 2) is also covered. Excludes command substitutions ($(...)).
@@ -113,6 +114,7 @@ if [ $# -gt 0 ]; then
 else
   mapfile -t FILES < <(git diff main...HEAD --name-only 2>/dev/null \
     | grep -E '\.(js|mjs|ts|tsx|sh|py|rb|go)$' \
+    | grep -v '^docs/api/' \
     || true)
 fi
 
