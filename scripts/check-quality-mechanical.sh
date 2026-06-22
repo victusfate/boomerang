@@ -46,7 +46,7 @@ check_file() {
     # `quality-ok: magic-number` on the line immediately above suppresses the
     # check for the next code line. A reason after " — " is required by convention
     # (and enforced at review time) but not parsed here — the keyword is the gate.
-    if [[ "$line" =~ ^[[:space:]]*(#|//)[[:space:]]*quality-ok:[[:space:]]*magic-number ]]; then
+    if [[ "$line" =~ ^[[:space:]]*(#|//|\{/\*)[[:space:]]*quality-ok:[[:space:]]*magic-number ]]; then
       prev_quality_ok=1
       continue
     fi
@@ -84,6 +84,9 @@ check_file() {
     # not magic numbers — strip quoted substrings before the scan.
     local scan
     scan=$(printf '%s' "$line" | sed "s/'[^']*'//g; s/\"[^\"]*\"//g")
+    # Strip parseInt/parseFloat radix and .toString() radix — they are always
+    # explicit base specifications, not hidden thresholds (decimal 10, hex 16, base36, etc.).
+    scan=$(printf '%s' "$scan" | sed 's/parseInt([^,]*,[^)]*)/parseInt(X)/g; s/\.toString([^)]*)/\.toString(X)/g')
     # Flag bare integers ≥2 digits that are not array indices or lone 0/1
     if echo "$scan" | grep -qE '[^a-zA-Z0-9_."\x27][0-9]{2,}[^a-zA-Z0-9_.]'; then
       emit "${file}:${lineno} [Readability/minor] magic number — extract to a named constant (or use quality-ok: magic-number pragma if the value is self-documenting)"
