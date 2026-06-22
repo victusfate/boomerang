@@ -3,6 +3,9 @@ import type { RecDebugInfo } from '../../services/recWorker';
 import { TOPIC_META } from '../topicFilterUtils';
 import type { Topic } from '../../types';
 
+const MAX_SOURCE_ENTRIES = 12;
+const MAX_TAG_ENTRIES = 12;
+
 const ACTION_ORDER = ['save', 'upvote', 'read', 'seen', 'downvote'] as const;
 type Action = typeof ACTION_ORDER[number];
 
@@ -128,6 +131,7 @@ export function RecTraceView({
     <>
       {sourceEntries.length > 0 ? (
         <>
+          {/* quality-ok: magic-number — CSS layout px value */}
           <p className="rec-chart-title" style={{ marginTop: 16 }}>Source engagement</p>
           <div className="rec-source-legend">
             {ACTION_ORDER.filter(a => a !== 'seen').map(a => (
@@ -144,6 +148,7 @@ export function RecTraceView({
           </div>
         </>
       ) : hasData && (
+        // quality-ok: magic-number — CSS layout px value
         <p className="settings-hint" style={{ marginTop: 12 }}>
           No interaction data yet — read, save, or vote on articles to build your source profile.
         </p>
@@ -151,6 +156,7 @@ export function RecTraceView({
 
       {topicEntries.length > 0 && (
         <>
+          {/* quality-ok: magic-number — CSS layout px value */}
           <p className="rec-chart-title" style={{ marginTop: 16 }}>Topic affinity</p>
           <div className="rec-topic-list">
             {topicEntries.map(({ topic, score }) => (
@@ -168,6 +174,7 @@ export function RecTraceView({
 
       {tagEntries.length > 0 && (
         <>
+          {/* quality-ok: magic-number — CSS layout px value */}
           <p className="rec-chart-title" style={{ marginTop: 16 }}>Tag affinity</p>
           <div className="rec-topic-list">
             {tagEntries.map(({ tag, score }) => (
@@ -184,6 +191,7 @@ export function RecTraceView({
 
       {debug && (
         <>
+          {/* quality-ok: magic-number — CSS layout px value */}
           <p className="rec-chart-title" style={{ marginTop: 16 }}>Model stats (worker)</p>
           <div className="rec-stat-grid">
             <div className="rec-stat-card">
@@ -205,6 +213,7 @@ export function RecTraceView({
           </div>
           {debug.kvCounters && (
             <>
+              {/* quality-ok: magic-number — CSS layout px value */}
               <p className="rec-chart-title" style={{ marginTop: 12 }}>KV quota (isolate)</p>
               <div className="rec-stat-grid">
                 <div className="rec-stat-card">
@@ -235,7 +244,7 @@ export function buildSourceEntries(
   return Object.entries(sources)
     .map(([id, c]) => ({ id, name: getSourceName(id), c, score: engagementScore(c) }))
     .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
-    .slice(0, 12);
+    .slice(0, MAX_SOURCE_ENTRIES);
 }
 
 export function buildTopicEntries(
@@ -254,5 +263,5 @@ export function buildTagEntries(
     .map(([tag, c]) => ({ tag, score: engagementScore(c) }))
     .filter(e => e.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 12);
+    .slice(0, MAX_TAG_ENTRIES);
 }

@@ -1,6 +1,8 @@
 import { articleCatalogMissingTitleLabel } from '../../../../shared/articleRecordCatalog.ts';
 import type { RecStatus } from '../../hooks/useRecWorker';
 
+const SCORE_EPSILON = 1e-9;
+
 interface RankedEntry {
   id: string;
   rank: number;
@@ -24,6 +26,7 @@ export function RecScoreTable({
 }: Props) {
   if (topRated.length === 0) {
     return (
+      /* quality-ok: magic-number — CSS margin px value */
       <p className="settings-hint" style={{ marginTop: 16 }}>
         {recStatus === 'error'
           ? 'Could not load rankings — check the worker and try refreshing the feed.'
@@ -36,14 +39,16 @@ export function RecScoreTable({
 
   return (
     <>
+      {/* quality-ok: magic-number — CSS margin px value */}
       <p className="rec-chart-title" style={{ marginTop: 16 }}>Top collaborative scores</p>
+      {/* quality-ok: magic-number — CSS margin px value */}
       <p className="settings-hint" style={{ marginBottom: 4 }}>
         MF scores from your current feed pool. Feed tab shows per-card <strong>feed score</strong> (recency × diversity × boost).
         {titleLookupHint ? ` ${titleLookupHint}.` : ''}
       </p>
       <div className="rec-cf-list">
         {topRated.map(entry => {
-          const pct = scoreSpan <= 1e-9
+          const pct = scoreSpan <= SCORE_EPSILON
             ? 100
             : ((entry.score - minScore) / scoreSpan) * 100;
           const title = getArticleTitle(entry.id)

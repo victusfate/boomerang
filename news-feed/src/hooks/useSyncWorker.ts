@@ -17,6 +17,9 @@ const DIRTY_SYNC_DEBOUNCE_MS = 1_000;
 const RATE_LIMIT_BACKOFF_BASE_MS = 2_000;
 const RATE_LIMIT_BACKOFF_MAX_MS = 5 * 60_000;
 const COOLDOWN_TICK_MS = 500;
+const MAX_BACKOFF_STEP = 20;
+const MAX_CONFLICT_RETRY_DEPTH = 3;
+const CONFLICT_RETRY_DELAY_MS = 500;
 const RELINK_REQUIRED_MESSAGE =
   'Sync link expired or is invalid. Local sync was disabled to stop retries. Generate a new sync link.';
 
@@ -146,7 +149,7 @@ export function useSyncWorker(
     const expBackoffMs = Math.min(RATE_LIMIT_BACKOFF_BASE_MS * 2 ** step, RATE_LIMIT_BACKOFF_MAX_MS);
     const backoffMs = Math.max(retryAfterMs ?? 0, expBackoffMs);
     syncDebugLog('saved', 'rate-limit:backoff', { retryAfterMs, backoffMs, step });
-    rateLimitBackoffStepRef.current = Math.min(step + 1, 20);
+    rateLimitBackoffStepRef.current = Math.min(step + 1, MAX_BACKOFF_STEP);
     startSyncCooldown(backoffMs);
     setSyncStatus('active');
     setSyncError(`Sync rate limited. Retrying allowed in ${Math.max(1, Math.ceil(backoffMs / 1000))}s.`);
@@ -265,7 +268,7 @@ export function useSyncWorker(
     if (result.conflict) {
       syncDebugLog('saved', 'push:conflict', { roomId: r.roomId });
       conflictDepthRef.current += 1;
-      if (conflictDepthRef.current > 3) {
+      if (conflictDepthRef.current > MAX_CONFLICT_RETRY_DEPTH) {
         conflictDepthRef.current = 0;
         syncDebugLog('saved', 'push:conflict-max-retry');
         return 'blocked';
@@ -277,7 +280,7 @@ export function useSyncWorker(
         conflictRetryRef.current = setTimeout(() => {
           conflictRetryRef.current = null;
           void doPush(pollResult.merged ?? undefined);
-        }, 500);
+        }, CONFLICT_RETRY_DELAY_MS);
       }
       return 'blocked'; // don't mark as pushed — retry will re-check
     }

@@ -29,6 +29,12 @@ import {
 export type { RecArticleMeta, RecArticlesLookupTiming, RecArticlesResponse } from './recArticlesLookup';
 export { normalizeRecArticleMeta, parseRecArticlesResponse } from './recArticlesLookup';
 
+import { HTTP_NOT_MODIFIED } from '../lib/http-status.js';
+
+const MS_PER_SECOND = 1000;
+const DEFAULT_REC_LIMIT = 50;
+const CACHE_DEFAULT_TTL_SEC = 300;
+
 export type RecAction = Action;
 
 export interface RecInteractionInput {
@@ -121,12 +127,12 @@ export async function fetchFeedPoolRecommendations(
 export async function fetchRecommendations(
   workerBase: string,
   userId: string,
-  options: FetchRecommendationsOptions | number = 50,
+  options: FetchRecommendationsOptions | number = DEFAULT_REC_LIMIT,
 ): Promise<RecResponseWithScores> {
   const opts: FetchRecommendationsOptions = typeof options === 'number'
     ? { limit: options }
     : options;
-  const limit = opts.limit ?? 50;
+  const limit = opts.limit ?? DEFAULT_REC_LIMIT;
   const useFeedPool = opts.candidateArticleIds !== undefined;
   // Strip undefined values; only send when there are actual learned weights.
   // An empty object bypasses ricochet's KV cache and prevents ETags from firing.
@@ -158,7 +164,7 @@ export async function fetchRecommendations(
       { headers: reqHeaders },
     );
 
-  if (res.status === 304 && cached) return cached.response;
+  if (res.status === HTTP_NOT_MODIFIED && cached) return cached.response;
   if (!res.ok) throw new Error(`rec-worker ${res.status} ${res.statusText}`);
   const raw = await res.json() as Partial<RecResponse> & Record<string, unknown>;
   const articleIds = Array.isArray(raw.articleIds) ? raw.articleIds : [];
@@ -237,11 +243,11 @@ function normalizeCache(candidate: unknown, generatedAt: number, userId: string)
   const c = (candidate && typeof candidate === 'object')
     ? candidate as Partial<RecCacheInfo>
     : {};
-  const ageSec = Math.max(0, Math.floor((Date.now() - generatedAt) / 1000));
+  const ageSec = Math.max(0, Math.floor((Date.now() - generatedAt) / MS_PER_SECOND));
   return {
     status: c.status === 'hit' || c.status === 'miss' || c.status === 'bypass' ? c.status : 'bypass',
     key: typeof c.key === 'string' ? c.key : `recs:${userId}`,
-    ttlSec: typeof c.ttlSec === 'number' ? c.ttlSec : 300,
+    ttlSec: typeof c.ttlSec === 'number' ? c.ttlSec : CACHE_DEFAULT_TTL_SEC,
     ageSec: typeof c.ageSec === 'number' ? c.ageSec : ageSec,
   };
 }

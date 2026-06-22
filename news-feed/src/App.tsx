@@ -29,6 +29,8 @@ import { PLATFORM_WORKER_URL } from './config/workerEnv';
 import { timeAgo } from './services/timeAgo';
 
 const SKELETON_CARD_COUNT = 5;
+const MS_PER_SECOND = 1000;
+const OG_BATCH_SIZE = 10;
 
 /** Word-boundary label↔tag match — bare substring made "AI" match "rain". */
 function labelMatchesTag(label: string, tag: string): boolean {
@@ -41,7 +43,7 @@ function labelMatchesTag(label: string, tag: string): boolean {
 type SyncIndicatorState = 'idle' | 'setup' | 'active' | 'syncing' | 'error';
 
 function formatCooldownLabel(remainingMs: number): string {
-  return `Cooldown ${Math.max(1, Math.ceil(remainingMs / 1000))}s`;
+  return `Cooldown ${Math.max(1, Math.ceil(remainingMs / MS_PER_SECOND))}s`;
 }
 
 function syncIndicatorState(
@@ -63,7 +65,7 @@ function syncIndicatorState(
     return {
       state: 'active',
       label: formatCooldownLabel(cooldownMs),
-      title: `Sync cooldown active (${Math.ceil(cooldownMs / 1000)}s remaining)`,
+      title: `Sync cooldown active (${Math.ceil(cooldownMs / MS_PER_SECOND)}s remaining)`,
     };
   }
   if (syncActive) {
@@ -256,7 +258,7 @@ export default function App() {
   }, [activeFilter, view, fetching, loading, hasMore, filteredArticles.length, onLoadMore]);
 
   const { ogMap, sentinelRef: ogSentinelRef, fetchedUpTo: ogFetchedUpTo } =
-    useOGImageBatch(filteredArticles, 10);
+    useOGImageBatch(filteredArticles, OG_BATCH_SIZE);
 
   const syncBusy = combinedSyncCooldownMs > 0 || syncIndicator.state === 'syncing';
   const ogSentinelIndex = Math.min(ogFetchedUpTo, filteredArticles.length) - 1;

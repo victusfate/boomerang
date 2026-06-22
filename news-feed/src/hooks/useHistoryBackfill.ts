@@ -3,6 +3,8 @@ import type { UserPrefs } from '../types';
 import { isBackfilled, markBackfilled, writeHistoryEntries } from '../services/articleHistory';
 import { parseRecArticlesResponse } from '../services/recArticlesLookup';
 
+const MAX_BACKFILL_IDS = 500;
+
 export function useHistoryBackfill(
   prefs: UserPrefs,
   platformWorkerUrl: string,
@@ -38,7 +40,7 @@ export function useHistoryBackfill(
         if (!seen.has(id)) {
           seen.add(id);
           ids.push(id);
-          if (ids.length >= 500) break;
+          if (ids.length >= MAX_BACKFILL_IDS) break;
         }
       }
 

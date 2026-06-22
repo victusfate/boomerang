@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
 import type { FeedView } from '../types';
 
-const SENTINEL_ROOT_MARGIN = '600px'; // start loading well before the bottom edge
+const SCROLL_THRESHOLD_PX = 600;
+const SENTINEL_ROOT_MARGIN = `${SCROLL_THRESHOLD_PX}px`; // start loading well before the bottom edge
 
 export function useInfiniteScrollSentinel(
   onLoadMore: () => void,
@@ -36,7 +37,7 @@ export function useInfiniteScrollSentinel(
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
     const rect = sentinel.getBoundingClientRect();
-    if (rect.top <= window.innerHeight + 600) onLoadMore();
+    if (rect.top <= window.innerHeight + SCROLL_THRESHOLD_PX) onLoadMore();
   }, [totalLoaded, hasMore, view, onLoadMore]);
 
   return { sentinelRef };

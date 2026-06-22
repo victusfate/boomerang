@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Article } from '../types';
 import { getRssWorkerBaseUrl } from '../services/newsService';
 
+const DEFAULT_OG_BATCH_SIZE  = 10;
 const OG_LS_KEY              = 'og_cache_v1';
 const CACHE_TTL_MS           = 24 * 60 * 60 * 1_000;
 const OG_FETCH_TIMEOUT_MS    = 10_000;
@@ -53,7 +54,7 @@ function persistCache(cache: Map<string, CacheEntry>): void {
 
 export function useOGImageBatch(
   articles: Article[],
-  batchSize = 10,
+  batchSize = DEFAULT_OG_BATCH_SIZE,
 ): { ogMap: Map<string, string | null>; sentinelRef: React.RefObject<HTMLDivElement | null>; fetchedUpTo: number } {
   const lsCache = useRef<Map<string, CacheEntry>>(readCache());
   const initiated = useRef<Set<string>>(new Set());
