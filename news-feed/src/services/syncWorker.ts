@@ -1,7 +1,9 @@
 import type { Article, ArticleTag, LabelHit, UserPrefs } from '../types.ts';
 import { parseRetryAfterMs } from './retryAfter.ts';
 import { mergePrefs, mergeArticleTags, mergeLabelHits, dehydrate, hydrate, type SyncPayloadV1 } from './syncShare.ts';
-import { HTTP_PRECONDITION_FAILED, HTTP_UNAUTHORIZED, HTTP_TOO_MANY_REQUESTS } from '../lib/http-status.js';
+import { HTTP_NOT_FOUND, HTTP_PRECONDITION_FAILED, HTTP_UNAUTHORIZED, HTTP_TOO_MANY_REQUESTS } from '../lib/http-status.js';
+
+const MS_PER_SECOND = 1000;
 
 /** `sourceId` for bookmark rows synthesized so sync payloads cover every `prefs.savedId`. */
 export const SYNC_PLACEHOLDER_SOURCE_ID = 'boomerang-sync-placeholder';
@@ -17,7 +19,7 @@ async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): P
     return await fetch(input, { ...init, signal: controller.signal });
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') {
-      throw new Error(`sync request timed out after ${Math.round(SYNC_FETCH_TIMEOUT_MS / 1000)}s`);
+      throw new Error(`sync request timed out after ${Math.round(SYNC_FETCH_TIMEOUT_MS / MS_PER_SECOND)}s`);
     }
     throw e;
   } finally {
@@ -120,7 +122,7 @@ export interface MetaResponse {
 
 export async function fetchMeta(room: SyncRoom): Promise<MetaResponse | null> {
   const res = await fetchWithTimeout(`${room.workerUrl}/sync/${room.roomId}/meta`);
-  if (res.status === 404) return null;
+  if (res.status === HTTP_NOT_FOUND) return null;
   if (res.status === HTTP_UNAUTHORIZED) return { payload: {} as SyncPayloadV1, etag: '', unauthorized: true };
   if (res.status === HTTP_TOO_MANY_REQUESTS) {
     return {

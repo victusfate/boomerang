@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Article, ArticleTag, LabelHit, UserPrefs } from '../types';
+import type { SyncStatus, SyncErrorDetails, UseSyncWorkerResult } from './useSyncWorkerTypes';
+export type { SyncStatus, SyncErrorDetails, UseSyncWorkerResult } from './useSyncWorkerTypes';
 import {
   createSyncRoom, fetchMeta, pushMeta, deleteRoom,
   buildPayload, mergePayload,
@@ -11,6 +13,7 @@ import { PLATFORM_WORKER_URL, MISSING_PLATFORM_WORKER_MSG } from '../config/work
 import { syncDebugLog, isSyncDebugEnabled } from '../config/debugSync';
 import { useSyncRoom } from './useSyncRoom';
 
+const MS_PER_SECOND = 1000;
 
 const MANUAL_SYNC_COOLDOWN_MS = 15_000;
 const DIRTY_SYNC_DEBOUNCE_MS = 1_000;
@@ -23,32 +26,8 @@ const CONFLICT_RETRY_DELAY_MS = 500;
 const RELINK_REQUIRED_MESSAGE =
   'Sync link expired or is invalid. Local sync was disabled to stop retries. Generate a new sync link.';
 
-export type SyncStatus = 'idle' | 'active' | 'syncing' | 'error';
-
 type MergedState = { prefs: UserPrefs; articleTags: ArticleTag[]; labelHits: LabelHit[]; savedArticles: Article[] };
 type PollResult = { status: 'ok'; merged: MergedState | null } | { status: 'blocked' | 'rate_limited' };
-
-export interface SyncErrorDetails {
-  phase: string;
-  roomId: string | null;
-  workerUrl: string | null;
-  endpoint?: string;
-}
-
-export interface UseSyncWorkerResult {
-  syncActive: boolean;
-  syncStatus: SyncStatus;
-  syncedAt: Date | null;
-  syncError: string | null;
-  syncErrorDetails: SyncErrorDetails | null;
-  syncUrl: string | null;
-  syncCooldownMs: number;
-  forceSync: () => Promise<void>;
-  generateLink: () => Promise<void>;
-  revoke: () => Promise<void>;
-  /** Non-null when `VITE_PLATFORM_WORKER_URL` is missing — needed to create new rooms; existing fragment/storage rooms still work */
-  syncEnvError: string | null;
-}
 
 export function useSyncWorker(
   prefs: UserPrefs,
@@ -152,7 +131,7 @@ export function useSyncWorker(
     rateLimitBackoffStepRef.current = Math.min(step + 1, MAX_BACKOFF_STEP);
     startSyncCooldown(backoffMs);
     setSyncStatus('active');
-    setSyncError(`Sync rate limited. Retrying allowed in ${Math.max(1, Math.ceil(backoffMs / 1000))}s.`);
+    setSyncError(`Sync rate limited. Retrying allowed in ${Math.max(1, Math.ceil(backoffMs / MS_PER_SECOND))}s.`);
   }, [startSyncCooldown]);
 
   const disableLocalSyncRoom = useCallback((message: string, roomForDisplay?: SyncRoom) => {

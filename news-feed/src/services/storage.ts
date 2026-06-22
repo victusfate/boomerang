@@ -55,13 +55,16 @@ const DOWNVOTE_KEYWORD_DELTA  = 0.3;
 const BOOST_TOPIC_DELTA       = 0.2;
 const DECAY_DRIFT_RATE        = 0.1;  // drift 10% toward neutral per decay cycle
 const KEYWORD_DECAY_FACTOR    = 0.85; // reduce keyword magnitude 15% per cycle
+const MAX_KEYWORD_EXTRACT     = 12;
+const HASH_PRIME              = 31;
+const MS_PER_SECOND           = 1000;
 
 export function extractKeywords(text: string): string[] {
   return [...new Set(
     text.toLowerCase()
       .split(/\W+/)
       .filter(w => w.length > 4 && !STOPWORDS.has(w))
-  )].slice(0, 12);
+  )].slice(0, MAX_KEYWORD_EXTRACT);
 }
 
 function trimKeywords(weights: Record<string, number>): Record<string, number> {
@@ -386,7 +389,7 @@ const BASE36_RADIX = 36;
 
 function hashUrl(url: string): string {
   let h = 0;
-  for (let i = 0; i < url.length; i++) { h = Math.imul(31, h) + url.charCodeAt(i) | 0; }
+  for (let i = 0; i < url.length; i++) { h = Math.imul(HASH_PRIME, h) + url.charCodeAt(i) | 0; }
   return (h >>> 0).toString(BASE36_RADIX);
 }
 
@@ -402,7 +405,7 @@ function bmId(url: string): string {
 /** Export saved articles as a Netscape HTML bookmarks file. */
 export function exportBookmarkHTML(articles: Article[]): string {
   const items = articles.map(a => {
-    const ts = Math.floor(a.publishedAt.getTime() / 1000);
+    const ts = Math.floor(a.publishedAt.getTime() / MS_PER_SECOND);
     return `    <DT><A HREF="${escapeXml(a.url)}" ADD_DATE="${ts}">${escapeXml(a.title)}</A>`;
   }).join('\n');
   return [
@@ -431,7 +434,7 @@ export function importBookmarkHTML(html: string): Article[] | null {
       if (!url || !/^https?:\/\//i.test(url)) continue;
       const title   = a.textContent?.trim() || url;
       const addDate = a.getAttribute('ADD_DATE');
-      const ts      = addDate ? parseInt(addDate, 10) * 1000 : Date.now();
+      const ts      = addDate ? parseInt(addDate, 10) * MS_PER_SECOND : Date.now();
       let host = url;
       try { host = new URL(url).hostname.replace(/^www\./, ''); } catch { /* ignore */ }
       articles.push({

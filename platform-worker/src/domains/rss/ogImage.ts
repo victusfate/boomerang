@@ -77,10 +77,10 @@ export function isAllowedOgFetchUrl(urlStr: string): boolean {
     const [a, b] = [parseInt(ipv4[1], 10), parseInt(ipv4[2], 10)];
     if (a === LOOPBACK_OCTET) return false;                                                              // 127.x.x.x  loopback
     if (a === RFC1918_CLASS_A_OCTET) return false;                                                       // 10.x.x.x   RFC-1918
-    if (a === RFC1918_CLASS_B_OCTET && b >= RFC1918_CLASS_B_SECOND_OCTET_MIN && b <= RFC1918_CLASS_B_SECOND_OCTET_MAX) return false;  // RFC-1918 private range class B
+    if (a === RFC1918_CLASS_B_OCTET && b >= RFC1918_CLASS_B_SECOND_OCTET_MIN && b <= RFC1918_CLASS_B_SECOND_OCTET_MAX) return false;  // RFC1918 private range class B
     if (a === RFC1918_CLASS_C_OCTET && b === RFC1918_CLASS_C_SECOND_OCTET) return false;                 // 192.168.x  RFC-1918
     if (a === LINK_LOCAL_OCTET && b === LINK_LOCAL_SECOND_OCTET) return false;                           // 169.254.x  link-local
-    if (a === RFC6598_CGN_OCTET && b >= RFC6598_CGN_SECOND_OCTET_MIN && b <= RFC6598_CGN_SECOND_OCTET_MAX) return false;  // RFC-6598 carrier-grade NAT
+    if (a === RFC6598_CGN_OCTET && b >= RFC6598_CGN_SECOND_OCTET_MIN && b <= RFC6598_CGN_SECOND_OCTET_MAX) return false;  // RFC6598 carrier-grade NAT
     if (a === 0) return false;                                                                           // 0.x.x.x    "this network"
     return true; // public IPv4 — allowed
   }
