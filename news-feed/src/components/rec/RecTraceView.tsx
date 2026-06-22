@@ -35,6 +35,7 @@ function SourceRow({ name, c, score, maxScore }: {
   score: number;
   maxScore: number;
 }) {
+  // quality-ok: magic-number — percentage scale factor
   const barPct = maxScore > 0 ? Math.abs(score) / maxScore * 100 : 0;
   const isNeg  = score < 0;
   const chips  = ACTION_ORDER.filter(a => counts(c, a) > 0);
@@ -62,6 +63,7 @@ function SourceRow({ name, c, score, maxScore }: {
                 const weight = ACTION_WEIGHT[action] ?? 0;
                 const contribution = n * weight;
                 if (contribution <= 0) return null;
+                // quality-ok: magic-number — percentage scale factor
                 const segPct = positiveTotal > 0 ? contribution / positiveTotal * 100 : 0;
                 return (
                   <div
@@ -92,6 +94,7 @@ function SourceRow({ name, c, score, maxScore }: {
 function TopicBar({ label, color, score, maxScore }: {
   label: string; color?: string; score: number; maxScore: number;
 }) {
+  // quality-ok: magic-number — percentage scale factor
   const pct = maxScore > 0 ? Math.max(0, score / maxScore) * 100 : 0;
   return (
     <div className="rec-topic-row">

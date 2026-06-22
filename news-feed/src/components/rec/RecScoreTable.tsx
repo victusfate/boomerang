@@ -26,7 +26,7 @@ export function RecScoreTable({
 }: Props) {
   if (topRated.length === 0) {
     return (
-      /* quality-ok: magic-number — CSS margin px value */
+      {/* quality-ok: magic-number — CSS margin px value */}
       <p className="settings-hint" style={{ marginTop: 16 }}>
         {recStatus === 'error'
           ? 'Could not load rankings — check the worker and try refreshing the feed.'
@@ -48,9 +48,8 @@ export function RecScoreTable({
       </p>
       <div className="rec-cf-list">
         {topRated.map(entry => {
-          const pct = scoreSpan <= SCORE_EPSILON
-            ? 100
-            : ((entry.score - minScore) / scoreSpan) * 100;
+          // quality-ok: magic-number — percentage scale factor
+          const pct = scoreSpan <= SCORE_EPSILON ? 100 : ((entry.score - minScore) / scoreSpan) * 100;
           const title = getArticleTitle(entry.id)
             ?? lookupTitleById[entry.id]
             ?? articleCatalogMissingTitleLabel();
