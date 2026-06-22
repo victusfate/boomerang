@@ -205,8 +205,6 @@ export function phaseScaffold(rows: ResolverRow[], { fail, warn, MANIFEST, liste
   }
 }
 
-const compileIgnore = compileKeepMatcher;
-
 // Completeness guard for the sync manifest. Every tracked file must be either
 // shipped (scaffold-files.txt) or held back (scaffold-internal.txt); every
 // manifest entry must be a real tracked file and not also internal. This makes
@@ -220,7 +218,7 @@ export function phaseManifestCompleteness(_rows: ResolverRow[], { fail, MANIFEST
 
   const patterns = readFileSync(INTERNAL, 'utf8')
     .split('\n').map(l => l.replace(/#.*/, '').trim()).filter(Boolean);
-  const isInternal = compileIgnore(patterns);
+  const isInternal = compileKeepMatcher(patterns);
   const tracked = new Set(trackedFiles);
 
   for (const f of trackedFiles) {

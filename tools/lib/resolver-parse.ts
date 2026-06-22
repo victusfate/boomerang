@@ -73,7 +73,6 @@ export function parseBundledRows(resolverPath: string): BundledRow[] {
   return rows;
 }
 
-// Thin wrapper returning only slugs for callers that don't need purpose.
 export function parseBundledSkills(resolverPath: string): string[] {
   return parseBundledRows(resolverPath).map(r => r.skill);
 }

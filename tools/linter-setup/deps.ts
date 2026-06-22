@@ -50,6 +50,8 @@ function mergeInto(targetRepo: string, section: Section, entries: Record<string,
   }
   if (added.length === 0) return { added: [], status: 'satisfied' };
 
+  // `as never` sidesteps the union discriminant: TS can't narrow pkg[section] to the
+  // concrete section type through a string-indexed write, so we assert the assignment.
   pkg[section] = target as never;
   const trailingNL = raw.endsWith('\n') ? '\n' : '';
   writeFileSync(pkgPath, JSON.stringify(pkg, null, detectIndent(raw)) + trailingNL);

@@ -44,6 +44,7 @@ export function loadKeep(dest: string): KeepMatcher {
   return compileKeepMatcher(patterns);
 }
 
+// quality-override: parameter-discipline — shared write engine at a module boundary; all 7 params are distinct non-groupable concerns
 /**
  * Write content to dest/relPath under the clobber-safe contract:
  *  - kept paths (.scaffold-keep) are never touched
