@@ -23,6 +23,9 @@ interface Props {
   backfilled: boolean;
 }
 
+const MAX_BACKFILL_IDS = 500;
+const SEARCH_DEBOUNCE_MS = 150;
+
 const SCOPES: { label: string; value: SearchScope }[] = [
   { label: 'All', value: 'all' },
   { label: 'Feed', value: 'feed' },
@@ -58,7 +61,7 @@ export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onSav
   useEffect(() => {
     if (backfilled || !platformWorkerUrl) return;
     const controller = new AbortController();
-    const ids = Object.keys(prefs.unsavedAtById ?? {}).concat(prefs.readIds ?? []).slice(0, 500);
+    const ids = Object.keys(prefs.unsavedAtById ?? {}).concat(prefs.readIds ?? []).slice(0, MAX_BACKFILL_IDS);
     if (ids.length === 0) return;
     void (async () => {
       try {
@@ -104,7 +107,7 @@ export function SearchOverlay({ allArticles, savedArticles, prefs, onOpen, onSav
     const timer = setTimeout(() => {
       const candidates = buildCandidates(allArticles, savedArticles, [...history, ...remoteCandidates]);
       setResults(searchArticles(query, candidates, scope));
-    }, 150);
+    }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [query, scope, allArticles, savedArticles, history, remoteCandidates]);
 

@@ -1,6 +1,9 @@
 import type { Article, ArticleTag, LabelHit, UserPrefs } from '../types.ts';
 import { parseRetryAfterMs } from './retryAfter.ts';
 import { mergePrefs, mergeArticleTags, mergeLabelHits, dehydrate, hydrate, type SyncPayloadV1 } from './syncShare.ts';
+import { HTTP_NOT_FOUND, HTTP_PRECONDITION_FAILED, HTTP_UNAUTHORIZED, HTTP_TOO_MANY_REQUESTS } from '../lib/http-status.js';
+
+const MS_PER_SECOND = 1000;
 
 /** `sourceId` for bookmark rows synthesized so sync payloads cover every `prefs.savedId`. */
 export const SYNC_PLACEHOLDER_SOURCE_ID = 'boomerang-sync-placeholder';
@@ -16,7 +19,7 @@ async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): P
     return await fetch(input, { ...init, signal: controller.signal });
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') {
-      throw new Error(`sync request timed out after ${Math.round(SYNC_FETCH_TIMEOUT_MS / 1000)}s`);
+      throw new Error(`sync request timed out after ${Math.round(SYNC_FETCH_TIMEOUT_MS / MS_PER_SECOND)}s`);
     }
     throw e;
   } finally {
@@ -119,9 +122,9 @@ export interface MetaResponse {
 
 export async function fetchMeta(room: SyncRoom): Promise<MetaResponse | null> {
   const res = await fetchWithTimeout(`${room.workerUrl}/sync/${room.roomId}/meta`);
-  if (res.status === 404) return null;
-  if (res.status === 401) return { payload: {} as SyncPayloadV1, etag: '', unauthorized: true };
-  if (res.status === 429) {
+  if (res.status === HTTP_NOT_FOUND) return null;
+  if (res.status === HTTP_UNAUTHORIZED) return { payload: {} as SyncPayloadV1, etag: '', unauthorized: true };
+  if (res.status === HTTP_TOO_MANY_REQUESTS) {
     return {
       payload: {} as SyncPayloadV1,
       etag: '',
@@ -152,9 +155,9 @@ export async function pushMeta(
     body: JSON.stringify(payload),
   });
 
-  if (res.status === 412) return { ok: false, conflict: true, unauthorized: false, rateLimited: false, retryAfterMs: undefined };
-  if (res.status === 401) return { ok: false, conflict: false, unauthorized: true, rateLimited: false, retryAfterMs: undefined };
-  if (res.status === 429) {
+  if (res.status === HTTP_PRECONDITION_FAILED) return { ok: false, conflict: true, unauthorized: false, rateLimited: false, retryAfterMs: undefined };
+  if (res.status === HTTP_UNAUTHORIZED) return { ok: false, conflict: false, unauthorized: true, rateLimited: false, retryAfterMs: undefined };
+  if (res.status === HTTP_TOO_MANY_REQUESTS) {
     return { ok: false, conflict: false, unauthorized: false, rateLimited: true, retryAfterMs: parseRetryAfterMs(res) };
   }
   if (!res.ok) return { ok: false, conflict: false, unauthorized: false, rateLimited: false, retryAfterMs: undefined };

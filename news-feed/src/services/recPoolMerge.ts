@@ -6,6 +6,8 @@ export { REC_MAX_CANDIDATES };
 /** Max feed-pool ids sent for MF ranking (top of locally ranked list). */
 export const REC_POOL_CANDIDATE_CAP = 400;
 
+const REC_CACHE_TTL_SEC = 300;
+
 export type RecResponseWithScores = RecResponse & {
   scoreById: Record<string, number>;
 };
@@ -63,7 +65,7 @@ export function mergeFeedPoolRecResponses(
       scoredArticleIds: [],
       diagnostics: emptyDiagnostics,
       trace: { requestId: 'client-empty' },
-      cache: { status: 'bypass', key: 'recs:merged', ttlSec: 300, ageSec: 0 },
+      cache: { status: 'bypass', key: 'recs:merged', ttlSec: REC_CACHE_TTL_SEC, ageSec: 0 },
       timingMs: { total: 0, cacheLookup: 0, doFetch: 0, cacheWrite: 0 },
       scoreById: {},
     };

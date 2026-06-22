@@ -140,6 +140,7 @@ export function useAiTagging({
               }
             },
             onModelDownloadProgress: (loaded) => {
+              // quality-ok: magic-number — percentage scale factor
               setClassificationStatus(`Chrome AI model downloading… ${Math.round(loaded * 100)}%`);
             },
             onSessionReady: () => {

@@ -3,6 +3,10 @@ import type { RecWorkerEnv } from '@victusfate/ricochet/worker';
 
 const REC_FEED_POOL_CACHE_TTL_MS = 2 * 60 * 1_000;   // 2 min — per candidate-set
 const REC_GLOBAL_CACHE_TTL_MS    = 5 * 60 * 1_000;   // 5 min — matches ricochet internal
+const HASH_TRUNCATION_BYTES = 12;
+const MAX_REC_LIMIT = 500;
+const MIN_REC_LIMIT = 1;
+const DEFAULT_REC_LIMIT = 50;
 
 interface RankingCacheEntry extends Record<string, SqlStorageValue> {
   payload:    string;
@@ -14,7 +18,7 @@ async function poolHash(ids: string[]): Promise<string> {
   const encoded = new TextEncoder().encode(sorted.join(','));
   const digest = await crypto.subtle.digest('SHA-256', encoded);
   return Array.from(new Uint8Array(digest))
-    .slice(0, 12)
+    .slice(0, HASH_TRUNCATION_BYTES)
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
 }
@@ -72,10 +76,10 @@ export class RecDO extends BaseRecDO {
   private async _handleRecs(request: Request, url: URL, encodedUserId: string): Promise<Response> {
     const userId = decodeURIComponent(encodedUserId);
     const limitParam = url.searchParams.get('limit');
-    let limit = 50;
+    let limit = DEFAULT_REC_LIMIT;
     if (limitParam) {
       const p = parseInt(limitParam, 10);
-      if (!Number.isNaN(p)) limit = Math.max(1, Math.min(500, p));
+      if (!Number.isNaN(p)) limit = Math.max(MIN_REC_LIMIT, Math.min(MAX_REC_LIMIT, p));
     }
 
     let candidateIds: string[] | undefined;
@@ -92,7 +96,7 @@ export class RecDO extends BaseRecDO {
         }
         if (body.limit !== undefined) {
           const p = typeof body.limit === 'number' ? body.limit : parseInt(String(body.limit), 10);
-          if (!Number.isNaN(p)) limit = Math.max(1, Math.min(500, p));
+          if (!Number.isNaN(p)) limit = Math.max(MIN_REC_LIMIT, Math.min(MAX_REC_LIMIT, p));
         }
         // topicWeights bypass: personalised weights must not share a cache entry with
         // unweighted or differently-weighted requests for the same candidate set.

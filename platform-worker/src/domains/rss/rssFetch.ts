@@ -6,6 +6,8 @@ const FETCH_TIMEOUT_MS = 25_000;
 const CONCURRENCY = 4;
 const BATCH_PAUSE_MS = 120;
 const MAX_FEED_BYTES = 5 * 1024 * 1024;
+const RETRY_INITIAL_DELAY_MS = 400;
+const MIN_FEED_BODY_BYTES = 100;
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -15,7 +17,7 @@ async function fetchXmlWithRetry(feedUrl: string): Promise<string> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) {
-      await sleep(400 * 2 ** (attempt - 1));
+      await sleep(RETRY_INITIAL_DELAY_MS * 2 ** (attempt - 1));
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -34,7 +36,7 @@ async function fetchXmlWithRetry(feedUrl: string): Promise<string> {
       const buf = await res.arrayBuffer();
       if (buf.byteLength > MAX_FEED_BYTES) throw new Error(`Feed too large (${buf.byteLength} bytes)`);
       const text = new TextDecoder().decode(buf);
-      if (text.length < 100) throw new Error('empty body');
+      if (text.length < MIN_FEED_BODY_BYTES) throw new Error('empty body');
       return text;
     } catch (e) {
       clearTimeout(timer);

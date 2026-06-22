@@ -6,6 +6,8 @@ import { resolveArticleImageUrl, extractOgImageFromHtml, isAllowedOgFetchUrl } f
 
 /** Card snippet length (matches news-feed `.card-desc` clamp). */
 export const ARTICLE_DESCRIPTION_MAX = 280;
+const HASH_ID_PREFIX_LENGTH = 8;
+const YOUTUBE_ID_LENGTH = 11;
 
 export interface ArticleWire {
   id: string;
@@ -22,7 +24,7 @@ export interface ArticleWire {
 
 async function hashId(str: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf).slice(0, 8))
+  return Array.from(new Uint8Array(buf).slice(0, HASH_ID_PREFIX_LENGTH))
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
 }
@@ -50,7 +52,7 @@ function normalizeHttpUrl(raw: string): string {
 
 function extractYouTubeThumbnail(text: string): string | undefined {
   const match = text.match(
-    /(?:youtube\.com\/watch\?[^"'\s]*v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/
+    new RegExp(`(?:youtube\\.com/watch\\?[^"'\\s]*v=|youtu\\.be/|youtube\\.com/embed/|youtube\\.com/shorts/)([a-zA-Z0-9_-]{${YOUTUBE_ID_LENGTH}})`)
   );
   return match ? `https://img.youtube.com/vi/${match[1]}/hqdefault.jpg` : undefined;
 }

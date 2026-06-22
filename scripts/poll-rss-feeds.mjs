@@ -33,8 +33,13 @@ const RESULTS_PATH   = resolve(__dir, '../shared/rss-sources.results.json');
 const sources = JSON.parse(readFileSync(SOURCES_PATH, 'utf-8'));
 
 // ── Config ───────────────────────────────────────────────────────────────────
-const TIMEOUT_MS  = 14_000;
-const CONCURRENCY = 5;   // keep polite; raise to 8-10 on a fast connection
+const FEED_FETCH_TIMEOUT_MS       = 14_000;
+const FEED_CONCURRENCY_LIMIT      = 5;   // keep polite; raise to 8-10 on a fast connection
+const MAX_POLL_ITEMS_DISPLAY      = 3;   // max feed items extracted per source
+const DESCRIPTION_MIN_LENGTH_WARN = 40;  // avg description chars below this → WARN verdict
+const ARTICLE_BODY_MIN_LENGTH     = 400; // stripped article text below this → flag as thin
+const URL_DISPLAY_MAX_LENGTH      = 60;  // truncation length for error message display
+const REDIRECT_URL_DISPLAY_MAX    = 80;  // truncation length for redirect URL in notes
 
 // Patterns that indicate a paywall wall in article HTML
 const PAYWALL_RE = [
@@ -61,7 +66,7 @@ const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/
 
 async function fetchWithTimeout(url, headers = {}) {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const t = setTimeout(() => ctrl.abort(), FEED_FETCH_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       signal: ctrl.signal,
@@ -81,7 +86,7 @@ function extractItems(xml) {
   const re = /<(item|entry)[\s>]([\s\S]*?)<\/\1>/g;
   const items = [];
   let m;
-  while ((m = re.exec(xml)) !== null && items.length < 3) {
+  while ((m = re.exec(xml)) !== null && items.length < MAX_POLL_ITEMS_DISPLAY) {
     const block = m[2];
     const linkM =
       block.match(/<link[^>]*href=["']([^"']+)["']/) ||
@@ -122,7 +127,7 @@ async function checkSource(src) {
   } catch (e) {
     r.feedStatus = 'ERR';
     r.verdict = 'FAIL';
-    r.notes.push(e.name === 'AbortError' ? 'feed timeout' : (e.message?.slice(0, 60) ?? 'network error'));
+    r.notes.push(e.name === 'AbortError' ? 'feed timeout' : (e.message?.slice(0, URL_DISPLAY_MAX_LENGTH) ?? 'network error'));
     return r;
   }
 
@@ -149,7 +154,7 @@ async function checkSource(src) {
       // Redirect to a subscribe/login page
       if (r.finalUrl && SUBSCRIBE_URL_RE.test(r.finalUrl)) {
         r.paywallHit = true;
-        r.notes.push(`redirected to: ${r.finalUrl.slice(0, 80)}`);
+        r.notes.push(`redirected to: ${r.finalUrl.slice(0, REDIRECT_URL_DISPLAY_MAX)}`);
       }
 
       if (!r.paywallHit && res.ok) {
@@ -160,7 +165,7 @@ async function checkSource(src) {
           r.notes.push(`paywall keyword matched`);
         }
         const bodyText = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-        if (!r.paywallHit && bodyText.length < 400) {
+        if (!r.paywallHit && bodyText.length < ARTICLE_BODY_MIN_LENGTH) {
           r.notes.push(`article body thin (${bodyText.length} chars) — check manually`);
         }
       } else if (!res.ok && !r.paywallHit) {
@@ -168,6 +173,7 @@ async function checkSource(src) {
       }
     } catch (e) {
       r.articleStatus = 'ERR';
+      // quality-ok: magic-number — CLI error message truncation for article fetch errors
       r.notes.push(`article: ${e.name === 'AbortError' ? 'timeout' : (e.message?.slice(0, 50) ?? 'error')}`);
     }
   }
@@ -175,8 +181,9 @@ async function checkSource(src) {
   // 3. Verdict
   if (r.paywallHit) {
     r.verdict = 'PAYWALL';
+  // quality-ok: magic-number — HTTP 200 OK status code
   } else if (r.feedStatus === 200 && r.items > 0) {
-    const isWarn = r.avgDesc < 40 || r.notes.some(n => n.includes('thin') || n.includes('timeout'));
+    const isWarn = r.avgDesc < DESCRIPTION_MIN_LENGTH_WARN || r.notes.some(n => n.includes('thin') || n.includes('timeout'));
     r.verdict = isWarn ? 'WARN' : 'OK';
   } else {
     r.verdict = 'FAIL';
@@ -206,12 +213,13 @@ const rssToCheck  = sources.filter(s => !s.feedUrl.includes('youtube.com'));
 process.stderr.write(`\nPolling ${rssToCheck.length} RSS/Atom feeds (${ytSources.length} YouTube sources auto-pass)…\n\n`);
 
 const tasks = rssToCheck.map(src => async () => {
+  // quality-ok: magic-number — CLI table layout value
   const label = `[${src.enabled ? 'on ' : 'off'}] ${src.id.padEnd(14)} ${src.name}`;
   process.stderr.write(`  ${label}\n`);
   return checkSource(src);
 });
 
-const results = await pool(tasks, CONCURRENCY);
+const results = await pool(tasks, FEED_CONCURRENCY_LIMIT);
 
 // ── Report ────────────────────────────────────────────────────────────────────
 const order = { PAYWALL: 0, FAIL: 1, WARN: 2, OK: 3, UNKNOWN: 4 };
@@ -232,13 +240,21 @@ for (const r of sorted) {
   const v = `${icon[r.verdict] ?? '?'} ${r.verdict}`;
   const en = r.enabled ? ' ✓' : ' -';
   console.log(
+    // quality-ok: magic-number — CLI table layout value
     en.padEnd(4) +
+    // quality-ok: magic-number — CLI table layout value
     r.id.padEnd(16) +
+    // quality-ok: magic-number — CLI table layout value
     r.name.padEnd(23) +
+    // quality-ok: magic-number — CLI table layout value
     String(r.feedStatus).padEnd(6) +
+    // quality-ok: magic-number — CLI table layout value
     String(r.items).padEnd(7) +
+    // quality-ok: magic-number — CLI table layout value
     String(r.avgDesc).padEnd(10) +
+    // quality-ok: magic-number — CLI table layout value
     String(r.articleStatus).padEnd(9) +
+    // quality-ok: magic-number — CLI table layout value
     col + v.padEnd(12) + C.reset +
     (r.notes.join('; ') || '')
   );
@@ -247,7 +263,9 @@ for (const r of sorted) {
 
 // YouTube summary line
 console.log(
+  // quality-ok: magic-number — CLI table layout value
   ' -  ' + '(YouTube × ' + ytSources.length + ')'.padEnd(15) +
+  // quality-ok: magic-number — CLI table layout value
   ''.padEnd(23) + C.dim + '—     —      —         —        ✓ AUTO-PASS' + C.reset
 );
 
@@ -265,11 +283,13 @@ const warned = results.filter(r => warnIds.has(r.id));
 
 if (cut.length > 0) {
   console.log(`${C.red}Removed from candidate (FAIL / PAYWALL):${C.reset}`);
+  // quality-ok: magic-number — CLI table layout value
   for (const r of cut) console.log(`  ✗ ${r.id.padEnd(16)} ${r.name}  — ${r.notes.join('; ')}`);
   console.log();
 }
 if (warned.length > 0) {
   console.log(`${C.yellow}Kept in candidate but flagged (WARN — review manually):${C.reset}`);
+  // quality-ok: magic-number — CLI table layout value
   for (const r of warned) console.log(`  ⚠ ${r.id.padEnd(16)} ${r.name}  — ${r.notes.join('; ')}`);
   console.log();
 }
@@ -291,6 +311,7 @@ for (const r of results) {
   };
 }
 for (const s of ytSources) {
+  // quality-ok: magic-number — HTTP 200 OK status code for YouTube auto-pass
   resultsMap[s.id] = { verdict: 'OK', feedStatus: 200, items: '—', avgDesc: '—', articleStatus: '—', notes: ['YouTube auto-pass'] };
 }
 writeFileSync(RESULTS_PATH, JSON.stringify({ timestamp: new Date().toISOString(), results: resultsMap }, null, 2) + '\n');

@@ -5,6 +5,7 @@ import { syncDebugLog } from '../config/debugSync';
 
 
 const MANUAL_META_SYNC_COOLDOWN_MS = 15_000;
+const MS_PER_SECOND                = 1000;
 const BACKOFF_BASE_MS               = 30_000;
 const BACKOFF_MAX_MS                = 10 * 60_000;
 const RATE_LIMIT_BACKOFF_BASE_MS    = 2_000;
@@ -116,7 +117,7 @@ export function useMetaWorker(articleIds: string[]): UseMetaWorkerResult {
       blockedUntilRef.current = 0;
     }, backoffMs);
     setMetaStatus('active');
-    setMetaError(`Shared metadata rate limited. Retrying allowed in ${Math.max(1, Math.ceil(backoffMs / 1000))}s.`);
+    setMetaError(`Shared metadata rate limited. Retrying allowed in ${Math.max(1, Math.ceil(backoffMs / MS_PER_SECOND))}s.`);
     startMetaSyncCooldown(backoffMs);
   }, [startMetaSyncCooldown]);
 

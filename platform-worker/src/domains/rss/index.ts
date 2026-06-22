@@ -1,6 +1,7 @@
 import type { Env } from '../../env';
 import { corsHeaders } from '../../cors';
 import { checkRateLimit, tooManyRequests } from '../_shared/http';
+import { HTTP_OK, HTTP_REDIRECT_MIN, HTTP_BAD_REQUEST, HTTP_PAYLOAD_TOO_LARGE } from '../../lib/http-status.js';
 import { DEFAULT_SOURCES, SOURCE_BY_ID, type NewsSource } from './sources';
 import { fetchFeedsStaggered } from './rssFetch';
 import { extractOgImageFromHtml, isAllowedOgFetchUrl } from './ogImage';
@@ -8,8 +9,11 @@ import { persistArticleMeta, wireArticleFromFeed } from '../rec/articleMeta';
 
 const BUNDLE_CACHE_TTL_SEC = 300;
 const IMAGE_PROXY_CACHE_TTL_SEC = 86_400;
-const MAX_HTML_BYTES = 1 * 1024 * 1024;
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const BYTES_PER_MB = 1024 * 1024;
+const MAX_HTML_MB = 1;
+const MAX_IMAGE_MB = 10;
+const MAX_HTML_BYTES = MAX_HTML_MB * BYTES_PER_MB;
+const MAX_IMAGE_BYTES = MAX_IMAGE_MB * BYTES_PER_MB;
 /** Custom feeds are attacker-controllable URLs — cap the fan-out per request. */
 const MAX_CUSTOM_FEEDS = 20;
 const RATE_LIMIT_BUNDLE_MAX = 30; // per IP per minute
@@ -39,7 +43,7 @@ async function fetchValidated(target: string, headers: Record<string, string>): 
       headers,
       signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS),
     });
-    if (res.status >= 300 && res.status < 400) {
+    if (res.status >= HTTP_REDIRECT_MIN && res.status < HTTP_BAD_REQUEST) {
       const loc = res.headers.get('Location');
       if (!loc) return null;
       try {
@@ -126,7 +130,7 @@ export async function handleRss(request: Request, env: Env, ctx: ExecutionContex
     if (sources.length === 0 && customSources.length === 0) {
       return json(
         { ok: false, message: 'No valid sources in include=', articles: [], errors: [], fetchedAt: Date.now() },
-        request, env, { status: 400 },
+        request, env, { status: HTTP_BAD_REQUEST },
       );
     }
 
@@ -168,9 +172,9 @@ export async function handleRss(request: Request, env: Env, ctx: ExecutionContex
         return json({ imageUrl: null }, request, env, { status: 404 });
       }
       const cl = parseInt(upstream.headers.get('Content-Length') ?? '0', 10);
-      if (cl > MAX_HTML_BYTES) return json({ imageUrl: null }, request, env, { status: 413 });
+      if (cl > MAX_HTML_BYTES) return json({ imageUrl: null }, request, env, { status: HTTP_PAYLOAD_TOO_LARGE });
       const buf = await upstream.arrayBuffer();
-      if (buf.byteLength > MAX_HTML_BYTES) return json({ imageUrl: null }, request, env, { status: 413 });
+      if (buf.byteLength > MAX_HTML_BYTES) return json({ imageUrl: null }, request, env, { status: HTTP_PAYLOAD_TOO_LARGE });
       html = new TextDecoder().decode(buf);
     } catch {
       return json({ imageUrl: null }, request, env, { status: 404 });
@@ -228,7 +232,7 @@ export async function handleRss(request: Request, env: Env, ctx: ExecutionContex
     const ct = mime.startsWith('image/') ? mime : (mime || 'application/octet-stream');
     out.set('Content-Type', ct);
     out.set('Cache-Control', `public, max-age=${IMAGE_PROXY_CACHE_TTL_SEC}`);
-    const res = new Response(imgBuf, { status: 200, headers: out });
+    const res = new Response(imgBuf, { status: HTTP_OK, headers: out });
     ctx.waitUntil(
       cache.put(cacheKey, res.clone()).catch(() => { /* ignore transient cache failures */ }),
     );

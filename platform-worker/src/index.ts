@@ -4,11 +4,12 @@ import { handleRss } from './domains/rss/index';
 import { handleSync } from './domains/sync/index';
 import { handleMeta, scheduledMeta } from './domains/meta/index';
 import { handleRec, scheduledRec } from './domains/rec/index';
+import { HTTP_OK, HTTP_INTERNAL_SERVER_ERROR } from './lib/http-status.js';
 
 export { MetaDO } from './domains/meta/MetaDO';
 export { RecDO } from './domains/rec/index';
 
-function json(data: unknown, status = 200, extraHeaders?: Headers): Response {
+function json(data: unknown, status = HTTP_OK, extraHeaders?: Headers): Response {
   const headers = extraHeaders ?? new Headers();
   headers.set('Content-Type', 'application/json; charset=utf-8');
   return new Response(JSON.stringify(data), { status, headers });
@@ -24,12 +25,12 @@ export default {
 
     // ── Health ────────────────────────────────────────────────────────────────
     if (path === '/health') {
-      return json({ ok: true, service: 'platform-worker' }, 200, corsHeaders(request, env));
+      return json({ ok: true, service: 'platform-worker' }, HTTP_OK, corsHeaders(request, env));
     }
-    if (path === '/health/rss')  return json({ ok: true, domain: 'rss' }, 200, corsHeaders(request, env));
-    if (path === '/health/sync') return json({ ok: true, domain: 'sync' }, 200, corsHeaders(request, env));
-    if (path === '/health/meta') return json({ ok: true, domain: 'meta' }, 200, corsHeaders(request, env));
-    if (path === '/health/rec')  return json({ ok: true, domain: 'rec' }, 200, corsHeaders(request, env));
+    if (path === '/health/rss')  return json({ ok: true, domain: 'rss' }, HTTP_OK, corsHeaders(request, env));
+    if (path === '/health/sync') return json({ ok: true, domain: 'sync' }, HTTP_OK, corsHeaders(request, env));
+    if (path === '/health/meta') return json({ ok: true, domain: 'meta' }, HTTP_OK, corsHeaders(request, env));
+    if (path === '/health/rec')  return json({ ok: true, domain: 'rec' }, HTTP_OK, corsHeaders(request, env));
 
     // ── RSS domain ────────────────────────────────────────────────────────────
     if (path === '/bundle' || path === '/og-image' || path === '/image') {
@@ -56,7 +57,7 @@ export default {
         h.set('Content-Type', 'application/json; charset=utf-8');
         return new Response(
           JSON.stringify({ ok: false, error: 'rec_handler_crash', message: 'Rec domain threw an unexpected error.' }),
-          { status: 500, headers: h },
+          { status: HTTP_INTERNAL_SERVER_ERROR, headers: h },
         );
       }
     }

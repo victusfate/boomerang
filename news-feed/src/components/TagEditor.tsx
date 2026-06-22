@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react';
 
+const MAX_TAG_LENGTH = 30;
+
 interface Props {
   articleId: string;
   uniqueLabelNames: string[];
@@ -47,7 +49,7 @@ export function TagEditor({ articleId, uniqueLabelNames, onAddManualTag, onRemov
             onKeyDown={handleTagInputKeyDown}
             placeholder="tag…"
             autoFocus
-            maxLength={30}
+            maxLength={MAX_TAG_LENGTH}
           />
         ) : (
           <button

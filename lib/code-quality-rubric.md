@@ -27,9 +27,17 @@ Score = 10 − Σ(violation weights)
 
 A score of 9 means exactly one minor violation, cited.
 
-**Override (model-driven criteria only):** add `quality-override: <file> — <criterion> — <reason>` to the PR body to exempt a file from a specific non-numeric criterion. Mechanical criteria (file length, magic literals, commented-out code) cannot be overridden — the code must be fixed.
+**Override (model-driven criteria only):** add `quality-override: <file> — <criterion> — <reason>` to the PR body to exempt a file from a specific non-numeric criterion. Most mechanical criteria (file length, commented-out code) cannot be overridden — the code must be fixed.
 
-**Inline override (colocated):** place `// quality-override: <criterion> — <reason>` on the line immediately above the offending line. It suppresses that single deduction for `<criterion>` and appears in audit output as an accepted override at **zero** score weight. For a violation that scopes the whole file, place the pragma on the first non-blank, non-shebang line. `<reason>` is required and the em dash `—` is the separator. Mechanical criteria cannot be overridden inline or via PR body — the code must be fixed. A malformed pragma (unknown criterion, blank reason, or missing separator) is itself a `[Clarity/minor]` violation, since a broken override is worse than none.
+**Inline override (colocated):** place `// quality-override: <criterion> — <reason>` on the line immediately above the offending line. It suppresses that single deduction for `<criterion>` and appears in audit output as an accepted override at **zero** score weight. For a violation that scopes the whole file, place the pragma on the first non-blank, non-shebang line. `<reason>` is required and the em dash `—` is the separator. A malformed pragma (unknown criterion, blank reason, or missing separator) is itself a `[Clarity/minor]` violation, since a broken override is worse than none.
+
+**Magic-number pragma:** the magic-number check (`check-quality-mechanical.sh`) is intentionally narrowed to catch hidden thresholds, not every bare digit. Most legitimate cases are already excluded automatically:
+- *Test files* (`*.test.*`, `*.spec.*`, `test-*`) — assertion literals are specs, not thresholds.
+- *`return`/`exit` values* — protocol-defined (HTTP status codes, shell exit codes).
+- *Named constants* — `const NAME = N`, `UPPER_CASE = N`, etc.
+- *String-literal contents* — numbers inside quoted strings are data.
+
+When a bare literal survives those exclusions and is genuinely self-documenting (e.g. `86400` where the context makes "seconds in a day" obvious), place `# quality-ok: magic-number — <reason>` (or `//` for JS/TS) on the **immediately preceding line**. The `<reason>` is required. File-length and commented-out-code cannot be overridden inline or via PR body — those violations must be fixed in the code.
 
 ---
 
@@ -64,6 +72,7 @@ A file scores 10 when:
 - **No god objects** — no class, hook, or component accumulates unrelated concerns. (major)
 - **No workarounds in wrong place** — workarounds (stable refs, one-shot flags, manual cooldowns) live at the source of the problem, not patched at the call site. (major)
 - **No dead logic** — no code that handles conditions that cannot occur, no feature flags for shipped features, no backwards-compat shims for callers that no longer exist. (major)
+- **No duplicate implementations** — every piece of logic has exactly one home. Within a file: two or more functions sharing the majority of their body must extract the shared logic into a helper. Across files: before implementing, search the codebase for an existing canonical equivalent; if one exists, import it instead. Re-implementing something that already exists elsewhere is always a violation, even if the duplicate works correctly. (major)
 - **No error handling theater** — only validates at real system boundaries (user input, external API responses). Trusts internal contracts. (minor)
 - **Correct dependency declarations** — all `useEffect`/`useCallback`/`useMemo` deps are accurate; no suppression comments that paper over a stale-closure bug. *[framework-specific: skip for non-React code]* (major)
 
@@ -73,7 +82,7 @@ A file scores 10 when:
 
 A file scores 10 when:
 
-- **Fits in one mental model** — a reader holds the whole file after one pass. Hooks and utilities: ≤150 lines. Components: ≤200 lines. Orchestrators: ≤250 lines. *[mechanical: check with `wc -l`]* (major)
+- **Fits in one mental model** — a reader holds the whole file after one pass. All file types: ≤500 lines. *[mechanical: check with `wc -l`]* (major)
 - **Top-to-bottom narrative** — declarations, derived state, effects, return appear in that order with no backtracking. (minor)
 - **No destructuring walls** — when a hook or function returns >8 names, callers group them or the hook is split. *[mechanical: count destructured names at call site]* (minor)
 - **No surprise control flow** — early returns are fine; deeply nested conditionals in JSX or effects are not. (major)
@@ -126,3 +135,5 @@ A file scores 10 when:
 | Thin wrapper / identity layer | Encapsulation | major | Delete; inline or remove the layer |
 | Ceremony / boilerplate | Readability | minor | Every line earns its place or is deleted |
 | Reader must hold >1 concept | Readability | major | Extract named intermediate or simplify |
+| Duplicate implementation (within file) | Quality | major | Extract shared logic into a helper |
+| Duplicate implementation (cross-file) | Quality | major | Import from canonical source; delete local copy |

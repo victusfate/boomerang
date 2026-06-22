@@ -13,6 +13,7 @@ import { useTitleCache } from './hooks/useTitleCache';
 import { useSourceNameLookup } from './hooks/useSourceNameLookup';
 import { SearchOverlay } from './components/SearchOverlay';
 import { ArticleCard } from './components/ArticleCard';
+import { syncIndicatorState, RefreshIcon, type SyncIndicatorState } from './components/AppHeader';
 import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
 import { RecDiagnostics } from './components/RecDiagnostics';
@@ -29,6 +30,7 @@ import { PLATFORM_WORKER_URL } from './config/workerEnv';
 import { timeAgo } from './services/timeAgo';
 
 const SKELETON_CARD_COUNT = 5;
+const OG_BATCH_SIZE = 10;
 
 /** Word-boundary label↔tag match — bare substring made "AI" match "rain". */
 function labelMatchesTag(label: string, tag: string): boolean {
@@ -36,59 +38,6 @@ function labelMatchesTag(label: string, tag: string): boolean {
   const asWord = (needle: string) =>
     new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
   return asWord(label).test(tag) || asWord(tag).test(label);
-}
-
-type SyncIndicatorState = 'idle' | 'setup' | 'active' | 'syncing' | 'error';
-
-function formatCooldownLabel(remainingMs: number): string {
-  return `Cooldown ${Math.max(1, Math.ceil(remainingMs / 1000))}s`;
-}
-
-function syncIndicatorState(
-  syncActive: boolean,
-  syncStatus: SyncStatus,
-  metaStatus: 'disabled' | 'active' | 'syncing' | 'error',
-  syncedAt: Date | null,
-  syncError: string | null,
-  syncEnvError: string | null,
-  cooldownMs: number,
-): { state: SyncIndicatorState; label: string; title: string } {
-  if (syncError || syncStatus === 'error') {
-    return { state: 'error', label: 'Sync error', title: syncError ?? 'Sync failed' };
-  }
-  if (syncStatus === 'syncing' || metaStatus === 'syncing') {
-    return { state: 'syncing', label: 'Syncing...', title: 'Pulling or pushing sync data' };
-  }
-  if (cooldownMs > 0) {
-    return {
-      state: 'active',
-      label: formatCooldownLabel(cooldownMs),
-      title: `Sync cooldown active (${Math.ceil(cooldownMs / 1000)}s remaining)`,
-    };
-  }
-  if (syncActive) {
-    const label = syncedAt ? `Synced ${timeAgo(syncedAt, 'ago')}` : 'Sync on';
-    return { state: 'active', label, title: 'Sync is active.' };
-  }
-  if (syncEnvError) {
-    return { state: 'setup', label: 'Sync setup', title: syncEnvError };
-  }
-  return { state: 'idle', label: 'Sync off', title: 'Sync is not active. Open Settings to generate a link.' };
-}
-
-function RefreshIcon({ spinning }: { spinning: boolean }) {
-  return (
-    <svg
-      width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-      style={{ animation: spinning ? 'spin 1s linear infinite' : 'none' }}
-      aria-hidden="true"
-    >
-      <polyline points="23 4 23 10 17 10" />
-      <polyline points="1 20 1 14 7 14" />
-      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-    </svg>
-  );
 }
 
 export default function App() {
@@ -256,7 +205,7 @@ export default function App() {
   }, [activeFilter, view, fetching, loading, hasMore, filteredArticles.length, onLoadMore]);
 
   const { ogMap, sentinelRef: ogSentinelRef, fetchedUpTo: ogFetchedUpTo } =
-    useOGImageBatch(filteredArticles, 10);
+    useOGImageBatch(filteredArticles, OG_BATCH_SIZE);
 
   const syncBusy = combinedSyncCooldownMs > 0 || syncIndicator.state === 'syncing';
   const ogSentinelIndex = Math.min(ogFetchedUpTo, filteredArticles.length) - 1;

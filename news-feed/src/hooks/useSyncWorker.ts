@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Article, ArticleTag, LabelHit, UserPrefs } from '../types';
+import type { SyncStatus, SyncErrorDetails, UseSyncWorkerResult } from './useSyncWorkerTypes';
+export type { SyncStatus, SyncErrorDetails, UseSyncWorkerResult } from './useSyncWorkerTypes';
 import {
   createSyncRoom, fetchMeta, pushMeta, deleteRoom,
   buildPayload, mergePayload,
@@ -11,41 +13,21 @@ import { PLATFORM_WORKER_URL, MISSING_PLATFORM_WORKER_MSG } from '../config/work
 import { syncDebugLog, isSyncDebugEnabled } from '../config/debugSync';
 import { useSyncRoom } from './useSyncRoom';
 
+const MS_PER_SECOND = 1000;
 
 const MANUAL_SYNC_COOLDOWN_MS = 15_000;
 const DIRTY_SYNC_DEBOUNCE_MS = 1_000;
 const RATE_LIMIT_BACKOFF_BASE_MS = 2_000;
 const RATE_LIMIT_BACKOFF_MAX_MS = 5 * 60_000;
 const COOLDOWN_TICK_MS = 500;
+const MAX_BACKOFF_STEP = 20;
+const MAX_CONFLICT_RETRY_DEPTH = 3;
+const CONFLICT_RETRY_DELAY_MS = 500;
 const RELINK_REQUIRED_MESSAGE =
   'Sync link expired or is invalid. Local sync was disabled to stop retries. Generate a new sync link.';
 
-export type SyncStatus = 'idle' | 'active' | 'syncing' | 'error';
-
 type MergedState = { prefs: UserPrefs; articleTags: ArticleTag[]; labelHits: LabelHit[]; savedArticles: Article[] };
 type PollResult = { status: 'ok'; merged: MergedState | null } | { status: 'blocked' | 'rate_limited' };
-
-export interface SyncErrorDetails {
-  phase: string;
-  roomId: string | null;
-  workerUrl: string | null;
-  endpoint?: string;
-}
-
-export interface UseSyncWorkerResult {
-  syncActive: boolean;
-  syncStatus: SyncStatus;
-  syncedAt: Date | null;
-  syncError: string | null;
-  syncErrorDetails: SyncErrorDetails | null;
-  syncUrl: string | null;
-  syncCooldownMs: number;
-  forceSync: () => Promise<void>;
-  generateLink: () => Promise<void>;
-  revoke: () => Promise<void>;
-  /** Non-null when `VITE_PLATFORM_WORKER_URL` is missing — needed to create new rooms; existing fragment/storage rooms still work */
-  syncEnvError: string | null;
-}
 
 export function useSyncWorker(
   prefs: UserPrefs,
@@ -146,10 +128,10 @@ export function useSyncWorker(
     const expBackoffMs = Math.min(RATE_LIMIT_BACKOFF_BASE_MS * 2 ** step, RATE_LIMIT_BACKOFF_MAX_MS);
     const backoffMs = Math.max(retryAfterMs ?? 0, expBackoffMs);
     syncDebugLog('saved', 'rate-limit:backoff', { retryAfterMs, backoffMs, step });
-    rateLimitBackoffStepRef.current = Math.min(step + 1, 20);
+    rateLimitBackoffStepRef.current = Math.min(step + 1, MAX_BACKOFF_STEP);
     startSyncCooldown(backoffMs);
     setSyncStatus('active');
-    setSyncError(`Sync rate limited. Retrying allowed in ${Math.max(1, Math.ceil(backoffMs / 1000))}s.`);
+    setSyncError(`Sync rate limited. Retrying allowed in ${Math.max(1, Math.ceil(backoffMs / MS_PER_SECOND))}s.`);
   }, [startSyncCooldown]);
 
   const disableLocalSyncRoom = useCallback((message: string, roomForDisplay?: SyncRoom) => {
@@ -265,7 +247,7 @@ export function useSyncWorker(
     if (result.conflict) {
       syncDebugLog('saved', 'push:conflict', { roomId: r.roomId });
       conflictDepthRef.current += 1;
-      if (conflictDepthRef.current > 3) {
+      if (conflictDepthRef.current > MAX_CONFLICT_RETRY_DEPTH) {
         conflictDepthRef.current = 0;
         syncDebugLog('saved', 'push:conflict-max-retry');
         return 'blocked';
@@ -277,7 +259,7 @@ export function useSyncWorker(
         conflictRetryRef.current = setTimeout(() => {
           conflictRetryRef.current = null;
           void doPush(pollResult.merged ?? undefined);
-        }, 500);
+        }, CONFLICT_RETRY_DELAY_MS);
       }
       return 'blocked'; // don't mark as pushed — retry will re-check
     }

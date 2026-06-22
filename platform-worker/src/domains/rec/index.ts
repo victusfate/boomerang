@@ -1,6 +1,14 @@
 import type { Env } from '../../env';
 import { corsHeaders } from '../../cors';
 import { json, tooManyRequests, getClientIp, checkRateLimit } from '../_shared/http';
+import {
+  HTTP_NOT_MODIFIED,
+  HTTP_BAD_REQUEST,
+  HTTP_NOT_FOUND,
+  HTTP_BAD_GATEWAY,
+  HTTP_INTERNAL_SERVER_ERROR,
+  HTTP_SERVER_ERROR_MAX,
+} from '../../lib/http-status.js';
 import { rankScore01 } from '../_shared/rank';
 import type { RecCoreResponse, RecRankRequest, RecResponse } from '@victusfate/ricochet';
 import { isValidEvent, REC_MAX_CANDIDATES, parseTopicWeights } from '@victusfate/ricochet';
@@ -20,18 +28,20 @@ const RATE_LIMIT_INTERACTIONS_MAX = 60;
 const RATE_LIMIT_RECS_MAX = 30;
 const RATE_LIMIT_ARTICLES_MAX = 30;
 
-const MAX_BATCH_SIZE = 200;
-const MAX_LIMIT = 500;
-const DEFAULT_LIMIT = 50;
+const MAX_BATCH_INTERACTIONS = 200;
+const DO_ERROR_LOG_MAX_CHARS = 500;
+const MAX_REC_LIMIT = 500;
+const DEFAULT_REC_LIMIT = 50;
+const MIN_REC_LIMIT = 1;
 function parseLimit(rawLimit: unknown): number {
   if (typeof rawLimit === 'number' && Number.isFinite(rawLimit)) {
-    return Math.max(1, Math.min(MAX_LIMIT, Math.trunc(rawLimit)));
+    return Math.max(MIN_REC_LIMIT, Math.min(MAX_REC_LIMIT, Math.trunc(rawLimit)));
   }
   if (typeof rawLimit === 'string') {
     const parsed = parseInt(rawLimit, 10);
-    if (!Number.isNaN(parsed)) return Math.max(1, Math.min(MAX_LIMIT, parsed));
+    if (!Number.isNaN(parsed)) return Math.max(MIN_REC_LIMIT, Math.min(MAX_REC_LIMIT, parsed));
   }
-  return DEFAULT_LIMIT;
+  return DEFAULT_REC_LIMIT;
 }
 
 function parseCandidateArticleIds(value: unknown): { ids?: string[]; message?: string } {
@@ -190,13 +200,13 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
     if (!Array.isArray(events)) {
       return json(
         { ok: false, message: 'body must be an array or { events: InteractionEvent[] }' },
-        request, env, { status: 400 },
+        request, env, { status: HTTP_BAD_REQUEST },
       );
     }
-    if (events.length > MAX_BATCH_SIZE) {
+    if (events.length > MAX_BATCH_INTERACTIONS) {
       return json(
-        { ok: false, message: `Batch too large; max ${MAX_BATCH_SIZE} events` },
-        request, env, { status: 400 },
+        { ok: false, message: `Batch too large; max ${MAX_BATCH_INTERACTIONS} events` },
+        request, env, { status: HTTP_BAD_REQUEST },
       );
     }
 
@@ -214,7 +224,7 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
     if (!ingest.ok) {
       return json(
         { ok: false, message: `Ingest failed (${ingest.status})` },
-        request, env, { status: 502 },
+        request, env, { status: HTTP_BAD_GATEWAY },
       );
     }
 
@@ -269,7 +279,7 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
         { ok: false, message: `candidateArticleIds exceeds max ${REC_MAX_CANDIDATES}` },
         request,
         env,
-        { status: 400 },
+        { status: HTTP_BAD_REQUEST },
       );
     }
 
@@ -293,8 +303,8 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
     const doFetchMs = nowMs() - tDoFetchStart;
     if (!doRes.ok) {
       const raw = await doRes.text();
-      console.error('[rec] DO error', doRes.status, raw.slice(0, 500));
-      const outStatus = doRes.status >= 400 && doRes.status < 600 ? doRes.status : 502;
+      console.error('[rec] DO error', doRes.status, raw.slice(0, DO_ERROR_LOG_MAX_CHARS));
+      const outStatus = doRes.status >= HTTP_BAD_REQUEST && doRes.status < HTTP_SERVER_ERROR_MAX ? doRes.status : HTTP_BAD_GATEWAY;
       return recErrorJson(request, env, outStatus, 'rec_do_failed', 'Recommendation service error.', {
         doStatus: doRes.status,
       });
@@ -306,7 +316,7 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
       return recErrorJson(
         request,
         env,
-        502,
+        HTTP_BAD_GATEWAY,
         'rec_do_invalid_json',
         'Recommendation service returned a non-JSON body after a successful status.',
       );
@@ -325,7 +335,7 @@ export async function handleRec(request: Request, env: Env, ctx: ExecutionContex
       return recErrorJson(
         request,
         env,
-        500,
+        HTTP_INTERNAL_SERVER_ERROR,
         'rec_internal_error',
         'Recommendation ranking failed.',
       );

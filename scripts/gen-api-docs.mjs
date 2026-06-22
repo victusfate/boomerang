@@ -63,9 +63,11 @@ for (const route of API_ROUTES) {
   sections[section].push(renderRoute(route));
 }
 
+const ISO_DATE_PREFIX_LENGTH = 10; // "YYYY-MM-DD" is the first 10 chars of an ISO timestamp
+
 const rootPkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const version = rootPkg.version ?? 'dev';
-const date = new Date().toISOString().slice(0, 10);
+const date = new Date().toISOString().slice(0, ISO_DATE_PREFIX_LENGTH);
 
 const lines = [
   `# Boomerang Platform Worker — REST API`,

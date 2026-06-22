@@ -1,4 +1,5 @@
 import { parseRetryAfterMs } from './retryAfter.ts';
+import { HTTP_TOO_MANY_REQUESTS } from '../lib/http-status.js';
 
 export interface ArticleMetaEntry {
   articleId: string;
@@ -23,7 +24,7 @@ export async function fetchMetaTags(base: string, articleIds: string[]): Promise
   const ids = Array.from(new Set(articleIds));
   const url = `${base}/meta?ids=${encodeURIComponent(ids.join(','))}`;
   const res = await fetch(url);
-  if (res.status === 429) throw new MetaRateLimitError(parseRetryAfterMs(res));
+  if (res.status === HTTP_TOO_MANY_REQUESTS) throw new MetaRateLimitError(parseRetryAfterMs(res));
   if (!res.ok) throw new Error(`meta GET failed: ${res.status}`);
   const body = await res.json() as { updates?: ArticleMetaEntry[] };
   return body.updates ?? [];
@@ -39,7 +40,7 @@ export async function submitMetaTags(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ articles }),
   });
-  if (res.status === 429) throw new MetaRateLimitError(parseRetryAfterMs(res));
+  if (res.status === HTTP_TOO_MANY_REQUESTS) throw new MetaRateLimitError(parseRetryAfterMs(res));
   if (!res.ok) throw new Error(`meta POST failed: ${res.status}`);
 }
 

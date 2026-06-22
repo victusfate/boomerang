@@ -9,6 +9,13 @@ import {
 
 export { isPromptApiAvailable, getPromptApiAvailability } from './labelClassifierDiagnostics.ts';
 
+const MAX_CLASSIFY_TEXT_LENGTH = 400;
+const MAX_TAGGING_TEXT_LENGTH = 500;
+const MAX_LABEL_SUGGESTIONS = 40;
+const MAX_TAG_LENGTH_TAGGING = 40;
+const MAX_TAGS_PER_ARTICLE = 4;
+const TITLE_SNIPPET_LENGTH = 72;
+
 export interface LMSession {
   prompt(text: string): Promise<string>;
 }
@@ -42,7 +49,7 @@ export async function classifyArticle(
   label: UserLabel,
   session: LMSession,
 ): Promise<boolean> {
-  const text = `${article.title}. ${article.description}`.slice(0, 400);
+  const text = `${article.title}. ${article.description}`.slice(0, MAX_CLASSIFY_TEXT_LENGTH);
   const input = `Does this article relate to "${label.name}"? Answer YES or NO only.\n\n${text}`;
   const response = await session.prompt(input);
   console.info(TAG_LOG, 'classifyArticle prompt I/O', { articleId: article.id, input, output: response });
@@ -55,17 +62,17 @@ export async function tagArticle(
   session: LMSession,
 ): Promise<string[]> {
   const context = existingTags.length > 0
-    ? `Tags already in use (reuse these when relevant): ${existingTags.slice(0, 40).join(', ')}\n\n`
+    ? `Tags already in use (reuse these when relevant): ${existingTags.slice(0, MAX_LABEL_SUGGESTIONS).join(', ')}\n\n`
     : '';
-  const text = `${article.title}. ${article.description}`.slice(0, 500);
+  const text = `${article.title}. ${article.description}`.slice(0, MAX_TAGGING_TEXT_LENGTH);
   const input = `${context}Tag this article with 2-4 concise topic tags. Prefer existing tags when appropriate. Return only a comma-separated list, no explanation.\n\n${text}`;
   const response = await session.prompt(input);
   console.info(TAG_LOG, 'tagArticle prompt I/O', { articleId: article.id, input, output: response });
   return Array.from(new Set(response
     .split(',')
     .map(t => t.trim().toLowerCase().replace(/^["'\s]+|["'\s]+$/g, ''))
-    .filter(t => t.length > 1 && t.length <= 40)
-    .slice(0, 4)));
+    .filter(t => t.length > 1 && t.length <= MAX_TAG_LENGTH_TAGGING)
+    .slice(0, MAX_TAGS_PER_ARTICLE)));
 }
 
 export type TaggingPassHooks = {
@@ -162,7 +169,7 @@ export async function runTaggingPass(
     const article = toTag[i];
     const idx = i + 1;
     hooks?.onArticleStart?.(idx, toTag.length, article.id);
-    const titleSnippet = article.title.slice(0, 72) + (article.title.length > 72 ? '…' : '');
+    const titleSnippet = article.title.slice(0, TITLE_SNIPPET_LENGTH) + (article.title.length > TITLE_SNIPPET_LENGTH ? '…' : '');
     console.info(TAG_LOG, 'prompt start', { idx, total: toTag.length, id: article.id, title: titleSnippet });
     const promptT0 = nowMs();
     const tags = await tagArticle(article, [...corpus], session);

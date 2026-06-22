@@ -11,6 +11,7 @@ export function RecModelInfo({ recModelDiagnostics, recCacheInfo, recTimingMs, r
   if (!recModelDiagnostics && !recCacheInfo && !recTimingMs && !recTrace) return null;
   return (
     <>
+      {/* quality-ok: magic-number — CSS margin px value */}
       <p className="rec-chart-title" style={{ marginTop: 16 }}>CF request</p>
       <div className="rec-observability-grid">
         {recModelDiagnostics && (

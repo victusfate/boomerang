@@ -1,0 +1,175 @@
+#!/usr/bin/env node
+// update-skills-doc.ts — regenerate docs/skills.md skill sections from RESOLVER.md.
+//
+//   node scripts/update-skills-doc.ts          # update docs/skills.md in place
+//   node scripts/update-skills-doc.ts --check  # exit 1 if docs/skills.md is stale (used by pre-commit)
+//
+// The README is intentionally NOT checked — downstream consumers own their README.
+
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseResolverRows, parseBundledRows } from '../tools/lib/resolver-parse.ts';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const RESOLVER = join(ROOT, '.claude', 'skills', 'RESOLVER.md');
+const DOC = join(ROOT, 'docs', 'skills.md');
+
+const CHECK = process.argv.includes('--check');
+
+interface SkillRow {
+  skill: string;
+  purpose: string;
+}
+
+// ---------------------------------------------------------------- generate sections
+
+function pad(name: string, col: number): string {
+  return name + ' '.repeat(Math.max(2, col - name.length));
+}
+
+function generateInvocation(rows: SkillRow[], bundled: SkillRow[]): string {
+  const list = rows.map(r => `\`/${r.skill}\``).join(', ');
+  let out = `Skills can be invoked individually: ${list}.`;
+  if (bundled.length) {
+    const blist = bundled.map(b => `\`${b.skill}\``).join(', ');
+    out += `\n\nBundled skills (self-contained Anthropic Agent Skills, Claude harness; loaded by description rather than a slash command): ${blist}.`;
+  }
+  return out;
+}
+
+function generateStructure(rows: SkillRow[], bundled: SkillRow[]): string {
+  // Compute alignment column per section (longest entry + 2 spaces before #)
+  const col = (names: string[]): number => Math.max(...names.map(n => n.length)) + 2;
+
+  const claudeCol = col([
+    ...rows.map(r => `    ${r.skill}/SKILL.md`),
+    ...bundled.map(b => `    ${b.skill}/SKILL.md`),
+    '    RESOLVER.md',
+  ]);
+  const cursorCol = col([...rows.map(r => `    ${r.skill}.mdc`),      '    agents.mdc']);
+  const agentSCol = col(rows.map(r => `    ${r.skill}/SKILL.md`));
+  const agentWCol = col([...rows.map(r => `    ${r.skill}.md`),       '    agents.md']);
+
+  const claudeSkills = rows.map(r =>
+    `${pad(`    ${r.skill}/SKILL.md`, claudeCol)}# ${r.purpose}`
+  ).join('\n');
+
+  // Bundled skills live only under .claude/skills/ (Claude harness; no cross-harness wrappers).
+  const bundledSkills = bundled.map(b =>
+    `${pad(`    ${b.skill}/SKILL.md`, claudeCol)}# (bundled) ${b.purpose}`
+  ).join('\n');
+
+  const cursorSkills = rows.map(r =>
+    `${pad(`    ${r.skill}.mdc`, cursorCol)}# mirrors ${r.skill} for Cursor`
+  ).join('\n');
+
+  const agentSkills = rows.map(r =>
+    `${pad(`    ${r.skill}/SKILL.md`, agentSCol)}# ${r.purpose}`
+  ).join('\n');
+
+  const agentWorkflows = rows.map(r =>
+    `${pad(`    ${r.skill}.md`, agentWCol)}# ${r.purpose}`
+  ).join('\n');
+
+  return `\`\`\`
+AGENTS.md                        # agent instructions — single source of truth
+CLAUDE.md                        # imports AGENTS.md (@AGENTS.md)
+GEMINI.md                        # references AGENTS.md
+package.json                     # npm entry (bin/sync) — name, version, engines, test scripts
+docs/
+  agent-authoring-requirements.md  # normative spec for tools, scripts, skills, bin
+  skills.md                        # this file — generated skill list + repo layout
+bin/
+  bootstrap.sh                   # one-time setup for downstream repos
+  sync-from-scaffold.sh          # pull scaffold updates into a downstream repo
+  sync                           # npx entrypoint → tools/sync/run.ts
+  install-skills.sh              # copy skills into a global dir (e.g. ~/.claude/skills)
+  globalize-skill.sh             # promote one skill into a global dir, imports inlined
+  repo-bound-skills.txt          # shared guard list for the two installers
+tools/
+  README.md                      # capability index (spec §2 registration)
+  lib/
+    safe-write.ts                # shared clobber-safe write engine (sidecars, .scaffold-keep)
+  hoist-skill/                   # tool: emit skills into a consumer repo (tool.yaml, run, hoist.ts, test)
+  sync/                          # tool: npx consumer sync (tool.yaml, run.ts, policy.ts, promote.ts, test)
+.claude/
+  skills/
+${pad('    RESOLVER.md', claudeCol)}# central routing table — skill → regex → path
+${claudeSkills}${bundled.length ? '\n' + bundledSkills : ''}
+  session-start/
+    hook.sh                      # SessionStart hook: fetches origin/main, warns if branch is behind
+  read-once/
+    hook.sh                      # PreToolUse hook: skips redundant file reads
+    compact.sh                   # PostCompact hook: clears read cache after compaction
+  settings.json                  # hook wiring (SessionStart, PreToolUse, PostCompact)
+.cursor/
+  rules/
+${pad('    agents.mdc', cursorCol)}# thin pointer to AGENTS.md
+${cursorSkills}
+.agents/
+  skills/
+${agentSkills}
+.agent/
+  rules/
+${pad('    agents.md', agentWCol)}# thin pointer to AGENTS.md (always-on)
+  workflows/
+${agentWorkflows}
+scripts/
+  check-resolvable.ts            # RESOLVER linter (reachability/ambiguity/DRY/MECE/parity/sync)
+  update-skills-doc.ts           # regenerate docs/skills.md skill sections from RESOLVER.md
+  compute-bump.ts                # conventional-commit version bump (used by the create-pr skill)
+  test-sync.sh                   # isolated tests for bin/sync-from-scaffold.sh
+  test-bootstrap.sh              # isolated tests for bin/bootstrap.sh
+.githooks/
+  pre-commit                     # runs the linter and skills-doc freshness check — enable via core.hooksPath
+.github/
+  scaffold-files.txt             # manifest of files managed by scaffold
+  workflows/
+    ci.yml                       # verify (npm test) + integration jobs on PRs
+    release.yml                  # tag v<version> on merge to main
+    sync-scaffold.yml            # manual workflow to sync updates via PR
+.claudeignore                    # excludes build artifacts from Claude's context
+\`\`\``;
+}
+
+// ---------------------------------------------------------------- replace markers
+
+function replaceBetween(content: string, beginTag: string, endTag: string, replacement: string): string {
+  const begin = `<!-- ${beginTag} -->`;
+  const end   = `<!-- ${endTag} -->`;
+  const re = new RegExp(`${escapeRe(begin)}[\\s\\S]*?${escapeRe(end)}`, 'm');
+  if (!re.test(content)) throw new Error(`Markers not found: ${begin} … ${end}`);
+  return content.replace(re, `${begin}\n${replacement}\n${end}`);
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ---------------------------------------------------------------- main
+
+if (!existsSync(RESOLVER)) { console.error(`RESOLVER.md not found at ${RESOLVER}`); process.exit(1); }
+if (!existsSync(DOC))      { console.error(`docs/skills.md not found at ${DOC}`);   process.exit(1); }
+
+const rows = parseResolverRows(RESOLVER).map(r => ({ skill: r.name, purpose: r.purpose }));
+if (rows.length === 0) { console.error('No skill rows found in RESOLVER.md'); process.exit(1); }
+const bundled = parseBundledRows(RESOLVER);
+
+const original = readFileSync(DOC, 'utf8');
+let doc = original;
+doc = replaceBetween(doc, 'BEGIN_SKILLS_INVOCATION', 'END_SKILLS_INVOCATION', generateInvocation(rows, bundled));
+doc = replaceBetween(doc, 'BEGIN_SKILLS_STRUCTURE',  'END_SKILLS_STRUCTURE',  generateStructure(rows, bundled));
+
+if (original === doc) {
+  console.log(`✓ docs/skills.md sections are up to date — ${rows.length} skills, ${bundled.length} bundled.`);
+  process.exit(0);
+}
+
+if (CHECK) {
+  console.error(`✗ docs/skills.md sections are stale — run: node scripts/update-skills-doc.ts`);
+  process.exit(1);
+}
+
+writeFileSync(DOC, doc, 'utf8');
+console.log(`✓ docs/skills.md updated — ${rows.length} skills, ${bundled.length} bundled.`);
