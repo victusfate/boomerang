@@ -91,6 +91,35 @@
   saved-list capture writes a `StoredArticle` + `savedIds` into room meta.
 - Notes: `npm run test:capture-smoke` added.
 
+## Slice 9 — popup bookmarklet + `GET /save/:token` (2026-06-23)
+- Status: done
+- RED→GREEN: 4 new tests in `capture/index.node.test.ts` for the save route
+  (200 auto-closing HTML + saved to meta; 401 unknown token; 400 bad url; 429
+  rate limit). Bookmarklet test rewritten: `buildBookmarklet` now emits
+  `window.open(.../save/:token...)`; added `buildSaveUrl` + its tests.
+- Refactor: extracted shared `runCapture` pipeline so POST `/api/capture/:token`
+  and GET `/save/:token` share one path; `savePage()` renders the popup HTML.
+- Integration gap caught live: `src/index.ts` only forwarded `/api/capture/`;
+  added `/save/*` forwarding and a `/save` smoke case (now 8/8).
+- Also: React 19 sanitizes `javascript:` hrefs, so `CaptureSection` sets the
+  bookmarklet href imperatively via a ref.
+
+## Slice 10 — custom domain (2026-06-23)
+- Status: done (config; provisions on deploy)
+- `api.boomerang-news.com` added as a wrangler `routes` custom domain;
+  `.env.example` + `provision-capture-kv.sh` updated. `wrangler deploy --dry-run`
+  validates clean. CAPTURE_TOKENS KV namespace provisioned
+  (`6fe3297cd67940838715c3a3bc9b905d`).
+
+## Slice 11 — remove GitHub destination (2026-06-23)
+- Status: done
+- Deleted `adapter/github.ts` + test; dropped `github` from `CaptureDestination`
+  / `CaptureTokenRecord` / `parseDestination`; removed `GITHUB_PAT` from `env.ts`;
+  simplified `runCapture` (no `ctx.waitUntil`). Frontend: narrowed
+  `CaptureDestination`, removed the destination picker + github fields + CSS.
+  Removed 5 github tests. Worker 61/61, capture client 7/7, smoke 8/8.
+- victusama now reads the saved list directly; see `victusama-integration.md`.
+
 ## Pre-existing issues (NOT caused by capture-connector)
 - `news-feed` `tsc --noEmit` fails on `src/components/rec/RecScoreTable.tsx:29`
   (a JSX comment placed illegally inside `return (...)`), which also blocks

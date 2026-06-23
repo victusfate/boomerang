@@ -1,5 +1,14 @@
 # PRD: Capture Connector
 
+> **Amendment (2026-06-23):** shipped scope is narrower than below. Only the
+> `saved-list` destination exists — `email` (Resend) was never built and
+> `github` was built then removed. The bookmarklet opens a `window.open` popup
+> to `GET /save/:token` (a navigation that survives ad/tracker blockers) instead
+> of a background `sendBeacon`. The worker is served from the first-party domain
+> `api.boomerang-news.com`. Downstream, victusama reads the saved list via
+> `GET /sync/{roomId}/meta` (see `victusama-integration.md`). See `design.md`
+> Amendments for the full rationale.
+
 ## Problem Statement
 
 A boomerang user reading an article in any browser has no quick way to save

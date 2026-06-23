@@ -8,6 +8,17 @@ RED → GREEN → REFACTOR.
 Email sharing is a dependency-free client-side `mailto:` action (Slice 7).
 Server destinations are `saved-list` and `github` only.
 
+> **Amendment (2026-06-23):** post-plan slices, after the original 8:
+> - **Popup bookmarklet + `GET /save/:token`** — bookmarklet switched from
+>   background `sendBeacon`/`fetch` (blocked by Brave Shields / ad blockers) to a
+>   `window.open` popup hitting a new `GET /save/:token` route that renders an
+>   auto-closing HTML page. Worker router updated to forward `/save/*`.
+> - **Custom domain** — `api.boomerang-news.com` added as a wrangler `routes`
+>   custom domain.
+> - **GitHub destination removed** — `github` adapter + config + `GITHUB_PAT`
+>   deleted; `saved-list` is the only destination. victusama reads the saved
+>   list directly (`GET /sync/{roomId}/meta`, see `victusama-integration.md`).
+
 ---
 
 ## Slice 1 — Token lifecycle

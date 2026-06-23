@@ -2,10 +2,39 @@
 
 ## Purpose
 
-Let a user save the page they are on by clicking a bookmarklet. The page data
-is POSTed to boomerang. Boomerang routes it to the destination that user has
-configured. Generic connector: a news reader gains a "send this anywhere"
-capability.
+Let a user save the page they are on by clicking a bookmarklet. The bookmarklet
+opens a small popup to boomerang's `/save` page, which records the page into the
+user's saved list. From there the saved list is readable by downstream agents
+(e.g. victusama) for tagging and ingest.
+
+---
+
+## Amendments — 2026-06-23
+
+The implementation diverged from the original Q&A below. **This section is the
+current source of truth; where it conflicts with the Q&A, this wins.** The Q&A
+is kept as the design record of how decisions were originally reached.
+
+- **Destinations reduced to one: `saved-list`.** The `email` (Resend) adapter
+  was never built. The `github` adapter was built, then removed (2026-06-23) —
+  ad/tracker blockers, PAT management, and a redundant path with the saved list
+  made it not worth keeping. `CaptureTokenRecord`, `parseDestination`, and the
+  Settings UI now know only `saved-list`. `GITHUB_PAT` / `RESEND_API_KEY` secrets
+  are gone. The destination picker is gone.
+- **Bookmarklet mechanism: `sendBeacon`/`fetch` → `window.open` popup.** A
+  background `sendBeacon`/`fetch` is classified as a tracker beacon and silently
+  blocked by Brave Shields and ad blockers. The bookmarklet now opens a small
+  popup to `GET /save/:token` — a user-initiated top-level navigation, which
+  blockers allow. The popup saves server-side, flashes a confirmation, and
+  auto-closes. `POST /api/capture/:token` is retained for the token API and
+  programmatic use.
+- **`ctx.waitUntil` no longer used.** With email/github gone, the only adapter
+  (`saved-list`) writes synchronously to R2 before the response.
+- **First-party custom domain.** The worker is served from
+  `api.boomerang-news.com` (wrangler `routes` custom domain) instead of
+  `*.workers.dev`, which is heavily on filter lists.
+- **Downstream consumer.** victusama reads the saved list via
+  `GET /sync/{roomId}/meta`. See `victusama-integration.md`.
 
 ---
 
@@ -79,24 +108,9 @@ Value: CaptureTokenRecord (discriminated union on destinationType)
 Token format: 32 bytes, base64url, no padding. Generated server-side.
 
 ```typescript
-type CaptureTokenRecord =
-  | { roomId: string; destinationType: 'saved-list' }
-  | { roomId: string; destinationType: 'email';   destinationConfig: EmailConfig }
-  | { roomId: string; destinationType: 'github';  destinationConfig: GitHubConfig };
-
-// Zero additional config — the adapter writes to the room's own savedArticles[].
-// No EmailConfig / GitHubConfig variant needed for saved-list.
-
-interface EmailConfig {
-  toAddress: string;
-}
-
-interface GitHubConfig {
-  owner:  string;
-  repo:   string;
-  path:   string;  // e.g. "inbox/captures.md"
-  branch: string;
-}
+// Single destination as of 2026-06-23 (see Amendments). Zero additional config —
+// the adapter writes to the room's own savedArticles[].
+type CaptureTokenRecord = { roomId: string; destinationType: 'saved-list' };
 ```
 
 ### KV key prefixes in CAPTURE_TOKENS
@@ -229,27 +243,20 @@ Dispatched via `ctx.waitUntil`. GitHub Contents API with `Authorization: Bearer 
 
 ## Bookmarklet Template
 
-`BOOMERANG_HOST` and `CAPTURE_TOKEN` injected at generation time (server-side).
+`WORKER_URL` and `CAPTURE_TOKEN` injected at generation time (client-side, in
+`buildBookmarklet`). The bookmarklet opens a popup to `GET /save/:token` rather
+than POSTing in the background — a top-level navigation that ad/tracker blockers
+allow (see Amendments). The popup page saves server-side and auto-closes; the
+selection is capped so the data fits in the URL.
 
 ```javascript
 javascript:(function(){
-  var d=document, w=window;
-  var payload=JSON.stringify({
-    url: w.location.href,
-    title: d.title,
-    note: (w.getSelection ? String(w.getSelection()) : ''),
-    ts: new Date().toISOString(),
-    source: 'bookmarklet'
-  });
-  var blob=new Blob([payload], {type:'text/plain'});
-  var ok=navigator.sendBeacon('https://BOOMERANG_HOST/api/capture/CAPTURE_TOKEN', blob);
-  var n=d.createElement('div');
-  n.textContent = ok ? 'Saved to boomerang' : 'Capture failed to queue';
-  n.style.cssText='position:fixed;z-index:2147483647;top:12px;right:12px;padding:8px 12px;'
-    +'font:13px/1.3 system-ui,sans-serif;color:#fff;border-radius:6px;'
-    +'background:'+(ok?'#1a7f37':'#b91c1c')+';box-shadow:0 2px 8px rgba(0,0,0,.3)';
-  d.body.appendChild(n);
-  setTimeout(function(){ n.remove(); }, 1800);
+  var s = window.getSelection ? String(window.getSelection()).slice(0,500) : '';
+  var u = 'https://WORKER_URL/save/CAPTURE_TOKEN'
+        + '?u='  + encodeURIComponent(location.href)
+        + '&ti=' + encodeURIComponent(document.title)
+        + '&n='  + encodeURIComponent(s);
+  window.open(u, 'boomerang', 'width=420,height=220');
 })();
 ```
 
@@ -282,21 +289,19 @@ the token and constructs the bookmarklet snippet locally.
 |------|-----------|
 | **capture** | A page-save event initiated by the user clicking the bookmarklet |
 | **capture token** | 32-byte base64url bearer token embedded in the bookmarklet; maps to one user's room and destination config; `capture:create` scope only |
-| **capture record** | Normalized `{ id, url, title, note, ts, source }` object passed to adapters |
-| **destination** | Where a capture is routed: `saved-list`, `email`, or `github` |
-| **destination config** | Per-adapter settings stored in the CAPTURE_TOKENS KV record |
-| **bookmarklet** | The `javascript:` URL snippet generated by boomerang with the capture token embedded |
+| **capture record** | Normalized `{ id, url, title, note, ts, source }` object passed to the adapter |
+| **destination** | Where a capture is routed. Single destination: `saved-list` (see Amendments) |
+| **bookmarklet** | The `javascript:` snippet generated client-side; opens a popup to `/save/:token` with the capture token embedded |
+| **save page** | `GET /save/:token` — the popup target that records the capture server-side and auto-closes |
 | **saved-list adapter** | Appends the capture to `savedArticles[]` in the sync room meta |
-| **email adapter** | Sends the capture via Resend to the user's configured destination address |
-| **github adapter** | Appends a markdown entry to a file in the user's configured repo via GitHub Contents API |
 | **revocation** | Deleting the capture token from KV; the old bookmarklet stops working immediately |
 | **rotation** | Revocation + generation of a new capture token; produces a new bookmarklet |
-| **roomId** | The sync room identifier that links a capture token to the user's boomerang data |
+| **roomId** | The sync room identifier that links a capture token to the user's boomerang data; also the credential a downstream reader (victusama) uses |
 
 ---
 
 ## Open Questions
 
 1. How should captured articles be visually distinguished from feed-sourced saves in the reader UI?
-2. Should `note` field have a configurable cap or always 8 KB?
+2. Should `note` field have a configurable cap or always 8 KB? (Popup path caps the selection at 500 chars to fit the URL; server cap is 8 KB.)
 3. Rate limit defaults — configurable per-token in KV, or global worker config only?
