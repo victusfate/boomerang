@@ -10,6 +10,4 @@ export interface Env {
   REC_DO:  DurableObjectNamespace;
   // Optional
   EXTRA_CORS_ORIGINS?: string;
-  // Secrets
-  GITHUB_PAT?: string;
 }

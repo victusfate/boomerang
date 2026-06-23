@@ -14,11 +14,7 @@ function reverseKey(roomId: string): string {
 }
 
 function recordFor(roomId: string, destination: CaptureDestination): CaptureTokenRecord {
-  if (destination.type === 'saved-list') {
-    return { roomId, destinationType: 'saved-list' };
-  }
-  const { owner, repo, path, branch } = destination;
-  return { roomId, destinationType: 'github', destinationConfig: { owner, repo, path, branch } };
+  return { roomId, destinationType: destination.type };
 }
 
 export async function generateCaptureToken(

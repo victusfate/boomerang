@@ -6,9 +6,7 @@
 
 import type { SyncRoom } from './syncWorker.ts';
 
-export type CaptureDestination =
-  | { type: 'saved-list' }
-  | { type: 'github'; owner: string; repo: string; path: string; branch: string };
+export type CaptureDestination = { type: 'saved-list' };
 
 const CAPTURE_STORAGE_KEY = 'BOOMERANG_CAPTURE';
 
@@ -42,24 +40,25 @@ export function buildCaptureEndpoint(workerUrl: string, captureToken: string): s
   return `${stripTrailingSlash(workerUrl)}/api/capture/${captureToken}`;
 }
 
+export function buildSaveUrl(workerUrl: string, captureToken: string): string {
+  return `${stripTrailingSlash(workerUrl)}/save/${captureToken}`;
+}
+
 /**
- * A bookmarklet the user drags to their bookmark bar. On click it POSTs the
- * current page (url, title, selected text) to the capture endpoint via
- * `sendBeacon` — a CORS-simple request that needs no preflight — and flashes a
- * brief confirmation.
+ * A bookmarklet the user drags to their bookmark bar. On click it opens the
+ * worker's `/save` page in a small popup — a user-initiated top-level navigation,
+ * which ad blockers and Brave Shields allow through, unlike a background
+ * `fetch`/`sendBeacon` that they classify as a tracker beacon and block. The
+ * popup saves the page server-side, flashes a confirmation, and closes itself.
+ * The selection is capped so the page data fits within browser URL length limits.
  */
 export function buildBookmarklet(workerUrl: string, captureToken: string): string {
   if (!captureToken) return '';
-  const endpoint = buildCaptureEndpoint(workerUrl, captureToken);
+  const saveUrl = buildSaveUrl(workerUrl, captureToken);
   const body = [
-    "var s=window.getSelection?String(window.getSelection()):'';",
-    "var p={url:location.href,title:document.title,note:s,source:'bookmarklet'};",
-    `var ok=navigator.sendBeacon('${endpoint}',new Blob([JSON.stringify(p)],{type:'text/plain'}));`,
-    "var t=document.createElement('div');",
-    "t.textContent=ok?'Saved to boomerang':'Capture failed';",
-    "t.style.cssText='position:fixed;z-index:2147483647;top:16px;right:16px;padding:10px 14px;border-radius:8px;font:600 13px sans-serif;color:#fff;background:'+(ok?'#16a34a':'#dc2626');",
-    'document.body.appendChild(t);',
-    'setTimeout(function(){t.remove();},2000);',
+    "var s=window.getSelection?String(window.getSelection()).slice(0,500):'';",
+    `var u='${saveUrl}?u='+encodeURIComponent(location.href)+'&ti='+encodeURIComponent(document.title)+'&n='+encodeURIComponent(s);`,
+    "window.open(u,'boomerang','width=420,height=220');",
   ].join('');
   return `javascript:(function(){${body}})();`;
 }

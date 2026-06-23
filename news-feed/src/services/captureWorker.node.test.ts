@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test, describe } from 'node:test';
-import { buildCaptureEndpoint, buildBookmarklet } from './captureWorker.ts';
+import { buildCaptureEndpoint, buildSaveUrl, buildBookmarklet } from './captureWorker.ts';
 
 const WORKER = 'https://boomerang-platform.example.workers.dev';
 const TOKEN = 'capTok_123-ABC';
@@ -21,11 +21,22 @@ describe('buildCaptureEndpoint', () => {
   });
 });
 
+describe('buildSaveUrl', () => {
+  test('joins worker url and token into the save path', () => {
+    assert.equal(buildSaveUrl(WORKER, TOKEN), `${WORKER}/save/${TOKEN}`);
+  });
+
+  test('strips a trailing slash on the worker url', () => {
+    assert.equal(buildSaveUrl(`${WORKER}/`, TOKEN), `${WORKER}/save/${TOKEN}`);
+  });
+});
+
 describe('buildBookmarklet', () => {
-  test('produces a javascript: snippet embedding the endpoint', () => {
+  test('produces a javascript: snippet opening the save popup', () => {
     const code = buildBookmarklet(WORKER, TOKEN);
     assert.ok(code.startsWith('javascript:'));
-    assert.ok(code.includes(`${WORKER}/api/capture/${TOKEN}`));
+    assert.ok(code.includes(`${WORKER}/save/${TOKEN}`));
+    assert.ok(code.includes('window.open'));
   });
 
   test('captures location, title and selection and sends them', () => {
@@ -33,7 +44,6 @@ describe('buildBookmarklet', () => {
     assert.ok(code.includes('location.href'));
     assert.ok(code.includes('document.title'));
     assert.ok(code.includes('getSelection'));
-    assert.ok(code.includes('sendBeacon'));
   });
 
   test('returns empty string when token is missing', () => {

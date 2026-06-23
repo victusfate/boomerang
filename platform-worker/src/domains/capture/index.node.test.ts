@@ -48,6 +48,16 @@ async function ingest(kv: ReturnType<typeof makeKv>, token: string, body: unknow
   return handleCapture(captureRequest(token, body), env, makeCtx() as never);
 }
 
+function saveRequest(token: string, params: Record<string, string>): Request {
+  const qs = new URLSearchParams(params).toString();
+  return new Request(`https://w.test/save/${token}?${qs}`, { method: 'GET' });
+}
+
+async function save(kv: ReturnType<typeof makeKv>, token: string, params: Record<string, string>, r2?: ReturnType<typeof makeR2>): Promise<Response> {
+  const env = { CAPTURE_TOKENS: kv, SYNC_BLOCKS: r2 ?? makeR2() } as never;
+  return handleCapture(saveRequest(token, params), env, makeCtx() as never);
+}
+
 function tokenRequest(method: string, bearer: string | null, body: unknown): Request {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (bearer) headers.Authorization = `Bearer ${bearer}`;
@@ -140,27 +150,6 @@ describe('handleCapture ingest', () => {
     assert.equal(meta.savedArticles[0].title, 'Saved One');
   });
 
-  it('dispatches a github capture asynchronously via waitUntil', async () => {
-    const kv = makeKv();
-    const { captureToken } = await generateCaptureToken(kv as never, 'roomG', {
-      type: 'github', owner: 'o', repo: 'r', path: 'p.md', branch: 'main',
-    });
-
-    const originalFetch = globalThis.fetch;
-    const fileBody = JSON.stringify({ content: Buffer.from('x\n').toString('base64'), sha: 's' });
-    globalThis.fetch = (async () => new Response(fileBody, { status: 200 })) as typeof fetch;
-    const ctx = makeCtx();
-    try {
-      const env = { CAPTURE_TOKENS: kv, SYNC_BLOCKS: makeR2(), GITHUB_PAT: 'pat' } as never;
-      const res = await handleCapture(captureRequest(captureToken, { url: 'https://example.com/g' }), env, ctx as never);
-      assert.equal(res.status, 204);
-      assert.equal(ctx.waited.length, 1);
-      await Promise.all(ctx.waited);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
   it('rejects an unknown token with 401', async () => {
     const kv = makeKv();
     const res = await ingest(kv, 'nope', { url: 'https://example.com/a' });
@@ -205,5 +194,50 @@ describe('handleCapture ingest', () => {
     const req = new Request(`https://w.test/api/capture/${captureToken}`, { method: 'GET' });
     const res = await handleCapture(req, { CAPTURE_TOKENS: kv } as never, makeCtx() as never);
     assert.equal(res.status, 405);
+  });
+});
+
+describe('handleCapture save (popup navigation)', () => {
+  it('saves a captured page via GET and returns an auto-closing HTML page', async () => {
+    const kv = makeKv();
+    const r2 = makeR2();
+    const { captureToken } = await generateCaptureToken(kv as never, 'roomNav', { type: 'saved-list' });
+
+    const res = await save(kv, captureToken, { u: 'https://example.com/nav', ti: 'Nav Page', n: 'a note' }, r2);
+
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('Content-Type') ?? '', /text\/html/);
+    const html = await res.text();
+    assert.match(html, /Saved/);
+    assert.match(html, /window\.close/);
+    const meta = JSON.parse(r2.store.get('roomNav/meta')!.body);
+    assert.equal(meta.savedArticles[0].url, 'https://example.com/nav');
+    assert.equal(meta.savedArticles[0].title, 'Nav Page');
+  });
+
+  it('returns an HTML error page with 401 for an unknown token', async () => {
+    const kv = makeKv();
+    const res = await save(kv, 'nope', { u: 'https://example.com/a' });
+    assert.equal(res.status, 401);
+    assert.match(res.headers.get('Content-Type') ?? '', /text\/html/);
+  });
+
+  it('returns 400 when the url query param is missing or invalid', async () => {
+    const kv = makeKv();
+    const { captureToken } = await generateCaptureToken(kv as never, 'room1', { type: 'saved-list' });
+    const res = await save(kv, captureToken, { u: 'ftp://x/y' });
+    assert.equal(res.status, 400);
+    assert.match(res.headers.get('Content-Type') ?? '', /text\/html/);
+  });
+
+  it('returns 429 with an HTML page once the rate limit is exceeded', async () => {
+    const kv = makeKv();
+    const { captureToken } = await generateCaptureToken(kv as never, 'room1', { type: 'saved-list' });
+    let last: Response | undefined;
+    for (let i = 0; i < 61; i++) {
+      last = await save(kv, captureToken, { u: `https://example.com/n${i}` });
+    }
+    assert.equal(last!.status, 429);
+    assert.match(last!.headers.get('Content-Type') ?? '', /text\/html/);
   });
 });

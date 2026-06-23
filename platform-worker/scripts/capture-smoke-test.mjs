@@ -54,6 +54,10 @@ async function capture(token, url) {
   });
 }
 
+async function savePopup(token, url, title = 'Smoke Popup') {
+  return fetch(`${BASE_URL}/save/${token}?u=${encodeURIComponent(url)}&ti=${encodeURIComponent(title)}`);
+}
+
 console.log(`\nCapture connector smoke tests  (base: ${BASE_URL})\n`);
 
 const room = await createRoom();
@@ -104,8 +108,20 @@ await run(6, `POST ${RATE_LIMIT_MAX + 1} captures → 429 on the last`, async ()
   return assert(last.status === 429, `final status ${last.status}, expected 429`);
 });
 
-// 7. Revoke → subsequent capture is unauthorized
-await run(7, 'DELETE /api/capture/token → 204, then capture → 401', async () => {
+// 7. Bookmarklet popup: GET /save/:token → 200 HTML that auto-closes
+await run(7, 'GET /save/:token → 200 auto-closing HTML', async () => {
+  const res = await savePopup(captureToken, 'https://example.com/popup-smoke');
+  if (res.status !== 200) return assert(false, `status ${res.status}`);
+  const ct = res.headers.get('content-type') ?? '';
+  const html = await res.text();
+  return assert(
+    ct.includes('text/html') && html.includes('window.close') && html.includes('Saved to boomerang'),
+    `ct=${ct} hasClose=${html.includes('window.close')}`,
+  );
+});
+
+// 8. Revoke → subsequent capture is unauthorized
+await run(8, 'DELETE /api/capture/token → 204, then capture → 401', async () => {
   const del = await fetch(`${BASE_URL}/api/capture/token`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${room.token}` },

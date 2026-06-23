@@ -1307,19 +1307,6 @@ html[data-theme="light"] .import-status.error {
 }
 
 /* ── Capture ─────────────────────────────────────────────────── */
-.capture-dest-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 10px;
-  font-size: 0.85rem;
-}
-.capture-github-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 10px;
-}
 .capture-bookmarklet-row {
   display: flex;
   gap: 8px;

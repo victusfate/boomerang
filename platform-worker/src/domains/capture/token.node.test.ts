@@ -22,13 +22,6 @@ function makeKv(initial: Record<string, string> = {}) {
 }
 
 const SAVED_LIST = { type: 'saved-list' } as const;
-const GITHUB = {
-  type: 'github',
-  owner: 'octo',
-  repo: 'notes',
-  path: 'reading.md',
-  branch: 'main',
-} as const;
 
 describe('generateCaptureToken', () => {
   it('writes a forward record resolvable by the returned token', async () => {
@@ -38,18 +31,6 @@ describe('generateCaptureToken', () => {
     assert.match(captureToken, /^[A-Za-z0-9_-]+$/);
     const record = await resolveCaptureToken(kv as never, captureToken);
     assert.deepEqual(record, { roomId: 'room1', destinationType: 'saved-list' });
-  });
-
-  it('stores destinationConfig for a github destination', async () => {
-    const kv = makeKv();
-    const { captureToken } = await generateCaptureToken(kv as never, 'room1', GITHUB);
-
-    const record = await resolveCaptureToken(kv as never, captureToken);
-    assert.deepEqual(record, {
-      roomId: 'room1',
-      destinationType: 'github',
-      destinationConfig: { owner: 'octo', repo: 'notes', path: 'reading.md', branch: 'main' },
-    });
   });
 
   it('rotates: deletes the prior forward key for the same room', async () => {

@@ -44,7 +44,8 @@ export default {
     }
 
     // ── Capture domain ────────────────────────────────────────────────────────
-    if (path.startsWith('/api/capture/')) {
+    // `/api/capture/*` is the POST/token API; `/save/*` is the bookmarklet popup.
+    if (path.startsWith('/api/capture/') || path.startsWith('/save/')) {
       return handleCapture(request, env, ctx);
     }
 
