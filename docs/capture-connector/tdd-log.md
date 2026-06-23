@@ -56,3 +56,45 @@
 - Notes: `fetch` injected into the adapter for testability; ingest passes the
   global `fetch`. Entry format `- [ ] {title} — {url}  <!-- note: {note} | ts:
   {ts} -->`. Dispatch is gated on `env.GITHUB_PAT` being present.
+
+## Slice 6 — Settings UI + worker wiring
+- Status: done
+- Tests: 4 token-management (server) + 5 bookmarklet-builder (client).
+- Behaviors: POST/DELETE `/api/capture/token` with room-bearer auth (generate
+  200, bad bearer 401, revoke 204, bad destination 400); pure `buildCaptureEndpoint`
+  + `buildBookmarklet`; `CaptureSection` destination picker + draggable
+  bookmarklet + revoke; registered `handleCapture` for `/api/capture/`.
+- Notes / deviations: (1) `captureDestination` is stored locally in the capture
+  hook's localStorage (`BOOMERANG_CAPTURE`) rather than synced `UserPrefs` — the
+  capture token itself is device-portable and unsynced, so syncing only the
+  destination had marginal value vs. deep `useFeed` plumbing. (2) `CaptureSection`
+  self-instantiates `useCaptureToken` (reads the sync room from localStorage for
+  auth), so `Settings.tsx`/`App.tsx` gain a prop-less child only — minimal diff.
+  (3) `wrangler.jsonc` `CAPTURE_TOKENS` id is a `REPLACE_ME` placeholder (needs a
+  real namespace before deploy; `--local` ignores it). Added `.ts` extension to
+  `cors.ts`'s `./corsOrigins` value import for node-test resolution.
+
+## Slice 7 — client-side mailto email share
+- Status: done
+- Tests: 6 (`buildMailto`).
+- Behaviors: single item; multi-item batched body; count subject; special-char
+  encoding; title→url fallback; empty list → empty body.
+- Notes: "Email all" button added to the saved-view header in `App.tsx`; opens
+  the default mail client via `window.location.href`. No server, no dependency.
+
+## Slice 8 — smoke / integration script
+- Status: done
+- Script: `scripts/capture-smoke-test.mjs` (gated on `RUN_INTEGRATION`).
+- Ran live against `wrangler dev --local`: 7/7 passed — token generate (200),
+  capture (204), duplicate (204), invalid url (400), unknown token (401),
+  rate-limit 61→429, revoke (204)→capture (401). Separately verified a
+  saved-list capture writes a `StoredArticle` + `savedIds` into room meta.
+- Notes: `npm run test:capture-smoke` added.
+
+## Pre-existing issues (NOT caused by capture-connector)
+- `news-feed` `tsc --noEmit` fails on `src/components/rec/RecScoreTable.tsx:29`
+  (a JSX comment placed illegally inside `return (...)`), which also blocks
+  `npm run build`. Confirmed on the clean tree before any capture changes.
+- `news-feed` node tests `syncWorker` + `metaWorker` fail because they import
+  `../lib/http-status.js` (no `.js` file under node strip-types). Pre-existing.
+  All capture files are type-clean and their tests pass.
