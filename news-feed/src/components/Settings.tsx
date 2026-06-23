@@ -6,6 +6,7 @@ import { TopicsSection }      from './settings/TopicsSection';
 import { SourcesSection }     from './settings/SourcesSection';
 import { LabelsSection }      from './settings/LabelsSection';
 import { SyncSection }        from './settings/SyncSection';
+import { CaptureSection }     from './settings/CaptureSection';
 import { PreferencesSection } from './settings/PreferencesSection';
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -134,6 +135,8 @@ export function Settings({
           onGenerateLink={onGenerateLink}
           onRevoke={onRevoke}
         />
+
+        <CaptureSection />
 
         <PreferencesSection
           prefs={prefs}

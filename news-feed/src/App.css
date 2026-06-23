@@ -1306,6 +1306,39 @@ html[data-theme="light"] .import-status.error {
   text-overflow: ellipsis;
 }
 
+/* ── Capture ─────────────────────────────────────────────────── */
+.capture-dest-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+}
+.capture-github-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.capture-bookmarklet-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.capture-bookmarklet {
+  flex: 1;
+  display: inline-block;
+  padding: 8px 12px;
+  border: 1px dashed var(--border-color, #888);
+  border-radius: 8px;
+  text-align: center;
+  font-weight: 600;
+  text-decoration: none;
+  color: inherit;
+  cursor: grab;
+}
+
 
 /* ── Rec Diagnostics ─────────────────────────────────────────── */
 .rec-diag {
