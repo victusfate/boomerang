@@ -8,7 +8,7 @@
     "dev": "wrangler dev --port 8787",
     "cf-typegen": "wrangler types",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types src/domains/rec/articleMeta.node.test.ts src/domains/rss/topics.node.test.ts src/domains/capture/token.node.test.ts src/domains/capture/normalize.node.test.ts src/domains/capture/rateLimit.node.test.ts src/domains/capture/dedupe.node.test.ts src/domains/capture/adapter/savedList.node.test.ts src/domains/capture/index.node.test.ts",
+    "test": "node --test --experimental-strip-types src/domains/rec/articleMeta.node.test.ts src/domains/rss/topics.node.test.ts src/domains/capture/token.node.test.ts src/domains/capture/normalize.node.test.ts src/domains/capture/rateLimit.node.test.ts src/domains/capture/dedupe.node.test.ts src/domains/capture/adapter/savedList.node.test.ts src/domains/capture/adapter/github.node.test.ts src/domains/capture/index.node.test.ts",
     "docs:api": "typedoc",
     "test:integration": "node scripts/integration-test.mjs"
   },

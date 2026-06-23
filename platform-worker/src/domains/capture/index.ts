@@ -4,6 +4,7 @@ import { checkCaptureRateLimit } from './rateLimit.ts';
 import { normalizeBody } from './normalize.ts';
 import { isDuplicate, markSeen } from './dedupe.ts';
 import { appendToSavedList } from './adapter/savedList.ts';
+import { appendToGithub } from './adapter/github.ts';
 import {
   HTTP_NO_CONTENT,
   HTTP_BAD_REQUEST,
@@ -21,7 +22,7 @@ function captureResponse(status: number, retryAfterSeconds?: number): Response {
   return new Response(null, { status, headers });
 }
 
-export async function handleCapture(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
+export async function handleCapture(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const path = new URL(request.url).pathname;
   const match = path.match(INGEST_RE);
   if (!match) return captureResponse(HTTP_BAD_REQUEST);
@@ -48,6 +49,8 @@ export async function handleCapture(request: Request, env: Env, _ctx: ExecutionC
 
   if (record.destinationType === 'saved-list') {
     await appendToSavedList(env.SYNC_BLOCKS, record.roomId, capture);
+  } else if (record.destinationType === 'github' && env.GITHUB_PAT) {
+    ctx.waitUntil(appendToGithub(fetch, env.GITHUB_PAT, record.destinationConfig, capture));
   }
 
   return captureResponse(HTTP_NO_CONTENT);

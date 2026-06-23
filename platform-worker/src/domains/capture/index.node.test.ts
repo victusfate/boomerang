@@ -18,7 +18,8 @@ function makeKv(initial: Record<string, string> = {}) {
 }
 
 function makeCtx() {
-  return { waitUntil: (_p: Promise<unknown>) => {}, passThroughOnException: () => {} };
+  const waited: Array<Promise<unknown>> = [];
+  return { waited, waitUntil: (p: Promise<unknown>) => { waited.push(p); }, passThroughOnException: () => {} };
 }
 
 function captureRequest(token: string, body: unknown): Request {
@@ -68,6 +69,27 @@ describe('handleCapture ingest', () => {
     const meta = JSON.parse(r2.store.get('roomXYZ/meta')!.body);
     assert.equal(meta.savedArticles[0].url, 'https://example.com/saved');
     assert.equal(meta.savedArticles[0].title, 'Saved One');
+  });
+
+  it('dispatches a github capture asynchronously via waitUntil', async () => {
+    const kv = makeKv();
+    const { captureToken } = await generateCaptureToken(kv as never, 'roomG', {
+      type: 'github', owner: 'o', repo: 'r', path: 'p.md', branch: 'main',
+    });
+
+    const originalFetch = globalThis.fetch;
+    const fileBody = JSON.stringify({ content: Buffer.from('x\n').toString('base64'), sha: 's' });
+    globalThis.fetch = (async () => new Response(fileBody, { status: 200 })) as typeof fetch;
+    const ctx = makeCtx();
+    try {
+      const env = { CAPTURE_TOKENS: kv, SYNC_BLOCKS: makeR2(), GITHUB_PAT: 'pat' } as never;
+      const res = await handleCapture(captureRequest(captureToken, { url: 'https://example.com/g' }), env, ctx as never);
+      assert.equal(res.status, 204);
+      assert.equal(ctx.waited.length, 1);
+      await Promise.all(ctx.waited);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('rejects an unknown token with 401', async () => {
