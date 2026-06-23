@@ -3,6 +3,7 @@ import { resolveCaptureToken } from './token.ts';
 import { checkCaptureRateLimit } from './rateLimit.ts';
 import { normalizeBody } from './normalize.ts';
 import { isDuplicate, markSeen } from './dedupe.ts';
+import { appendToSavedList } from './adapter/savedList.ts';
 import {
   HTTP_NO_CONTENT,
   HTTP_BAD_REQUEST,
@@ -44,6 +45,10 @@ export async function handleCapture(request: Request, env: Env, _ctx: ExecutionC
     return captureResponse(HTTP_NO_CONTENT);
   }
   await markSeen(env.CAPTURE_TOKENS, tokenId, capture.url);
+
+  if (record.destinationType === 'saved-list') {
+    await appendToSavedList(env.SYNC_BLOCKS, record.roomId, capture);
+  }
 
   return captureResponse(HTTP_NO_CONTENT);
 }

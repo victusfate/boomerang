@@ -28,8 +28,21 @@ function captureRequest(token: string, body: unknown): Request {
   });
 }
 
-async function ingest(kv: ReturnType<typeof makeKv>, token: string, body: unknown): Promise<Response> {
-  const env = { CAPTURE_TOKENS: kv } as never;
+function makeR2() {
+  const store = new Map<string, { body: string; etag: string }>();
+  return {
+    store,
+    get: async (key: string) => {
+      const o = store.get(key);
+      if (!o) return null;
+      return { text: async () => o.body, etag: o.etag };
+    },
+    put: async (key: string, body: string) => { store.set(key, { body, etag: 'e1' }); return { etag: 'e1' }; },
+  };
+}
+
+async function ingest(kv: ReturnType<typeof makeKv>, token: string, body: unknown, r2?: ReturnType<typeof makeR2>): Promise<Response> {
+  const env = { CAPTURE_TOKENS: kv, SYNC_BLOCKS: r2 ?? makeR2() } as never;
   return handleCapture(captureRequest(token, body), env, makeCtx() as never);
 }
 
@@ -42,6 +55,19 @@ describe('handleCapture ingest', () => {
 
     assert.equal(res.status, 204);
     assert.equal(res.headers.get('Access-Control-Allow-Origin'), '*');
+  });
+
+  it('dispatches a saved-list capture into the room meta', async () => {
+    const kv = makeKv();
+    const r2 = makeR2();
+    const { captureToken } = await generateCaptureToken(kv as never, 'roomXYZ', { type: 'saved-list' });
+
+    const res = await ingest(kv, captureToken, { url: 'https://example.com/saved', title: 'Saved One' }, r2);
+
+    assert.equal(res.status, 204);
+    const meta = JSON.parse(r2.store.get('roomXYZ/meta')!.body);
+    assert.equal(meta.savedArticles[0].url, 'https://example.com/saved');
+    assert.equal(meta.savedArticles[0].title, 'Saved One');
   });
 
   it('rejects an unknown token with 401', async () => {
