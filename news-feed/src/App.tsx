@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
 import { useFeed } from './hooks/useFeed';
-import { useSyncWorker, type SyncStatus } from './hooks/useSyncWorker';
+import { useSyncWorker } from './hooks/useSyncWorker';
 import { useMetaWorker } from './hooks/useMetaWorker';
 import { useRecWorker } from './hooks/useRecWorker';
 import { useRecHistoryReplay } from './hooks/useRecHistoryReplay';
@@ -13,7 +13,7 @@ import { useTitleCache } from './hooks/useTitleCache';
 import { useSourceNameLookup } from './hooks/useSourceNameLookup';
 import { SearchOverlay } from './components/SearchOverlay';
 import { ArticleCard } from './components/ArticleCard';
-import { syncIndicatorState, RefreshIcon, type SyncIndicatorState } from './components/AppHeader';
+import { syncIndicatorState, RefreshIcon } from './components/AppHeader';
 import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
 import { RecDiagnostics } from './components/RecDiagnostics';
