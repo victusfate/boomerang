@@ -10,6 +10,10 @@
   // workers.dev is heavily on ad/tracker filter lists; a first-party host dodges
   // most of them. `wrangler deploy` provisions the custom domain (zone must be
   // on this Cloudflare account, which boomerang-news.com is).
+  // Defining `routes` disables the *.workers.dev subdomain unless workers_dev is
+  // explicitly kept on. The deployed frontend still calls the workers.dev URL, so
+  // keep both live: api.boomerang-news.com (first-party) AND workers.dev.
+  "workers_dev": true,
   "routes": [
     { "pattern": "api.boomerang-news.com", "custom_domain": true }
   ],
