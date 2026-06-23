@@ -1,5 +1,5 @@
 import type { Env } from './env';
-import { BOOMERANG_ALLOWED_CORS_ORIGINS } from './corsOrigins';
+import { BOOMERANG_ALLOWED_CORS_ORIGINS } from './corsOrigins.ts';
 
 export function isAllowedOrigin(origin: string, env: Env): boolean {
   if (!origin) return false;

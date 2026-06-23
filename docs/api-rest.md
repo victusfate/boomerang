@@ -1,6 +1,6 @@
 # Boomerang Platform Worker — REST API
 
-_v0.1.0 · generated 2026-06-09_
+_v0.1.0 · generated 2026-06-23_
 
 <!-- Generated from `platform-worker/src/apiRoutes.ts` — do not edit by hand. -->
 
@@ -223,3 +223,41 @@ Internal model-state diagnostics (global mean, factor counts, KV counters).
 **Response:** `{ globalState, userFactorsCount, itemFactorsCount, interactionsCount, kvCounters }`
 
 > Unauthenticated. For internal/dev use only — gate behind auth before exposing publicly.
+
+## Other
+
+### **`POST`** `/api/capture/:captureToken`
+
+Ingest a captured page (from the bookmarklet) to the token's configured destination.
+
+**Auth:** Write-only capture token in the path; no bearer.
+
+**Rate limit:** 60 captures/hour per token (KV).
+
+**Request:** `text/plain` JSON body `{ url, title?, note?, source? }` (max 16 KB).
+
+**Response:** `204 No Content` (also for unknown-url dedupe drops). `ACAO: *`.
+
+> Unknown token → 401, invalid url → 400, over limit → 429. Duplicate url within 5 min is silently dropped (204).
+
+### **`POST`** `/api/capture/token`
+
+Generate or rotate the capture token for a room.
+
+**Auth:** Bearer (room token, SHA-256 verified against `{roomId}/.token`).
+
+**Request:** `{ roomId, destination }` where destination is `{ type: "saved-list" }` or `{ type: "github", owner, repo, path, branch }`.
+
+**Response:** `{ captureToken }`
+
+> Rotating deletes any prior token for the room.
+
+### **`DELETE`** `/api/capture/token`
+
+Revoke the capture token for a room.
+
+**Auth:** Bearer (room token).
+
+**Request:** `{ roomId }`
+
+**Response:** `204 No Content`

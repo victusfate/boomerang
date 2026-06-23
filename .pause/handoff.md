@@ -1,70 +1,68 @@
-# Pause handoff
+# Pause Handoff
 
-**When:** 2026-06-18  
-**Branch:** `claude/custom-news-feed-app-NcrzS` (news-feed workspace)
+**When:** 2026-06-23  
+**Branch:** `claude/capture-connector`  
+**Based on:** `origin/main` @ `3fd3f64`
 
 ---
 
 ## Goal
 
-Bring all `news-feed/src/` audit scores to 9+ across all four rubric dimensions (Quality, Readability, Encapsulation, Clarity).
+Complete the Capture Connector feature — a bookmarklet-driven browser-to-app
+article capture pipeline.
 
 ---
 
-## Active artifacts
+## Active Artifacts
 
-| Path | Status |
-|------|--------|
-| `news-feed/src/` | Audit complete; all mechanical + structural fixes applied and pushed |
-| `news-feed/package.json` | Upgraded to ricochet v2.0.0 |
-| `platform-worker/package.json` | Pinned to ricochet v1.10.0 (v2.0.0 `./worker` entry broken) |
+```
+docs/capture-connector/
+  design.md     — complete
+  prd.md        — complete
+  plan.md       — complete
+  tdd-log.md    — all 8 slices done
+```
 
----
-
-## Done this session
-
-- **Ricochet upgrade**: news-feed → v2.0.0 (client entry OK), platform-worker → v1.10.0 (worker entry broken in v2.0.0 due to missing `files` entries)
-- **`labelClassifier.ts`**: Fixed Node ESM import extension (`.ts`) — restored all 99 tests
-- **Audit pass** on `news-feed/src/`: all 65+ files scored, 16 below 9 in at least one dimension
-- **Refactor commit** (`d57a926`): 13 files fixed across all audit findings:
-  - `useSyncWorker`: hoisted types, added `COOLDOWN_TICK_MS`
-  - `useArticlePool`: replaced useEffect ref-sync with direct body assignments; renamed `apply→applyBatchToState`
-  - `App.tsx`: `SKELETON_CARD_COUNT`, `syncBusy`, `ogSentinelIndex`, inlined `formatLastRefresh`
-  - `useFeed`: removed dead reference equality check
-  - `useAiTagging`: type annotation cleanup, documented empty-dep effect
-  - `useRecHistoryReplay`: hoisted types, extracted named `runReplay` async fn
-  - `algorithm`: `FUZZY_DEDUPE_MAX` comment, extracted `interleaveBuckets`
-  - `syncShare`: guarded console.info behind `isSyncDebugEnabled()`
-  - `debugSync`: optional-chained `import.meta.env?.` for Node compatibility
-  - `storage`: `VoteWeightUpdate` type alias, shared `hashUrl` helper
-  - `RecDiagnostics`: moved constant, renamed `previewIds→topRatedIds`
-  - `SourcesSection`: moved constant, extracted `makeImportHandler`
-  - `newsService`: removed dead `partitionSourcesForSplitFetch` re-export
+No files are mid-edit. Working tree is clean and local integration/smoke tests are fully verified and 100% green.
 
 ---
 
-## Next steps
+## Done This Session
 
-1. **Re-run audit** to verify all scores are now 9+:
-   ```
-   /audit news-feed/src/
-   ```
-2. **If residual issues remain**, focus on the largest structural extractions not yet done:
-   - `useFeed.ts`: extract `handleStartupLoad` from the 130-line `Promise.all` callback (line 186)
-   - `useAiTagging.ts`: the 115-line `scheduleTaggingPass` useCallback still has a large nested IIFE body
-   - `App.tsx`: destructuring walls (`useMetaWorker` 8 names, `useRecWorker` 14 names, `useFeed` 34 names)
-3. **Platform worker**: Once ricochet v2.0.0 fixes its `files` field, upgrade platform-worker too
+- Verified local node tests (62/62 passed) and live integration/smoke tests (7/7 passed) against wrangler local server
+- Applied `darker-text` custom theme to the global settings (`~/.pi/agent/settings.json` / `themes/darker-text.json`) to fix readability issues with gray-on-cyan text
+- Ready for PR creation
 
 ---
 
-## Open questions
+## Next Steps
 
-- Does ricochet v2.0.0 have a patch yet for the `./worker` entry broken `files` field?
-- Is the `useFeed.ts` `handleStartupLoad` extraction worth the diff size (~40 lines moved)?
+**If creating a PR:**
+```
+/create-pr
+```
+
+**For production deploy (before merging):**
+1. `cd platform-worker && npx wrangler kv namespace create CAPTURE_TOKENS`
+2. Replace `"REPLACE_ME"` in `platform-worker/wrangler.jsonc` with the real namespace ID
+3. If github destination wanted: `npx wrangler secret put GITHUB_PAT`
+4. `npx wrangler deploy`
+
+**Pre-existing issues still open (not caused by this feature):**
+- `news-feed/src/App.tsx` — `SyncStatus` and `SyncIndicatorState` imported but unused
+  (both on `origin/main` before any capture work)
+- `news-feed` node tests `syncWorker` + `metaWorker` fail due to `.js` import of
+  `http-status` (pre-existing, not in capture test suite)
 
 ---
 
-## How to resume
+## Open Questions
 
-From any device: `/resume` reads this file and continues.  
-On this machine: `claude -c` reopens the full conversation history (richer than handoff).
+- None blocking merge. Production KV namespace ID is the only deploy-time gap.
+
+---
+
+## How to Resume
+
+From any device: `/resume`  
+From this machine (full history): `claude -c`

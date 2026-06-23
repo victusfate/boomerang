@@ -26,7 +26,6 @@ export function RecScoreTable({
 }: Props) {
   if (topRated.length === 0) {
     return (
-      {/* quality-ok: magic-number — CSS margin px value */}
       <p className="settings-hint" style={{ marginTop: 16 }}>
         {recStatus === 'error'
           ? 'Could not load rankings — check the worker and try refreshing the feed.'

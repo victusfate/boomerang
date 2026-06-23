@@ -1,7 +1,8 @@
 export interface Env {
   // KV
-  ARTICLE_META: KVNamespace;
-  REC_STORE:    KVNamespace;
+  ARTICLE_META:   KVNamespace;
+  REC_STORE:      KVNamespace;
+  CAPTURE_TOKENS: KVNamespace;
   // R2
   SYNC_BLOCKS:  R2Bucket;
   // Durable Objects

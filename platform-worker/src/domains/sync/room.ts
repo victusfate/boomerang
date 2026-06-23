@@ -1,4 +1,4 @@
-import { storeTokenHash } from './auth';
+import { storeTokenHash } from './auth.ts';
 
 const ROOM_ID_HEX_BYTES = 32;
 const TOKEN_BASE64_BYTES = 32;
@@ -9,7 +9,7 @@ function randomHex(bytes: number): string {
   return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function randomBase64Url(bytes: number): string {
+export function randomBase64Url(bytes: number): string {
   const arr = new Uint8Array(bytes);
   crypto.getRandomValues(arr);
   let binary = '';

@@ -18,6 +18,7 @@ import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
 import { RecDiagnostics } from './components/RecDiagnostics';
 import { suggestLabels } from './services/labelSuggester';
+import { buildMailto } from './services/buildMailto';
 import { isPromptApiAvailable } from './services/labelClassifier';
 import { sameIdsInOrder } from './services/metaSyncTrigger';
 import {
@@ -315,6 +316,16 @@ export default function App() {
               {initialQueueCount - savedArticles.length} of {initialQueueCount} read
             </span>
           )}
+          <button
+            className="btn-clear-queue"
+            onClick={() => {
+              window.location.href = buildMailto(
+                savedArticles.map(a => ({ title: getArticleTitle(a.id) || a.title, url: a.url })),
+              );
+            }}
+          >
+            Email all
+          </button>
           <button className="btn-clear-queue" onClick={onClearQueue}>
             Clear all
           </button>

@@ -5,6 +5,14 @@
   "observability": {
     "enabled": true
   },
+  // Serve the worker from a first-party subdomain so the capture bookmarklet's
+  // /save popup and the app's requests hit boomerang-news.com (not workers.dev).
+  // workers.dev is heavily on ad/tracker filter lists; a first-party host dodges
+  // most of them. `wrangler deploy` provisions the custom domain (zone must be
+  // on this Cloudflare account, which boomerang-news.com is).
+  "routes": [
+    { "pattern": "api.boomerang-news.com", "custom_domain": true }
+  ],
   "kv_namespaces": [
     {
       "binding": "ARTICLE_META",
@@ -13,6 +21,13 @@
     {
       "binding": "REC_STORE",
       "id": "fa6c6dcc675b40b4a51f46b5ac99844e"
+    },
+    {
+      // Capture tokens, reverse index, rate-limit + dedupe keys.
+      // Provisioned via `scripts/provision-capture-kv.sh` (or `wrangler kv namespace create CAPTURE_TOKENS`).
+      // `wrangler dev --local` uses in-memory KV and ignores this id.
+      "binding": "CAPTURE_TOKENS",
+      "id": "6fe3297cd67940838715c3a3bc9b905d"
     }
   ],
   "r2_buckets": [

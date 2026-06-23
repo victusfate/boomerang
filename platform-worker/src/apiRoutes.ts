@@ -188,4 +188,33 @@ export const API_ROUTES: RouteDoc[] = [
     response: '`{ globalState, userFactorsCount, itemFactorsCount, interactionsCount, kvCounters }`',
     notes: 'Unauthenticated. For internal/dev use only — gate behind auth before exposing publicly.',
   },
+
+  // ── Capture ─────────────────────────────────────────────────────────────────
+  {
+    method: 'POST',
+    path: '/api/capture/:captureToken',
+    summary: 'Ingest a captured page (from the bookmarklet) to the token\'s configured destination.',
+    auth: 'Write-only capture token in the path; no bearer.',
+    rateLimit: '60 captures/hour per token (KV).',
+    request: '`text/plain` JSON body `{ url, title?, note?, source? }` (max 16 KB).',
+    response: '`204 No Content` (also for unknown-url dedupe drops). `ACAO: *`.',
+    notes: 'Unknown token → 401, invalid url → 400, over limit → 429. Duplicate url within 5 min is silently dropped (204).',
+  },
+  {
+    method: 'POST',
+    path: '/api/capture/token',
+    summary: 'Generate or rotate the capture token for a room.',
+    auth: 'Bearer (room token, SHA-256 verified against `{roomId}/.token`).',
+    request: '`{ roomId, destination }` where destination is `{ type: "saved-list" }` or `{ type: "github", owner, repo, path, branch }`.',
+    response: '`{ captureToken }`',
+    notes: 'Rotating deletes any prior token for the room.',
+  },
+  {
+    method: 'DELETE',
+    path: '/api/capture/token',
+    summary: 'Revoke the capture token for a room.',
+    auth: 'Bearer (room token).',
+    request: '`{ roomId }`',
+    response: '`204 No Content`',
+  },
 ];
