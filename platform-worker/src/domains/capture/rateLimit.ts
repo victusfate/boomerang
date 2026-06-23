@@ -20,6 +20,7 @@ export async function checkCaptureRateLimit(kv: KVNamespace, tokenId: string): P
   }
 
   if (existing.count >= CAPTURE_RATE_LIMIT_MAX) {
+    // quality-ok: magic-number — milliseconds → seconds for the Retry-After header
     const retryAfterSeconds = Math.max(1, Math.ceil((existing.windowStart + CAPTURE_RATE_WINDOW_MS - now) / 1000));
     return { limited: true, retryAfterSeconds };
   }

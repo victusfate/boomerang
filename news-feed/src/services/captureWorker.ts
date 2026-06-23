@@ -84,5 +84,6 @@ export async function revokeCaptureTokenRequest(workerUrl: string, room: SyncRoo
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${room.token}` },
     body: JSON.stringify({ roomId: room.roomId }),
   });
+  // quality-ok: magic-number — HTTP 204 No Content (revoke succeeds with no body)
   if (!res.ok && res.status !== 204) throw new Error(`Capture token revoke failed (${res.status})`);
 }

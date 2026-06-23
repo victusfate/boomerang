@@ -83,36 +83,36 @@ async function runCapture(
   const tag = tokenId.slice(0, 8);
   const record = await resolveCaptureToken(env.CAPTURE_TOKENS, tokenId);
   if (!record) {
-    console.warn(`capture[${tag}]: rejected 401 — unknown or revoked token`);
+    console.warn(`capture[${tag}]: rejected ${HTTP_UNAUTHORIZED} — unknown or revoked token`);
     return { status: HTTP_UNAUTHORIZED };
   }
 
   const rate = await checkCaptureRateLimit(env.CAPTURE_TOKENS, tokenId);
   if (rate.limited) {
-    console.warn(`capture[${tag}]: rejected 429 — rate limited, retry after ${rate.retryAfterSeconds}s`);
+    console.warn(`capture[${tag}]: rejected ${HTTP_TOO_MANY_REQUESTS} — rate limited, retry after ${rate.retryAfterSeconds}s`);
     return { status: HTTP_TOO_MANY_REQUESTS, retryAfterSeconds: rate.retryAfterSeconds };
   }
 
   if (new TextEncoder().encode(raw).length > BODY_MAX_BYTES) {
-    console.warn(`capture[${tag}]: rejected 400 — body exceeds ${BODY_MAX_BYTES} bytes`);
+    console.warn(`capture[${tag}]: rejected ${HTTP_BAD_REQUEST} — body exceeds ${BODY_MAX_BYTES} bytes`);
     return { status: HTTP_BAD_REQUEST };
   }
 
   const capture = normalizeBody(raw);
   if (!capture) {
-    console.warn(`capture[${tag}]: rejected 400 — invalid body or non-http(s) URL`);
+    console.warn(`capture[${tag}]: rejected ${HTTP_BAD_REQUEST} — invalid body or non-http(s) URL`);
     return { status: HTTP_BAD_REQUEST };
   }
 
   if (await isDuplicate(env.CAPTURE_TOKENS, tokenId, capture.url)) {
-    console.log(`capture[${tag}]: dropped 204 — duplicate within dedupe window: ${capture.url}`);
+    console.log(`capture[${tag}]: dropped ${HTTP_NO_CONTENT} — duplicate within dedupe window: ${capture.url}`);
     return { status: HTTP_NO_CONTENT };
   }
   await markSeen(env.CAPTURE_TOKENS, tokenId, capture.url);
 
   await appendToSavedList(env.SYNC_BLOCKS, record.roomId, capture);
 
-  console.log(`capture[${tag}]: saved 204 → ${record.destinationType}: ${capture.url}`);
+  console.log(`capture[${tag}]: saved ${HTTP_NO_CONTENT} → ${record.destinationType}: ${capture.url}`);
   return { status: HTTP_NO_CONTENT };
 }
 
@@ -136,6 +136,7 @@ function savePage(outcomeStatus: number): Response {
   const html =
     '<!doctype html><html><head><meta charset="utf-8"><title>boomerang</title></head>' +
     `<body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;` +
+    // quality-ok: magic-number — CSS font shorthand (weight/size) in the popup page
     `font:600 16px system-ui,sans-serif;background:${bg};color:#fff">${message}${closeScript}</body></html>`;
   return new Response(html, { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
