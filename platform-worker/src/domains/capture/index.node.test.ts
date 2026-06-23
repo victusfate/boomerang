@@ -1,0 +1,79 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { handleCapture } from './index.ts';
+import { generateCaptureToken } from './token.ts';
+
+function makeKv(initial: Record<string, string> = {}) {
+  const store = new Map<string, string>(Object.entries(initial));
+  return {
+    store,
+    get: async (key: string, type?: string) => {
+      const raw = store.get(key);
+      if (raw === undefined) return null;
+      return type === 'json' ? JSON.parse(raw) : raw;
+    },
+    put: async (key: string, value: string) => { store.set(key, value); },
+    delete: async (key: string) => { store.delete(key); },
+  };
+}
+
+function makeCtx() {
+  return { waitUntil: (_p: Promise<unknown>) => {}, passThroughOnException: () => {} };
+}
+
+function captureRequest(token: string, body: unknown): Request {
+  return new Request(`https://w.test/api/capture/${token}`, {
+    method: 'POST',
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  });
+}
+
+async function ingest(kv: ReturnType<typeof makeKv>, token: string, body: unknown): Promise<Response> {
+  const env = { CAPTURE_TOKENS: kv } as never;
+  return handleCapture(captureRequest(token, body), env, makeCtx() as never);
+}
+
+describe('handleCapture ingest', () => {
+  it('accepts a valid capture for a known token with 204 and CORS', async () => {
+    const kv = makeKv();
+    const { captureToken } = await generateCaptureToken(kv as never, 'room1', { type: 'saved-list' });
+
+    const res = await ingest(kv, captureToken, { url: 'https://example.com/a' });
+
+    assert.equal(res.status, 204);
+    assert.equal(res.headers.get('Access-Control-Allow-Origin'), '*');
+  });
+
+  it('rejects an unknown token with 401', async () => {
+    const kv = makeKv();
+    const res = await ingest(kv, 'nope', { url: 'https://example.com/a' });
+    assert.equal(res.status, 401);
+    assert.equal(res.headers.get('Access-Control-Allow-Origin'), '*');
+  });
+
+  it('rejects an invalid url with 400', async () => {
+    const kv = makeKv();
+    const { captureToken } = await generateCaptureToken(kv as never, 'room1', { type: 'saved-list' });
+    const res = await ingest(kv, captureToken, { url: 'ftp://x/y' });
+    assert.equal(res.status, 400);
+  });
+
+  it('returns 429 once the rate limit is exceeded', async () => {
+    const kv = makeKv();
+    const { captureToken } = await generateCaptureToken(kv as never, 'room1', { type: 'saved-list' });
+    let last: Response | undefined;
+    for (let i = 0; i < 61; i++) {
+      last = await ingest(kv, captureToken, { url: `https://example.com/${i}` });
+    }
+    assert.equal(last!.status, 429);
+    assert.ok(Number(last!.headers.get('Retry-After')) > 0);
+  });
+
+  it('rejects a non-POST method with 405', async () => {
+    const kv = makeKv();
+    const { captureToken } = await generateCaptureToken(kv as never, 'room1', { type: 'saved-list' });
+    const req = new Request(`https://w.test/api/capture/${captureToken}`, { method: 'GET' });
+    const res = await handleCapture(req, { CAPTURE_TOKENS: kv } as never, makeCtx() as never);
+    assert.equal(res.status, 405);
+  });
+});

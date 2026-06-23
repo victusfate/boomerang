@@ -1,7 +1,8 @@
 export interface Env {
   // KV
-  ARTICLE_META: KVNamespace;
-  REC_STORE:    KVNamespace;
+  ARTICLE_META:   KVNamespace;
+  REC_STORE:      KVNamespace;
+  CAPTURE_TOKENS: KVNamespace;
   // R2
   SYNC_BLOCKS:  R2Bucket;
   // Durable Objects
@@ -9,4 +10,6 @@ export interface Env {
   REC_DO:  DurableObjectNamespace;
   // Optional
   EXTRA_CORS_ORIGINS?: string;
+  // Secrets
+  GITHUB_PAT?: string;
 }
