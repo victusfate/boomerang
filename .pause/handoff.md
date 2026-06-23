@@ -9,7 +9,7 @@
 ## Goal
 
 Complete the Capture Connector feature — a bookmarklet-driven browser-to-app
-article capture pipeline. All 8 TDD slices done and pushed.
+article capture pipeline.
 
 ---
 
@@ -23,19 +23,15 @@ docs/capture-connector/
   tdd-log.md    — all 8 slices done
 ```
 
-No files are mid-edit. Working tree is clean.
+No files are mid-edit. Working tree is clean and local integration/smoke tests are fully verified and 100% green.
 
 ---
 
 ## Done This Session
 
-- Slices 1–8 fully implemented (token lifecycle, ingest gate, dedupe, saved-list
-  adapter, github adapter, settings UI + worker wiring, mailto email share, smoke test)
-- All capture tests passing (platform-worker: 14 tests; news-feed: 11 tests)
-- Smoke test script verified live against `wrangler dev --local` (7/7 passed)
-- Fixed pre-existing `RecScoreTable.tsx:29` illegal JSX comment that was blocking
-  `news-feed` `tsc --noEmit`
-- All 13 commits pushed to `origin/claude/capture-connector`
+- Verified local node tests (62/62 passed) and live integration/smoke tests (7/7 passed) against wrangler local server
+- Applied `darker-text` custom theme to the global settings (`~/.pi/agent/settings.json` / `themes/darker-text.json`) to fix readability issues with gray-on-cyan text
+- Ready for PR creation
 
 ---
 
