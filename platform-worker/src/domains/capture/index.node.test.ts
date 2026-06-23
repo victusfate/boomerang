@@ -69,6 +69,19 @@ describe('handleCapture ingest', () => {
     assert.ok(Number(last!.headers.get('Retry-After')) > 0);
   });
 
+  it('silently drops a duplicate url within the window with 204', async () => {
+    const kv = makeKv();
+    const { captureToken } = await generateCaptureToken(kv as never, 'room1', { type: 'saved-list' });
+
+    const first = await ingest(kv, captureToken, { url: 'https://example.com/dup' });
+    const second = await ingest(kv, captureToken, { url: 'https://example.com/dup' });
+
+    assert.equal(first.status, 204);
+    assert.equal(second.status, 204);
+    const dedupKeys = [...kv.store.keys()].filter(k => k.startsWith('capture-dedup:'));
+    assert.equal(dedupKeys.length, 1);
+  });
+
   it('rejects a non-POST method with 405', async () => {
     const kv = makeKv();
     const { captureToken } = await generateCaptureToken(kv as never, 'room1', { type: 'saved-list' });
