@@ -18,7 +18,7 @@ import { TopicFilter } from './components/TopicFilter';
 import { Settings } from './components/Settings';
 import { RecDiagnostics } from './components/RecDiagnostics';
 import { suggestLabels } from './services/labelSuggester';
-import { buildMailto } from './services/buildMailto';
+import { EmailAllButton } from './components/EmailAllButton';
 import { isPromptApiAvailable } from './services/labelClassifier';
 import { sameIdsInOrder } from './services/metaSyncTrigger';
 import {
@@ -312,23 +312,10 @@ export default function App() {
       {view === 'saved' && savedArticles.length > 0 && (
         <div className="queue-header">
           {initialQueueCount > 0 && (
-            <span className="queue-progress">
-              {initialQueueCount - savedArticles.length} of {initialQueueCount} read
-            </span>
+            <span className="queue-progress">{initialQueueCount - savedArticles.length} of {initialQueueCount} read</span>
           )}
-          <button
-            className="btn-clear-queue"
-            onClick={() => {
-              window.location.href = buildMailto(
-                savedArticles.map(a => ({ title: getArticleTitle(a.id) || a.title, url: a.url })),
-              );
-            }}
-          >
-            Email all
-          </button>
-          <button className="btn-clear-queue" onClick={onClearQueue}>
-            Clear all
-          </button>
+          <EmailAllButton articles={savedArticles} getTitle={getArticleTitle} />
+          <button className="btn-clear-queue" onClick={onClearQueue}>Clear all</button>
         </div>
       )}
 
