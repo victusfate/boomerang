@@ -12,8 +12,15 @@ it manually breaks flow. There is no bookmarklet or one-click capture today.
 A bookmarklet that sends the current page to boomerang with a single click.
 The user drags the bookmarklet to their browser's bookmark bar once. On any
 page they want to save, they click it. The page is POSTed to boomerang, which
-routes it to a configured destination: the user's boomerang saved list, an
-email address via Resend, or a Markdown file in a GitHub repo.
+routes it to a configured destination: the user's boomerang saved list or a
+Markdown file in a GitHub repo.
+
+Email is intentionally **not** a server-side destination in v1 — it would
+require a third-party transactional-email dependency (Resend) plus a verified
+sender domain. Instead, sharing captures by email is a dependency-free,
+client-side action: the user selects one or more saved captures and clicks
+"Email", which opens their default mail client (`mailto:`) pre-filled with the
+titles and URLs. No secrets, no server, no external service.
 
 The capture token embedded in the bookmarklet is write-only and revocable. A
 leak cannot read the user's data; it can only spam captures. The user can
@@ -23,8 +30,9 @@ regenerate the token (and the bookmarklet) at any time from settings.
 
 1. As a reader, I want to click a bookmarklet on any page and have it saved
    to my boomerang reading list, so I can find it later in my feed.
-2. As a reader, I want to configure an email address as my capture destination,
-   so each saved page arrives in my inbox automatically.
+2. As a reader, I want to select one or more saved captures and click "Email"
+   to open my default mail client pre-filled with their titles and URLs, so I
+   can forward them without any server-side email setup.
 3. As a reader, I want to configure a GitHub repo and file path as my capture
    destination, so captures are appended as Markdown checklist entries.
 4. As a reader, I want to drag a generated bookmarklet snippet to my bookmark
@@ -50,7 +58,6 @@ All server-side capture logic lives here. Structure:
 - `dedupe.ts` — KV TTL key for 5-minute URL dedup
 - `normalize.ts` — parse + validate raw POST body into `CaptureRecord`
 - `adapter/savedList.ts` — R2 meta read → append → conditional write
-- `adapter/email.ts` — Resend REST API dispatch
 - `adapter/github.ts` — GitHub Contents API read → append → commit
 
 `handleCapture` is registered in `platform-worker/src/index.ts` for paths
@@ -68,7 +75,6 @@ matching `/api/capture/*`.
 
 ```
 CAPTURE_TOKENS: KVNamespace   // new wrangler binding
-RESEND_API_KEY: string        // Worker secret
 GITHUB_PAT: string            // Worker secret (fine-grained, contents:write)
 ```
 
@@ -92,7 +98,6 @@ All three key prefixes share the `CAPTURE_TOKENS` KV namespace.
 ```typescript
 type CaptureTokenRecord =
   | { roomId: string; destinationType: 'saved-list' }
-  | { roomId: string; destinationType: 'email';  destinationConfig: { toAddress: string } }
   | { roomId: string; destinationType: 'github'; destinationConfig: {
         owner: string; repo: string; path: string; branch: string;
       }};
@@ -120,7 +125,7 @@ interface CaptureRecord {
 5. KV dedupe check (`capture-dedup` key) → 204 silent drop if present
 6. Write dedupe key (300 s TTL) and increment rate-limit counter
 7. For `saved-list`: dispatch synchronously (R2 read → append → conditional write)
-8. For `email` / `github`: dispatch via `ctx.waitUntil` (async, best-effort)
+8. For `github`: dispatch via `ctx.waitUntil` (async, best-effort)
 9. Respond `204 No Content` with `Access-Control-Allow-Origin: *`
 
 ### saved-list adapter
@@ -146,19 +151,19 @@ The adapter reads `{roomId}/meta` from `SYNC_BLOCKS` R2, parses
 (re-fetch + re-append). If the second attempt also conflicts, the capture
 is logged and dropped (best-effort; no infinite retry).
 
-### email adapter
+### client-side email share (replaces the server email adapter)
 
-POSTs to `https://api.resend.com/emails`:
+No server adapter. A "Email" action in the saved/captures UI builds a `mailto:`
+URL from the selected captures and calls `window.location.href = mailtoUrl`,
+which opens the user's default mail client. Pure function `buildMailto`:
 
+```typescript
+buildMailto(captures: { title: string; url: string }[]): string
+// → "mailto:?subject=...&body=..."  (subject + URL-encoded body, one per line)
 ```
-From:    captures@<BOOMERANG_SEND_DOMAIN>   (configurable env var)
-To:      destinationConfig.toAddress
-Subject: [capture] <title or url>
-Text:    URL: ...\nTitle: ...\nNote: ...\nSaved: ...\nSource: ...
-```
 
-`BOOMERANG_SEND_DOMAIN` is a new env var (e.g. `boomerang-news.com`). Resend
-requires the sender domain to be verified.
+Multiple captures are batched into a single message body. No token, no network,
+no secret. Lives in `news-feed` only.
 
 ### github adapter
 
@@ -209,7 +214,6 @@ onRevokeCaptureToken: () => Promise<void>;
 ```typescript
 type CaptureDestination =
   | { type: 'saved-list' }
-  | { type: 'email';  toAddress: string }
   | { type: 'github'; owner: string; repo: string; path: string; branch: string };
 ```
 
@@ -251,9 +255,9 @@ because `sendBeacon` with `Blob(text/plain)` is a CORS simple request.
    revoke deletes both forward and reverse index keys
 5. `adapter/savedList.ts` — appends article + prefs.savedId, retries on 412,
    drops after second conflict
-6. `adapter/email.ts` — constructs correct Resend payload, sends to correct
-   address
-7. `adapter/github.ts` — constructs correct entry, retries on SHA conflict
+6. `adapter/github.ts` — constructs correct entry, retries on SHA conflict
+7. `buildMailto.ts` (news-feed) — single capture, multiple captures, URL-encoding
+   of titles/URLs with special characters
 
 **Integration / smoke tests** (`scripts/capture-smoke-test.mjs`):
 - POST a capture to a running local worker → expect 204
@@ -274,13 +278,14 @@ Run with: `node scripts/capture-smoke-test.mjs`
 - Per-POST destination override (destination is always user-config only)
 - Read-back of user data via capture token
 - Multi-tenant GitHub App auth (PAT only in v1)
-- Retry queue for failed email/github deliveries
+- Server-side email delivery (Resend / any transactional-email provider).
+  Replaced by the dependency-free client-side `mailto:` share.
+- Retry queue for failed github deliveries
 - Capture history / inbox view in the UI
 - Any downstream consumer logic
 
 ## Further Notes
 
-- `BOOMERANG_SEND_DOMAIN` must be verified with Resend before email captures work.
 - GitHub fine-grained PAT must have `contents:write` on the target repo.
 - The reverse index (`capture-room:{roomId}`) must be kept in sync with the
   forward key. If they drift (e.g. a partial write failure), the next rotation
