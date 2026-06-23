@@ -4,6 +4,7 @@ import { handleRss } from './domains/rss/index';
 import { handleSync } from './domains/sync/index';
 import { handleMeta, scheduledMeta } from './domains/meta/index';
 import { handleRec, scheduledRec } from './domains/rec/index';
+import { handleCapture } from './domains/capture/index';
 import { HTTP_OK, HTTP_INTERNAL_SERVER_ERROR } from './lib/http-status.js';
 
 export { MetaDO } from './domains/meta/MetaDO';
@@ -40,6 +41,11 @@ export default {
     // ── Sync domain ───────────────────────────────────────────────────────────
     if (path.startsWith('/sync/') || path === '/sync') {
       return handleSync(request, env, ctx);
+    }
+
+    // ── Capture domain ────────────────────────────────────────────────────────
+    if (path.startsWith('/api/capture/')) {
+      return handleCapture(request, env, ctx);
     }
 
     // ── Meta domain ───────────────────────────────────────────────────────────

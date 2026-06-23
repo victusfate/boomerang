@@ -46,3 +46,13 @@
   news-feed `SyncPayloadV1`. Fresh payload is minimal (merged client-side as
   `Partial<UserPrefs>`). Adapter preserves unknown payload fields via in-place
   mutate + re-stringify. saved-list dispatched synchronously before the 204.
+
+## Slice 5 — github adapter
+- Status: done
+- Tests: 3 adapter + 1 ingest dispatch.
+- Behaviors: GET contents on branch → decode → append checklist entry → PUT with
+  sha/branch/message; create with no sha on 404; retry once on 409 then succeed.
+  Ingest dispatches github via `ctx.waitUntil` (async, best-effort).
+- Notes: `fetch` injected into the adapter for testability; ingest passes the
+  global `fetch`. Entry format `- [ ] {title} — {url}  <!-- note: {note} | ts:
+  {ts} -->`. Dispatch is gated on `env.GITHUB_PAT` being present.

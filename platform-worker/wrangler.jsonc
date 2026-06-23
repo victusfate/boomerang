@@ -13,6 +13,13 @@
     {
       "binding": "REC_STORE",
       "id": "fa6c6dcc675b40b4a51f46b5ac99844e"
+    },
+    {
+      // Capture tokens, reverse index, rate-limit + dedupe keys.
+      // Replace REPLACE_ME with the id from `wrangler kv namespace create CAPTURE_TOKENS`.
+      // `wrangler dev --local` uses in-memory KV and ignores this id.
+      "binding": "CAPTURE_TOKENS",
+      "id": "REPLACE_ME"
     }
   ],
   "r2_buckets": [
