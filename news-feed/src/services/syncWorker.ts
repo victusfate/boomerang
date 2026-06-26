@@ -1,7 +1,7 @@
 import type { Article, ArticleTag, LabelHit, UserPrefs } from '../types.ts';
 import { parseRetryAfterMs } from './retryAfter.ts';
 import { mergePrefs, mergeArticleTags, mergeLabelHits, dehydrate, hydrate, type SyncPayloadV1 } from './syncShare.ts';
-import { HTTP_NOT_FOUND, HTTP_PRECONDITION_FAILED, HTTP_UNAUTHORIZED, HTTP_TOO_MANY_REQUESTS } from '../lib/http-status.js';
+import { HTTP_NOT_FOUND, HTTP_PRECONDITION_FAILED, HTTP_UNAUTHORIZED, HTTP_TOO_MANY_REQUESTS } from '../lib/http-status.ts';
 
 const MS_PER_SECOND = 1000;
 

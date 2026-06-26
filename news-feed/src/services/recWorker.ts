@@ -29,7 +29,7 @@ import {
 export type { RecArticleMeta, RecArticlesLookupTiming, RecArticlesResponse } from './recArticlesLookup';
 export { normalizeRecArticleMeta, parseRecArticlesResponse } from './recArticlesLookup';
 
-import { HTTP_NOT_MODIFIED } from '../lib/http-status.js';
+import { HTTP_NOT_MODIFIED } from '../lib/http-status.ts';
 
 const MS_PER_SECOND = 1000;
 const DEFAULT_REC_LIMIT = 50;
