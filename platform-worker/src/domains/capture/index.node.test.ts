@@ -198,7 +198,7 @@ describe('handleCapture ingest', () => {
 });
 
 describe('handleCapture save (popup navigation)', () => {
-  it('saves a captured page via GET and returns an auto-closing HTML page', async () => {
+  it('saves a captured page via GET and returns a confirmation HTML page', async () => {
     const kv = makeKv();
     const r2 = makeR2();
     const { captureToken } = await generateCaptureToken(kv as never, 'roomNav', { type: 'saved-list' });
@@ -209,7 +209,9 @@ describe('handleCapture save (popup navigation)', () => {
     assert.match(res.headers.get('Content-Type') ?? '', /text\/html/);
     const html = await res.text();
     assert.match(html, /Saved/);
-    assert.match(html, /window\.close/);
+    assert.match(html, /history\.back/);
+    assert.match(html, /Nav Page/);
+    assert.match(html, /example\.com/);
     const meta = JSON.parse(r2.store.get('roomNav/meta')!.body);
     assert.equal(meta.savedArticles[0].url, 'https://example.com/nav');
     assert.equal(meta.savedArticles[0].title, 'Nav Page');
