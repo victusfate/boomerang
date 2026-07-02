@@ -73,7 +73,7 @@ async function handleTokenManagement(request: Request, env: Env): Promise<Respon
  * The shared capture pipeline: resolve token → rate-limit → size-guard →
  * normalize → dedupe → dispatch. Returns a bare status (plus retry hint) so each
  * entry point can shape its own response — `captureResponse` for the JSON/204
- * `POST` path, an HTML page for the `GET /save` popup path.
+ * `POST` path, an HTML page for the `GET /save` navigation path.
  */
 async function runCapture(
   env: Env,
