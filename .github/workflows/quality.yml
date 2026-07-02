@@ -15,6 +15,33 @@ jobs:
           mapfile -t FILES < <(git ls-files | grep -E '\.(js|mjs|ts|tsx|sh|py|rb|go)$' || true)
           [ ${#FILES[@]} -gt 0 ] && bash scripts/check-quality-mechanical.sh "${FILES[@]}"
 
+  tests:
+    name: Unit & integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: news-feed — install
+        working-directory: news-feed
+        run: npm ci
+      - name: news-feed — unit tests
+        working-directory: news-feed
+        run: npm test
+      - name: news-feed — install Chromium for Playwright
+        working-directory: news-feed
+        run: npx playwright install --with-deps chromium
+      - name: news-feed — bookmarklet integration test
+        working-directory: news-feed
+        run: npm run test:e2e
+      - name: platform-worker — install
+        working-directory: platform-worker
+        run: npm ci
+      - name: platform-worker — unit tests
+        working-directory: platform-worker
+        run: npm test
+
   shellcheck:
     name: Shellcheck (dogfood)
     runs-on: ubuntu-latest
