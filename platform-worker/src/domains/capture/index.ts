@@ -21,6 +21,7 @@ const INGEST_RE = /^\/api\/capture\/([^/]+)$/;
 const SAVE_RE = /^\/save\/([^/]+)$/;
 const BODY_MAX_BYTES = 16 * 1024;
 const SAVE_NOTE_MAX = 500;
+const SAVE_TITLE_MAX = 120;
 
 function captureResponse(status: number, retryAfterSeconds?: number): Response {
   const headers = new Headers({ 'Access-Control-Allow-Origin': '*' });
@@ -146,7 +147,7 @@ function savePage(outcomeStatus: number, pageUrl: string, pageTitle: string): Re
   const stateClass = ok ? 'ok' : 'err';
 
   const titleHtml = pageTitle
-    ? `<div class="mt">${escapeHtml(pageTitle.slice(0, 120))}</div>`
+    ? `<div class="mt">${escapeHtml(pageTitle.slice(0, SAVE_TITLE_MAX))}</div>`
     : '';
   const domain = safeDomain(pageUrl);
   const domainHtml = domain ? `<div class="md">${escapeHtml(domain)}</div>` : '';
