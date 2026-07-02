@@ -1,7 +1,7 @@
 {
   "name": "boomerang",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Monorepo root — run scripts in news-feed/ or use npm run dev below",
   "scripts": {
     "dev": "npm run dev --prefix news-feed",
