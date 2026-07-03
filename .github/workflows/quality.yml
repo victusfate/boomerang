@@ -15,6 +15,51 @@ jobs:
           mapfile -t FILES < <(git ls-files | grep -E '\.(js|mjs|ts|tsx|sh|py|rb|go)$' || true)
           [ ${#FILES[@]} -gt 0 ] && bash scripts/check-quality-mechanical.sh "${FILES[@]}"
 
+  tests:
+    name: Unit & integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            news-feed/package-lock.json
+            platform-worker/package-lock.json
+      - name: news-feed — install
+        working-directory: news-feed
+        run: npm ci --prefer-offline --no-audit --no-fund
+      - name: news-feed — unit tests
+        working-directory: news-feed
+        run: npm test
+      # Cache the downloaded Chromium build; key on the lockfile so a Playwright
+      # bump busts it. On a hit we still refresh apt system libs (not cacheable)
+      # but skip the ~40 MB browser download.
+      - name: Cache Playwright browser
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('news-feed/package-lock.json') }}
+      - name: news-feed — install Chromium for Playwright
+        working-directory: news-feed
+        run: |
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install-deps chromium
+          else
+            npx playwright install --with-deps chromium
+          fi
+      - name: news-feed — bookmarklet integration test
+        working-directory: news-feed
+        run: npm run test:e2e
+      - name: platform-worker — install
+        working-directory: platform-worker
+        run: npm ci --prefer-offline --no-audit --no-fund
+      - name: platform-worker — unit tests
+        working-directory: platform-worker
+        run: npm test
+
   shellcheck:
     name: Shellcheck (dogfood)
     runs-on: ubuntu-latest

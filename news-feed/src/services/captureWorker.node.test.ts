@@ -32,11 +32,11 @@ describe('buildSaveUrl', () => {
 });
 
 describe('buildBookmarklet', () => {
-  test('produces a javascript: snippet opening the save popup', () => {
+  test('produces a javascript: snippet that navigates to the save page', () => {
     const code = buildBookmarklet(WORKER, TOKEN);
     assert.ok(code.startsWith('javascript:'));
     assert.ok(code.includes(`${WORKER}/save/${TOKEN}`));
-    assert.ok(code.includes('window.open'));
+    assert.ok(!code.includes('window.open'), 'must not use window.open — blocked on mobile');
   });
 
   test('captures location, title and selection and sends them', () => {

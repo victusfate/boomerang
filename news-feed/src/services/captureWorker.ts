@@ -45,12 +45,12 @@ export function buildSaveUrl(workerUrl: string, captureToken: string): string {
 }
 
 /**
- * A bookmarklet the user drags to their bookmark bar. On click it opens the
- * worker's `/save` page in a small popup — a user-initiated top-level navigation,
- * which ad blockers and Brave Shields allow through, unlike a background
- * `fetch`/`sendBeacon` that they classify as a tracker beacon and block. The
- * popup saves the page server-side, flashes a confirmation, and closes itself.
- * The selection is capped so the page data fits within browser URL length limits.
+ * A bookmarklet the user drags to their bookmark bar. On click it navigates
+ * to the worker's `/save` page — a user-initiated top-level navigation that
+ * works on both desktop and mobile (window.open popup is blocked by iOS Safari
+ * and Android Chrome when triggered from a bookmarklet). The save page shows a
+ * confirmation and returns the user via history.back(). The selection is capped
+ * so the page data fits within browser URL length limits.
  */
 export function buildBookmarklet(workerUrl: string, captureToken: string): string {
   if (!captureToken) return '';
@@ -58,7 +58,7 @@ export function buildBookmarklet(workerUrl: string, captureToken: string): strin
   const body = [
     "var s=window.getSelection?String(window.getSelection()).slice(0,500):'';",
     `var u='${saveUrl}?u='+encodeURIComponent(location.href)+'&ti='+encodeURIComponent(document.title)+'&n='+encodeURIComponent(s);`,
-    "window.open(u,'boomerang','width=420,height=220');",
+    "location.href=u;",
   ].join('');
   return `javascript:(function(){${body}})();`;
 }

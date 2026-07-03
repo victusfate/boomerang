@@ -1,5 +1,5 @@
 import { parseRetryAfterMs } from './retryAfter.ts';
-import { HTTP_TOO_MANY_REQUESTS } from '../lib/http-status.js';
+import { HTTP_TOO_MANY_REQUESTS } from '../lib/http-status.ts';
 
 export interface ArticleMetaEntry {
   articleId: string;
