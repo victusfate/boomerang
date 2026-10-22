@@ -45,6 +45,7 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('news-feed/package-lock.json') }}
       - name: news-feed — install Chromium for Playwright
         working-directory: news-feed
+        timeout-minutes: 10
         run: |
           if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
             npx playwright install-deps chromium
