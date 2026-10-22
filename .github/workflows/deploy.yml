@@ -23,7 +23,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '22.23.4'
+          node-version: '26.12.1'
 
       - name: Build news feed (or redirect to canonical domain)
         working-directory: news-feed
@@ -78,7 +78,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '22.23.4'
+          node-version: '26.12.1'
 
       - name: Deploy platform worker
         working-directory: platform-worker
