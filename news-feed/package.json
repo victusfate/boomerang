@@ -27,16 +27,16 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "cross-env": "^7.0.3",
-    "playwright": "^1.56.1",
-    "sharp": "^0.33.5",
+    "playwright": "^1.64.1",
+    "sharp": "^0.35.5",
     "typedoc": "^0.28.19",
     "typescript": "^5.6.3",
-    "vite": "8.0.8",
+    "vite": "8.3.5",
     "vite-plugin-pwa": "^1.2.0",
     "workbox-window": "^7.4.0"
   },
   "overrides": {
-    "vite": "8.0.8",
+    "vite": "8.3.5",
     "magic-string": "0.30.21",
     "serialize-javascript": "7.0.5",
     "dompurify": "^3.4.1",
@@ -48,7 +48,7 @@
   },
   "allowScripts": {
     "fsevents@2.3.3": true,
-    "sharp@0.33.5": true,
+    "sharp@0.35.5": true,
     "github:victusfate/ricochet#c872b84eec251d9ba0f0bb2322a57e01096fe7e8": true
   }
 }
